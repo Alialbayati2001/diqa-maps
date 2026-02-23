@@ -1,17 +1,11 @@
 {
   "name": "diqa-maps",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "npx serve -s . -l $PORT"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "@capacitor/cli": "^8.0.2",
-    "@capacitor/core": "^8.0.2"
+    "serve": "^14.2.0"
   }
 }
