@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <title>نظام تتبع المندوبين - شركة الدقّة</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,sans-serif;background:#020617;color:#e5e7eb}
+    .app{max-width:1200px;margin:0 auto;padding:16px}
+    h1,h2,h3,h4{margin-top:0}
+    .card{background:#0b1120;border-radius:16px;padding:16px;border:1px solid #1f2937;box-shadow:0 18px 40px rgba(0,0,0,.35)}
+    .row{display:flex;flex-wrap:wrap;gap:16px}
+    .col{flex:1;min-width:260px}
+    label{display:block;margin-bottom:4px;font-size:13px;color:#9ca3af}
+    input,select,button,textarea{font-family:inherit}
+    input,select,textarea{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #374151;background:#020617;color:#e5e7eb;margin-bottom:8px}
+    input:focus,select:focus,textarea:focus{outline:none;border-color:#22c55e}
+    button{border-radius:999px;padding:8px 14px;border:none;cursor:pointer;background:#22c55e;color:#020617;font-weight:700;font-size:14px;margin-left:6px;margin-bottom:6px}
+    button.secondary{background:#111827;color:#e5e7eb;border:1px solid #374151}
+    button.danger{background:#ef4444;color:#fee2e2}
+    .badge{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:11px;border:1px solid #1f2937;background:#020617;color:#9ca3af;gap:6px}
+    .hidden{display:none!important}
+    #map{width:100%;height:520px;border-radius:16px;overflow:hidden;margin-top:10px}
+    .list{max-height:260px;overflow-y:auto;border-radius:12px;border:1px solid #1f2937;padding:8px;background:#020617;font-size:13px}
+    .list-item{padding:8px;border-radius:12px;border-bottom:1px solid #111827;display:flex;justify-content:space-between;align-items:center;gap:10px}
+    .list-item:last-child{border-bottom:none}
+    .list-item strong{font-size:14px}
+    .small{font-size:11px;color:#9ca3af}
+    .status-dot{width:8px;height:8px;border-radius:999px;display:inline-block;margin-left:6px}
+    .online{background:#22c55e}
+    .offline{background:#6b7280}
+    .inline-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}
+    .cb{transform:scale(1.1); margin-left:8px}
+    @media(max-width:768px){#map{height:420px}}
+
+    /* حل عرض option داخل select */
+    select option{background:#020617;color:#e5e7eb}
+    select option:checked{background:#22c55e;color:#020617}
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <!-- LOGIN -->
+    <div class="card" id="login-card">
+      <h1>نظام تتبع المندوبين - شركة الدقّة</h1>
+      <p class="small">اختر نوع الدخول:</p>
+
+      <p id="app-status" class="small" style="color:#fca5a5;"></p>
+
+      <div class="row">
+        <div class="col">
+          <h3>دخول المدير</h3>
+          <span class="badge">لوحة مراقبة المندوبين + الزبائن</span>
+          <br /><br />
+          <label for="manager-password">كلمة المرور</label>
+          <input id="manager-password" type="password" placeholder="أدخل كلمة مرور المدير" />
+          <button id="manager-login-btn">دخول كمدير</button>
+          <p id="manager-login-error" class="small" style="color:#fca5a5;"></p>
+        </div>
+
+        <div class="col">
+          <h3>دخول المندوب</h3>
+          <span class="badge">مشاركة الموقع (إجباري تلقائي)</span>
+          <br /><br />
+          <label for="driver-select">اختر اسمك من القائمة</label>
+          <select id="driver-select">
+            <option value="">-- اختر مندوب --</option>
+          </select>
+
+          <label for="driver-pin">PIN (4 أرقام)</label>
+          <!-- ✅ فقط ضبطنا 4 أرقام -->
+          <input id="driver-pin" type="password" inputmode="numeric" maxlength="4" placeholder="مثال: 1234" />
+
+          <button id="driver-login-btn">دخول كمندوب</button>
+          <p id="driver-login-error" class="small" style="color:#fca5a5;"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- MANAGER -->
+    <div class="card hidden" id="manager-card">
+      <div class="row" style="align-items:center; margin-bottom:10px;">
+        <div class="col">
+          <h2>لوحة المدير</h2>
+          <span class="badge">خريطة + إدارة المندوبين + الزبائن</span>
+
+          <!-- تنبيه نصي داخل الصفحة -->
+          <p id="manager-alert" class="small" style="color:#fca5a5; margin:8px 0 0;"></p>
+
+          <div class="inline-actions">
+            <label class="badge" style="cursor:pointer;">
+              <input type="checkbox" id="beep-toggle" class="cb" checked>
+              تنبيه صوتي
+            </label>
+          </div>
+        </div>
+        <div class="col" style="text-align:left;">
+          <button class="secondary" id="logout-manager">تسجيل الخروج</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <h3>الخريطة</h3>
+          <div id="map"></div>
+        </div>
+
+        <div class="col">
+          <h3>إدارة المندوبين</h3>
+          <label for="new-driver-name">اسم المندوب الجديد</label>
+          <input id="new-driver-name" type="text" placeholder="مثال: حسين أحمد" />
+
+          <label for="new-driver-pin">PIN للمندوب (4 أرقام)</label>
+          <!-- ✅ فقط ضبطنا 4 أرقام -->
+          <input id="new-driver-pin" type="password" inputmode="numeric" maxlength="4" placeholder="مثال: 1999" />
+
+          <button id="add-driver-btn">إضافة مندوب</button>
+          <p class="small" id="driver-add-msg"></p>
+          <div class="list" id="drivers-list"></div>
+
+          <hr style="border-color:#111827;margin:10px 0;" />
+
+          <h3>إضافة زبون</h3>
+          <p class="small">أدخل الإحداثيات من Google Maps (ضغط مطوّل على الموقع ونسخ الأرقام).</p>
+          <label for="client-name">اسم الزبون</label>
+          <input id="client-name" type="text" placeholder="مثال: مركز الدقّة - السيدية" />
+          <label for="client-lat">Latitude</label>
+          <input id="client-lat" type="text" placeholder="33.3152" />
+          <label for="client-lng">Longitude</label>
+          <input id="client-lng" type="text" placeholder="44.3661" />
+          <button id="add-client-btn">إضافة زبون</button>
+          <p class="small" id="client-add-msg"></p>
+
+          <h4>قائمة الزبائن</h4>
+          <label for="client-search-manager">بحث باسم الزبون</label>
+          <input id="client-search-manager" type="text" placeholder="اكتب اسم الزبون..." />
+
+          <div class="list" id="clients-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DRIVER -->
+    <div class="card hidden" id="driver-card">
+      <div class="row" style="align-items:center; margin-bottom:10px;">
+        <div class="col">
+          <h2>لوحة المندوب</h2>
+          <p class="small">مشاركة الموقع تعمل تلقائيًا (إجباري).</p>
+        </div>
+        <div class="col" style="text-align:left;">
+          <button class="secondary" id="logout-driver">تسجيل الخروج</button>
+        </div>
+      </div>
+
+      <p>المندوب: <strong id="current-driver-name"></strong></p>
+      <p class="small" id="tracking-status"></p>
+
+      <hr style="border-color:#111827;margin:10px 0;" />
+
+      <h3>الزبائن</h3>
+      <label for="client-search-driver">بحث باسم الزبون</label>
+      <input id="client-search-driver" type="text" placeholder="اكتب اسم الزبون..." />
+      <div class="list" id="driver-clients-list"></div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin="">
+  </script>
+
+  <!-- Firebase v8 -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+  <script>
+    // =========================
+    // ✅ Traccar (UPDATED CONFIG)
+    // =========================
+    // 1) خله true حتى تعتمد على Traccar للمواقع
+    const USE_TRACCAR = true;
+
+    // ✅ (جديد) رابط سيرفر Traccar على Railway (HTTP Domain)
+    // مثال: "https://zippy-prosperity-production-f280.up.railway.app"
+    const TRACCAR_BASE_URL = "PUT_YOUR_TRACCAR_HTTP_DOMAIN_HERE";
+
+    // ✅ (جديد) بيانات دخول الادمن (أو يوزر API)
+    // مهم: هذا الكود داخل المتصفح، فإذا ما تحب تكتب الباسورد هنا نبدّلها لاحقاً Proxy.
+    const TRACCAR_EMAIL = "PUT_EMAIL_HERE";
+    const TRACCAR_PASSWORD = "PUT_PASSWORD_HERE";
+
+    // 2) خيار Proxy القديم (خليناه موجود بدون حذف)
+    // إذا تحط Proxy خارجي يرجّع نفس JSON اللي كنت كاتبه، الموقع يشتغل أيضاً.
+    // إذا خليته فارغ، راح يشتغل Direct من Traccar API.
+    const TRACCAR_PROXY_URL = ""; // اتركه فارغ حتى نستخدم Direct API
+
+    // 3) سرعة التحديث
+    const TRACCAR_POLL_MS = 4000;
+
+    let traccarPollTimer = null;
+    let lastTraccarOkAt = 0;
+
+    // ✅ (جديد) حالة session حتى ما نكرر login
+    let traccarSessionOk = false;
+    let traccarLastLoginAt = 0;
+
+    // ✅ (جديد) helper: يبني رابط API
+    function traccarApi(path) {
+      const base = String(TRACCAR_BASE_URL || "").replace(/\/+$/, "");
+      return base + path;
+    }
+
+    // ✅ (جديد) تسجيل الدخول Session (Cookie)
+    async function traccarLoginIfNeeded() {
+      if (!USE_TRACCAR) return false;
+
+      const baseOk = TRACCAR_BASE_URL && !TRACCAR_BASE_URL.includes("PUT_YOUR_TRACCAR_HTTP_DOMAIN_HERE");
+      const credOk = TRACCAR_EMAIL && !TRACCAR_EMAIL.includes("PUT_") && TRACCAR_PASSWORD && !TRACCAR_PASSWORD.includes("PUT_");
+
+      if (!baseOk || !credOk) {
+        if (managerAlert && !managerAlert.textContent) {
+          managerAlert.textContent = "⚠️ TRACCAR_BASE_URL / TRACCAR_EMAIL / TRACCAR_PASSWORD غير مضبوطة.";
+        }
+        return false;
+      }
+
+      // إذا سجلنا دخول خلال آخر 10 دقائق، ما نعيد
+      const now = Date.now();
+      if (traccarSessionOk && (now - traccarLastLoginAt < 10 * 60 * 1000)) return true;
+
+      try {
+        const body = new URLSearchParams();
+        body.set("email", TRACCAR_EMAIL);
+        body.set("password", TRACCAR_PASSWORD);
+
+        const r = await fetch(traccarApi("/api/session"), {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString(),
+          credentials: "include",
+          cache: "no-store"
+        });
+
+        if (!r.ok) throw new Error("Login failed: " + r.status);
+
+        traccarSessionOk = true;
+        traccarLastLoginAt = now;
+        return true;
+      } catch (e) {
+        console.error("Traccar login error:", e);
+
+        // ⚠️ غالباً CORS إذا طلع TypeError: Failed to fetch
+        if (managerAlert) {
+          managerAlert.textContent =
+            "⚠️ فشل تسجيل دخول Traccar من المتصفح. إذا المشكلة CORS نحتاج Proxy بسيط (أخبرني ونسويه).";
+        }
+        traccarSessionOk = false;
+        return false;
+      }
+    }
+
+    // ✅ (جديد) جلب devices + positions من Traccar مباشرة
+    async function fetchTraccarPositionsDirect() {
+      const ok = await traccarLoginIfNeeded();
+      if (!ok) return null;
+
+      const [devR, posR] = await Promise.all([
+        fetch(traccarApi("/api/devices"), { credentials: "include", cache: "no-store" }),
+        fetch(traccarApi("/api/positions"), { credentials: "include", cache: "no-store" })
+      ]);
+
+      if (!devR.ok) throw new Error("devices failed: " + devR.status);
+      if (!posR.ok) throw new Error("positions failed: " + posR.status);
+
+      const devices = await devR.json();   // [{id,name,uniqueId,lastUpdate,...}]
+      const positions = await posR.json(); // [{id,deviceId,latitude,longitude,accuracy,deviceTime,serverTime,...}]
+
+      const devById = {};
+      (devices || []).forEach(d => { if (d && d.id != null) devById[String(d.id)] = d; });
+
+      // ✅ نرجع بنفس الشكل القديم ok/data حتى ما نكسر أي جزء
+      const data = (positions || []).map(p => {
+        const dev = devById[String(p.deviceId)] || {};
+        const t = p.deviceTime || p.fixTime || p.serverTime || p.updatedAt || null;
+
+        return {
+          deviceId: String(p.deviceId),
+          name: dev.name || String(p.deviceId),
+          lat: Number(p.latitude),
+          lng: Number(p.longitude),
+          accuracy: (p.accuracy != null ? Number(p.accuracy) : null),
+          time: (t ? new Date(t).getTime() : Date.now())
+        };
+      }).filter(x => !Number.isNaN(x.lat) && !Number.isNaN(x.lng));
+
+      return { ok: true, data };
+    }
+
+    // ✅ (تعديل) نفس دالتك لكن الآن تدعم:
+    // 1) Proxy URL إذا موجود
+    // 2) Direct API إذا proxy فاضي
+    async function fetchTraccarPositions() {
+      if (!USE_TRACCAR) return;
+
+      try {
+        let j = null;
+
+        // (A) إذا عندك Proxy خارجي
+        if (TRACCAR_PROXY_URL && !TRACCAR_PROXY_URL.includes("PUT_YOUR_PROXY_URL_HERE")) {
+          const r = await fetch(TRACCAR_PROXY_URL, { cache: "no-store" });
+          j = await r.json();
+        } else {
+          // (B) Direct من Traccar API
+          j = await fetchTraccarPositionsDirect();
+        }
+
+        if (!j || j.ok !== true || !Array.isArray(j.data)) {
+          throw new Error("Bad response from Traccar source");
+        }
+
+        lastTraccarOkAt = Date.now();
+
+        // ✅ نحول بيانات Traccar إلى نفس شكل driversLocationsCache حتى باقي الكود يشتغل بدون تغيير كبير
+        // driversLocationsCache[id] = { lat,lng,accuracy,active,updatedAt,name,gpsOk }
+        //
+        // ✅ (مهم) ربط Traccar device بالمندوبين في Firebase:
+        // - إذا slugify(device.name) == driverId  => نستخدم driverId كمفتاح
+        // - أو إذا meta.name == device.name (تطابق مباشر)
+        // - غير هذا نخليه على deviceId (حتى على الأقل يبين باللوحة)
+        const next = {};
+        j.data.forEach((p) => {
+          const devId = String(p.deviceId ?? p.id ?? "");
+          if (!devId) return;
+
+          const lat = Number(p.lat);
+          const lng = Number(p.lng);
+          if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+
+          const when = p.time ? Number(p.time) : Date.now();
+          const acc = (p.accuracy != null) ? Number(p.accuracy) : null;
+
+          // active: إذا التحديث خلال دقيقتين يعتبر متصل
+          const isActive = (Date.now() - when) <= (2 * 60 * 1000);
+
+          const devName = (p.name || devId);
+
+          // ✅ محاولة ربطه بمندوب Firebase
+          let key = devId;
+
+          // 1) slugify الاسم
+          const slug = slugify(devName);
+          if (slug && driversMetaCache && driversMetaCache[slug]) {
+            key = slug;
+          } else {
+            // 2) تطابق الاسم مباشرة مع meta.name
+            const found = Object.entries(driversMetaCache || {}).find(([id, meta]) => {
+              return meta && meta.name && String(meta.name).trim() === String(devName).trim();
+            });
+            if (found && found[0]) key = found[0];
+          }
+
+          next[key] = {
+            name: devName,
+            lat,
+            lng,
+            accuracy: acc,
+            gpsOk: true,
+            gpsError: null,
+            active: isActive,
+            updatedAt: when
+          };
+        });
+
+        driversLocationsCache = next;
+
+        // تحديث واجهة المدير (قائمة + خريطة + تنبيه)
+        renderDriversList();
+        updateDriverMarkers();
+        updateManagerAlertAndNotify();
+
+      } catch (e) {
+        console.error("Traccar fetch error:", e);
+        // لا نقطع كل شيء، فقط ننبه المدير بشكل لطيف
+        if (managerAlert) {
+          managerAlert.textContent =
+            managerAlert.textContent ||
+            "⚠️ تعذر جلب مواقع Traccar الآن. إذا ظهرت مشكلة CORS نحتاج Proxy بسيط.";
+        }
+      }
+    }
+
+    function startTraccarPolling() {
+      if (!USE_TRACCAR) return;
+      stopTraccarPolling();
+      fetchTraccarPositions();
+      traccarPollTimer = setInterval(fetchTraccarPositions, TRACCAR_POLL_MS);
+    }
+
+    function stopTraccarPolling() {
+      if (traccarPollTimer) {
+        clearInterval(traccarPollTimer);
+        traccarPollTimer = null;
+      }
+    }
+
+    // =========================
+    // Firebase config
+    // =========================
+    const firebaseConfig = {
+      apiKey: "AIzaSyDWuD_6q44CXwGiexOyntJJMcF4wmYdaIo",
+      authDomain: "diqa-maps.firebaseapp.com",
+      databaseURL: "https://diqa-maps-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "diqa-maps",
+      storageBucket: "diqa-maps.appspot.com",
+      messagingSenderId: "385120206470",
+      appId: "1:385120206470:web:75bc5f0affa577f5109b07"
+    };
+
+    const appStatus = document.getElementById("app-status");
+
+    try {
+      firebase.initializeApp(firebaseConfig);
+      appStatus.textContent = "";
+    } catch (e) {
+      console.error("Firebase init error:", e);
+      appStatus.textContent = "مشكلة بتهيئة Firebase: " + (e && e.message ? e.message : e);
+    }
+
+    const db = firebase.database();
+    const SERVER_TS = firebase.database.ServerValue.TIMESTAMP;
+
+    const MANAGER_PASSWORD = "Adgj1357";
+
+    // UI
+    const loginCard = document.getElementById("login-card");
+    const managerCard = document.getElementById("manager-card");
+    const driverCard = document.getElementById("driver-card");
+
+    const managerPasswordInput = document.getElementById("manager-password");
+    const managerLoginBtn = document.getElementById("manager-login-btn");
+    const managerLoginError = document.getElementById("manager-login-error");
+    const logoutManagerBtn = document.getElementById("logout-manager");
+
+    const driverSelect = document.getElementById("driver-select");
+    const driverPinInput = document.getElementById("driver-pin");
+    const driverLoginBtn = document.getElementById("driver-login-btn");
+    const driverLoginError = document.getElementById("driver-login-error");
+    const logoutDriverBtn = document.getElementById("logout-driver");
+
+    const driversListDiv = document.getElementById("drivers-list");
+    const newDriverNameInput = document.getElementById("new-driver-name");
+    const newDriverPinInput = document.getElementById("new-driver-pin");
+    const addDriverBtn = document.getElementById("add-driver-btn");
+    const driverAddMsg = document.getElementById("driver-add-msg");
+
+    const clientNameInput = document.getElementById("client-name");
+    const clientLatInput = document.getElementById("client-lat");
+    const clientLngInput = document.getElementById("client-lng");
+    const addClientBtn = document.getElementById("add-client-btn");
+    const clientAddMsg = document.getElementById("client-add-msg");
+
+    const clientsListDiv = document.getElementById("clients-list");
+    const driverClientsListDiv = document.getElementById("driver-clients-list");
+
+    const clientSearchManager = document.getElementById("client-search-manager");
+    const clientSearchDriver  = document.getElementById("client-search-driver");
+
+    const currentDriverNameLabel = document.getElementById("current-driver-name");
+    const trackingStatus = document.getElementById("tracking-status");
+
+    // Manager alert UI
+    const managerAlert = document.getElementById("manager-alert");
+    const beepToggle = document.getElementById("beep-toggle");
+    let lastDriverState = {}; // {id: "ok"|"bad"}
+
+    // State
+    let map;
+    let driverMarkers = {};
+    let clientMarkers = {};
+    let currentDriverId = null;
+    let watchId = null;
+
+    let driversMetaCache = {};
+    let driversLocationsCache = {};
+    let clientsCache = {};
+
+    let clientSearchTextManager = "";
+    let clientSearchTextDriver = "";
+
+    // Helpers
+    function show(el){ el.classList.remove("hidden"); }
+    function hide(el){ el.classList.add("hidden"); }
+
+    function slugify(name) {
+      return name.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_أ-ي]/g, "");
+    }
+
+    function formatTime(ts) {
+      if (!ts) return "";
+      const d = new Date(ts);
+      return d.toLocaleTimeString("ar-IQ", { hour12:false });
+    }
+
+    function normalizeNumberText(s) {
+      return String(s || "").trim().replace(/،/g, ".").replace(/,/g, ".");
+    }
+
+    function openInGoogleMaps(lat, lng) {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`, "_blank");
+    }
+    function openInWaze(lat, lng) {
+      window.open(`https://waze.com/ul?ll=${lat},${lng}&navigate=yes`, "_blank");
+    }
+
+    // ✅ (مضاف) تحقق PIN 4 أرقام فقط
+    function isPin4(pin) {
+      return /^\d{4}$/.test(String(pin || "").trim());
+    }
+
+    // ✅ (مضاف) تغيير اسم المندوب من لوحة المدير
+    function changeDriverName(id) {
+      const oldName = (driversMetaCache[id] && driversMetaCache[id].name) ? driversMetaCache[id].name : id;
+      const newName = prompt("اكتب الاسم الجديد للمندوب:", oldName);
+      if (!newName) return;
+
+      const clean = newName.trim();
+      if (clean.length < 2) {
+        alert("الاسم قصير جداً.");
+        return;
+      }
+
+      db.ref(`driversMeta/${id}`).update({ name: clean });
+      db.ref(`driversLocations/${id}`).update({ name: clean }); // يبقى كما هو (حتى لو ما نستخدمه)
+
+      if (currentDriverId === id) {
+        currentDriverNameLabel.textContent = clean;
+      }
+    }
+
+    // ✅ (مضاف) تغيير PIN للمندوب (4 أرقام) من لوحة المدير
+    function changeDriverPin(id) {
+      const newPin = prompt("اكتب PIN الجديد (4 أرقام):", "");
+      if (newPin == null) return;
+
+      const clean = String(newPin).trim();
+      if (!isPin4(clean)) {
+        alert("PIN لازم يكون 4 أرقام فقط.");
+        return;
+      }
+
+      db.ref(`driversMeta/${id}`).update({ pin: clean });
+      alert("تم تغيير PIN ✅");
+    }
+
+    // Beep + popup
+    function beepOnce() {
+      try {
+        if (beepToggle && !beepToggle.checked) return;
+
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+
+        const ctx = new AudioCtx();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+
+        o.type = "sine";
+        o.frequency.value = 880;
+        g.gain.value = 0.05;
+
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start();
+
+        setTimeout(() => {
+          o.stop();
+          ctx.close && ctx.close();
+        }, 180);
+      } catch(e) {}
+    }
+
+    function showPopup(msg) {
+      alert(msg);
+    }
+
+    // Map
+    function initMap() {
+      if (map) return;
+      map = L.map("map").setView([33.3152, 44.3661], 11);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap"
+      }).addTo(map);
+    }
+
+    // Subscriptions
+    function subscribeDrivers() {
+      db.ref("driversMeta").on("value", snap => {
+        driversMetaCache = snap.val() || {};
+        renderDriversSelect();
+        renderDriversList();
+        updateManagerAlertAndNotify();
+      });
+
+      // ✅ إبقيناها مثل ما هي (ما حذفناها)
+      // لكن إذا USE_TRACCAR true، المواقع راح تجي من Traccar polling بدل هذا
+      db.ref("driversLocations").on("value", snap => {
+        if (USE_TRACCAR) return; // تجاهل بيانات Firebase للمواقع عند استخدام Traccar
+        driversLocationsCache = snap.val() || {};
+        renderDriversList();
+        updateDriverMarkers();
+        updateManagerAlertAndNotify();
+      });
+
+      // ✅ تشغيل سحب مواقع Traccar (بدون حذف أي جزء قديم)
+      if (USE_TRACCAR) {
+        startTraccarPolling();
+      }
+    }
+
+    function subscribeClients() {
+      db.ref("clients").on("value", snap => {
+        clientsCache = snap.val() || {};
+        renderClientsLists();
+        updateClientMarkers();
+      });
+    }
+
+    // Manager alert logic + notify
+    function updateManagerAlertAndNotify() {
+      if (!managerAlert) return;
+
+      const now = Date.now();
+      const staleMs = 2 * 60 * 1000; // 2 minutes
+
+      const badList = [];
+
+      // ✅ إذا Traccar شغال ومو دا يرجع بيانات لفترة، ننبه
+      if (USE_TRACCAR && lastTraccarOkAt && (now - lastTraccarOkAt > 15000)) {
+        managerAlert.textContent = "⚠️ انقطع جلب مواقع Traccar (تأكد من الإعدادات / أو CORS).";
+      }
+
+      Object.entries(driversMetaCache).forEach(([id, meta]) => {
+        const loc = driversLocationsCache[id];
+        const name = (meta && meta.name) ? meta.name : id;
+
+        let isBad = false;
+        let reason = "";
+
+        if (!loc) { isBad = true; reason = "لا يوجد موقع مرسل"; }
+        else if (loc.gpsOk === false) { isBad = true; reason = "GPS مطفي/مرفوض"; }
+        else if (loc.active === false) { isBad = true; reason = "غير نشط"; }
+        else if (loc.updatedAt && (now - loc.updatedAt > staleMs)) { isBad = true; reason = "انقطاع تحديث لأكثر من دقيقتين"; }
+
+        const newState = isBad ? "bad" : "ok";
+        const oldState = lastDriverState[id] || "ok";
+
+        if (oldState === "ok" && newState === "bad") {
+          beepOnce();
+          showPopup(`⚠️ تنبيه: ${name} — ${reason}`);
+        }
+
+        lastDriverState[id] = newState;
+
+        if (isBad) badList.push(`${name} (${reason})`);
+      });
+
+      managerAlert.textContent = badList.length ? ("⚠️ تنبيه: " + badList.join(" — ")) : "";
+    }
+
+    // Drivers UI
+    function renderDriversSelect() {
+      const currentValue = driverSelect.value;
+      driverSelect.innerHTML = '<option value="">-- اختر مندوب --</option>';
+      Object.entries(driversMetaCache).forEach(([id, d]) => {
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = (d && d.name) ? d.name : id;
+        driverSelect.appendChild(opt);
+      });
+      if (currentValue) driverSelect.value = currentValue;
+    }
+
+    function renderDriversList() {
+      driversListDiv.innerHTML = "";
+      const entries = Object.entries(driversMetaCache);
+      if (!entries.length) {
+        driversListDiv.innerHTML = '<div class="small">لا يوجد مندوبين بعد.</div>';
+        return;
+      }
+
+      entries.forEach(([id, d]) => {
+        const loc = driversLocationsCache[id];
+
+        const item = document.createElement("div");
+        item.className = "list-item";
+
+        const left = document.createElement("div");
+        const right = document.createElement("div");
+
+        const nameEl = document.createElement("strong");
+        nameEl.textContent = d.name || id;
+
+        const statusEl = document.createElement("div");
+        statusEl.className = "small";
+
+        const dot = document.createElement("span");
+        dot.className = "status-dot " + (loc && loc.active ? "online" : "offline");
+        statusEl.appendChild(dot);
+
+        if (!loc) {
+          statusEl.appendChild(document.createTextNode("لا يوجد موقع"));
+        } else if (loc.gpsOk === false) {
+          statusEl.appendChild(document.createTextNode("GPS مطفي/مرفوض"));
+        } else if (loc.active) {
+          const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
+          const accText = acc ? ` | ±${acc}m` : "";
+          statusEl.appendChild(document.createTextNode(`نشط - ${formatTime(loc.updatedAt)}${accText}`));
+        } else {
+          statusEl.appendChild(document.createTextNode("غير متصل"));
+        }
+
+        left.appendChild(nameEl);
+        left.appendChild(statusEl);
+
+        const editNameBtn = document.createElement("button");
+        editNameBtn.textContent = "تغيير الاسم";
+        editNameBtn.className = "secondary";
+        editNameBtn.onclick = () => changeDriverName(id);
+
+        const editPinBtn = document.createElement("button");
+        editPinBtn.textContent = "تغيير PIN";
+        editPinBtn.className = "secondary";
+        editPinBtn.onclick = () => changeDriverPin(id);
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "حذف";
+        delBtn.className = "danger";
+        delBtn.onclick = () => deleteDriver(id);
+
+        right.appendChild(editNameBtn);
+        right.appendChild(editPinBtn);
+        right.appendChild(delBtn);
+
+        item.appendChild(left);
+        item.appendChild(right);
+        driversListDiv.appendChild(item);
+      });
+    }
+
+    // Markers
+    function updateDriverMarkers() {
+      if (!map) return;
+
+      Object.keys(driverMarkers).forEach(id => {
+        const loc = driversLocationsCache[id];
+        if (!loc || !loc.active) {
+          map.removeLayer(driverMarkers[id]);
+          delete driverMarkers[id];
+        }
+      });
+
+      Object.entries(driversLocationsCache).forEach(([id, loc]) => {
+        if (!loc || !loc.active) return;
+        if (typeof loc.lat !== "number" || typeof loc.lng !== "number") return;
+
+        const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
+        const accText = acc ? `<br/>الدقة: ±${acc}m` : "";
+
+        if (!driverMarkers[id]) {
+          const marker = L.marker([loc.lat, loc.lng], { title: loc.name || id }).addTo(map);
+          marker.bindPopup(`مندوب: ${loc.name || id}<br/>آخر تحديث: ${formatTime(loc.updatedAt)}${accText}`);
+          driverMarkers[id] = marker;
+        } else {
+          driverMarkers[id].setLatLng([loc.lat, loc.lng]);
+          driverMarkers[id].setPopupContent(`مندوب: ${loc.name || id}<br/>آخر تحديث: ${formatTime(loc.updatedAt)}${accText}`);
+        }
+      });
+    }
+
+    function updateClientMarkers() {
+      if (!map) return;
+
+      Object.keys(clientMarkers).forEach(id => {
+        if (!clientsCache[id]) {
+          map.removeLayer(clientMarkers[id]);
+          delete clientMarkers[id];
+        }
+      });
+
+      Object.entries(clientsCache).forEach(([id, c]) => {
+        if (!c || typeof c.lat !== "number" || typeof c.lng !== "number") return;
+
+        if (!clientMarkers[id]) {
+          const marker = L.circleMarker([c.lat, c.lng], { radius: 6 }).addTo(map);
+          marker.bindPopup(`زبون: ${c.name || "زبون"}`);
+          clientMarkers[id] = marker;
+        } else {
+          clientMarkers[id].setLatLng([c.lat, c.lng]);
+        }
+      });
+    }
+
+    // Clients lists + search
+    function renderClientsLists() {
+      clientsListDiv.innerHTML = "";
+      driverClientsListDiv.innerHTML = "";
+
+      const entries = Object.entries(clientsCache);
+      if (!entries.length) {
+        clientsListDiv.innerHTML = '<div class="small">لا يوجد زبائن بعد.</div>';
+        driverClientsListDiv.innerHTML = '<div class="small">لا يوجد زبائن بعد.</div>';
+        return;
+      }
+
+      const mq = (clientSearchTextManager || "").toLowerCase();
+      const dq = (clientSearchTextDriver || "").toLowerCase();
+
+      const managerFiltered = entries.filter(([id, c]) => !mq || (c.name||"").toLowerCase().includes(mq));
+      const driverFiltered  = entries.filter(([id, c]) => !dq || (c.name||"").toLowerCase().includes(dq));
+
+      function makeRow(c) {
+        const item = document.createElement("div");
+        item.className = "list-item";
+
+        const left = document.createElement("div");
+        const right = document.createElement("div");
+
+        const nameEl = document.createElement("strong");
+        nameEl.textContent = c.name || "زبون";
+
+        const coordsEl = document.createElement("div");
+        coordsEl.className = "small";
+        coordsEl.textContent = `${c.lat}, ${c.lng}`;
+
+        left.appendChild(nameEl);
+        left.appendChild(coordsEl);
+
+        const gmBtn = document.createElement("button");
+        gmBtn.textContent = "Google Maps";
+        gmBtn.className = "secondary";
+        gmBtn.onclick = () => openInGoogleMaps(c.lat, c.lng);
+
+        const wazeBtn = document.createElement("button");
+        wazeBtn.textContent = "Waze";
+        wazeBtn.className = "secondary";
+        wazeBtn.onclick = () => openInWaze(c.lat, c.lng);
+
+        right.appendChild(gmBtn);
+        right.appendChild(wazeBtn);
+
+        item.appendChild(left);
+        item.appendChild(right);
+        return item;
+      }
+
+      if (!managerFiltered.length) clientsListDiv.innerHTML = '<div class="small">لا توجد نتائج.</div>';
+      managerFiltered.forEach(([id, c]) => clientsListDiv.appendChild(makeRow(c)));
+
+      if (!driverFiltered.length) driverClientsListDiv.innerHTML = '<div class="small">لا توجد نتائج.</div>';
+      driverFiltered.forEach(([id, c]) => driverClientsListDiv.appendChild(makeRow(c)));
+    }
+
+    // DB ops
+    function addDriver() {
+      const name = newDriverNameInput.value.trim();
+      const pin  = String(newDriverPinInput.value || "").trim();
+
+      if (!name) { driverAddMsg.textContent = "الرجاء إدخال اسم المندوب."; return; }
+      if (!isPin4(pin))  { driverAddMsg.textContent = "PIN لازم يكون 4 أرقام."; return; }
+
+      const id = slugify(name);
+      db.ref(`driversMeta/${id}`).set({ name, pin, createdAt: SERVER_TS })
+        .then(() => {
+          driverAddMsg.textContent = "تمت إضافة المندوب.";
+          newDriverNameInput.value = "";
+          newDriverPinInput.value = "";
+          setTimeout(()=>driverAddMsg.textContent="", 2000);
+        })
+        .catch(err => {
+          console.error(err);
+          driverAddMsg.textContent = "فشل إضافة المندوب (Rules).";
+        });
+    }
+
+    function deleteDriver(id) {
+      if (!confirm("هل أنت متأكد من حذف هذا المندوب؟")) return;
+      db.ref(`driversMeta/${id}`).remove();
+      db.ref(`driversLocations/${id}`).remove(); // يبقى كما هو
+    }
+
+    function addClient() {
+      const name = clientNameInput.value.trim();
+      const latStr = normalizeNumberText(clientLatInput.value);
+      const lngStr = normalizeNumberText(clientLngInput.value);
+      const lat = Number(latStr);
+      const lng = Number(lngStr);
+
+      if (!name || Number.isNaN(lat) || Number.isNaN(lng)) {
+        clientAddMsg.textContent = "الرجاء إدخال اسم وإحداثيات صحيحة.";
+        return;
+      }
+
+      const id = slugify(name) + "_" + Date.now();
+      db.ref(`clients/${id}`).set({ name, lat, lng, createdAt: SERVER_TS })
+        .then(() => {
+          clientAddMsg.textContent = "تمت إضافة الزبون.";
+          clientNameInput.value = "";
+          clientLatInput.value = "";
+          clientLngInput.value = "";
+          setTimeout(()=>clientAddMsg.textContent="", 2000);
+        })
+        .catch(err => {
+          console.error(err);
+          clientAddMsg.textContent = "فشل إضافة الزبون (Rules).";
+        });
+    }
+
+    // Tracking (mandatory, no stop button)
+    let lastSentAt = 0;
+    const MIN_SEND_INTERVAL_MS = 3000;
+    const MAX_BAD_ACCURACY = 1500;
+
+    function startTrackingMandatory() {
+      // ✅ إذا نستخدم Traccar، ما نرسل GPS من الموقع
+      if (USE_TRACCAR) {
+        trackingStatus.textContent = "✅ التتبع يتم عبر تطبيق Traccar Client على هاتفك. افتحه وتأكد أنه شغال.";
+        return;
+      }
+
+      if (!currentDriverId) return;
+      if (!navigator.geolocation) {
+        trackingStatus.textContent = "هذا الجهاز لا يدعم تحديد الموقع.";
+        return;
+      }
+      if (watchId !== null) return;
+
+      const locRef = db.ref(`driversLocations/${currentDriverId}`);
+
+      db.ref(".info/connected").on("value", (snap) => {
+        if (snap.val() === true) {
+          locRef.onDisconnect().update({ active:false, updatedAt: SERVER_TS });
+        }
+      });
+
+      trackingStatus.textContent = "جارِ تفعيل مشاركة الموقع (إجباري)...";
+
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const now = Date.now();
+          if (now - lastSentAt < MIN_SEND_INTERVAL_MS) return;
+          lastSentAt = now;
+
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const acc = Math.round(pos.coords.accuracy || 0);
+
+          if (acc && acc > MAX_BAD_ACCURACY) {
+            trackingStatus.textContent = `⚠️ دقة ضعيفة ±${acc}m — فعّل Precise/GPS`;
+            return;
+          }
+
+          locRef.update({
+            name: currentDriverNameLabel.textContent,
+            lat, lng,
+            accuracy: acc,
+            gpsOk: true,
+            gpsError: null,
+            active: true,
+            updatedAt: SERVER_TS
+          });
+
+          trackingStatus.textContent =
+            `📍 مشاركة الموقع فعّالة | الدقة ±${acc}m | آخر تحديث: ${formatTime(now)}`;
+        },
+        (err) => {
+          console.error(err);
+
+          db.ref(`driversLocations/${currentDriverId}`).update({
+            gpsOk: false,
+            gpsError: err && err.message ? String(err.message) : "GPS blocked",
+            active: false,
+            updatedAt: SERVER_TS
+          });
+
+          trackingStatus.textContent = "⚠️ لازم تفعّل الموقع (Allow + Precise).";
+          if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+
+          setTimeout(() => startTrackingMandatory(), 5000);
+        },
+        { enableHighAccuracy:true, maximumAge:5000, timeout:15000 }
+      );
+    }
+
+    function stopTrackingOnLogout() {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      if (currentDriverId) {
+        db.ref(`driversLocations/${currentDriverId}`).update({
+          active:false,
+          updatedAt: SERVER_TS
+        });
+      }
+    }
+
+    // Login actions
+    managerLoginBtn.onclick = () => {
+      if (managerPasswordInput.value !== MANAGER_PASSWORD) {
+        managerLoginError.textContent = "كلمة المرور غير صحيحة.";
+        return;
+      }
+      managerLoginError.textContent = "";
+      hide(loginCard);
+      show(managerCard);
+      initMap();
+      subscribeDrivers();
+      subscribeClients();
+
+      // ✅ ملاحظة واضحة للمدير إذا Traccar مفعّل
+      if (USE_TRACCAR) {
+        appStatus.textContent = "";
+        managerAlert.textContent = managerAlert.textContent || "ℹ️ المواقع تُجلب من Traccar مباشرة (أو Proxy إذا ضبطته).";
+      }
+    };
+
+    logoutManagerBtn.onclick = () => {
+      stopTraccarPolling();
+      show(loginCard);
+      hide(managerCard);
+    };
+
+    driverLoginBtn.onclick = async () => {
+      const selectedId = driverSelect.value;
+      const pin = String(driverPinInput.value || "").trim();
+
+      if (!selectedId) { driverLoginError.textContent = "اختر المندوب."; return; }
+      if (!isPin4(pin)) { driverLoginError.textContent = "PIN لازم يكون 4 أرقام."; return; }
+
+      driverLoginError.textContent = "";
+
+      const snap = await db.ref(`driversMeta/${selectedId}`).once("value");
+      const meta = snap.val();
+      const dbPin = meta && meta.pin != null ? String(meta.pin).trim() : "";
+
+      if (!dbPin) { driverLoginError.textContent = "هذا المندوب ما عنده PIN."; return; }
+      if (pin !== dbPin) { driverLoginError.textContent = "PIN غير صحيح."; return; }
+
+      currentDriverId = selectedId;
+      currentDriverNameLabel.textContent = meta && meta.name ? meta.name : selectedId;
+
+      driverPinInput.value = "";
+      hide(loginCard);
+      show(driverCard);
+
+      subscribeClients();          // show clients
+      startTrackingMandatory();    // ✅ now either Traccar message or web tracking fallback
+    };
+
+    logoutDriverBtn.onclick = () => {
+      stopTrackingOnLogout();
+      currentDriverId = null;
+      show(loginCard);
+      hide(driverCard);
+    };
+
+    // search bindings
+    clientSearchManager.addEventListener("input", (e) => {
+      clientSearchTextManager = e.target.value || "";
+      renderClientsLists();
+    });
+
+    clientSearchDriver.addEventListener("input", (e) => {
+      clientSearchTextDriver = e.target.value || "";
+      renderClientsLists();
+    });
+
+    addDriverBtn.onclick = addDriver;
+    addClientBtn.onclick = addClient;
+
+    // preload select list
+    subscribeDrivers();
+
+    // ping
+    db.ref("_ping").set({ t: SERVER_TS }).catch(err => {
+      console.warn("DB write blocked:", err);
+      appStatus.textContent = "⚠️ قواعد Firebase تمنع الكتابة (Rules).";
+    });
+  </script>
+</body>
+</html>
