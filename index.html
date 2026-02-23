@@ -187,6 +187,11 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 
   <script>
+    // =========================================================
+    // ✅ SERVER_URL (ADDED as you requested)
+    // =========================================================
+    const SERVER_URL = "https://diqa-maps-production.up.railway.app";
+
     // =========================
     // ✅ Traccar (UPDATED CONFIG)
     // =========================
@@ -195,7 +200,7 @@
 
     // ✅ (جديد) رابط سيرفر Traccar على Railway (HTTP Domain)
     // مثال: "https://zippy-prosperity-production-f280.up.railway.app"
-    const TRACCAR_BASE_URL = "PUT_YOUR_TRACCAR_HTTP_DOMAIN_HERE";
+    const TRACCAR_BASE_URL = SERVER_URL; // ✅ بدل PUT... صار يستخدم رابطك مباشرة
 
     // ✅ (جديد) بيانات دخول الادمن (أو يوزر API)
     // مهم: هذا الكود داخل المتصفح، فإذا ما تحب تكتب الباسورد هنا نبدّلها لاحقاً Proxy.
