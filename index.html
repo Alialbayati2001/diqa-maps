@@ -187,23 +187,20 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 
   <script>
-    // =========================================================
-    // ✅ SERVER_URL (ADDED as you requested)
-    // =========================================================
-    const SERVER_URL = "https://diqa-maps-production.up.railway.app";
-
     // =========================
     // ✅ Traccar (UPDATED CONFIG)
     // =========================
     // 1) خله true حتى تعتمد على Traccar للمواقع
     const USE_TRACCAR = true;
 
-    // ✅ (جديد) رابط سيرفر Traccar على Railway (HTTP Domain)
-    // مثال: "https://zippy-prosperity-production-f280.up.railway.app"
-    const TRACCAR_BASE_URL = SERVER_URL; // ✅ بدل PUT... صار يستخدم رابطك مباشرة
+    // ✅ رابط Traccar Web UI/API على Railway
+    const TRACCAR_BASE_URL = "https://traccar-production-1667.up.railway.app";
 
-    // ✅ (جديد) بيانات دخول الادمن (أو يوزر API)
-    // مهم: هذا الكود داخل المتصفح، فإذا ما تحب تكتب الباسورد هنا نبدّلها لاحقاً Proxy.
+    // ✅ (مهم) Token من Traccar (Settings > Preferences > Token)
+    // ⚠️ يفضل تولّد Token جديد لأن هذا تم إرساله هنا
+    const TRACCAR_TOKEN = "RjBEAiAlXuCrak_wcjk4He5N3dNE9pECtrtCynxofV3LmVlWkAIgHap3d4Hw2QI0-voMTTIiq09a28zH85W21Ylaw2Y7y1d7ImkiOjg5NzE5NTEzMjY1OTI0MTk5MzYsInUiOjEsImUiOiIyMDI2LTAzLTAzVDIxOjAwOjAwLjAwMCswMDowMCJ9";
+
+    // ✅ نتركها موجودة (بدون حذف) إذا تحتاج لاحقاً، لكن حالياً التوكن هو المعتمد
     const TRACCAR_EMAIL = "PUT_EMAIL_HERE";
     const TRACCAR_PASSWORD = "PUT_PASSWORD_HERE";
 
@@ -218,73 +215,49 @@
     let traccarPollTimer = null;
     let lastTraccarOkAt = 0;
 
-    // ✅ (جديد) حالة session حتى ما نكرر login
-    let traccarSessionOk = false;
-    let traccarLastLoginAt = 0;
-
     // ✅ (جديد) helper: يبني رابط API
     function traccarApi(path) {
       const base = String(TRACCAR_BASE_URL || "").replace(/\/+$/, "");
       return base + path;
     }
 
-    // ✅ (جديد) تسجيل الدخول Session (Cookie)
-    async function traccarLoginIfNeeded() {
-      if (!USE_TRACCAR) return false;
-
-      const baseOk = TRACCAR_BASE_URL && !TRACCAR_BASE_URL.includes("PUT_YOUR_TRACCAR_HTTP_DOMAIN_HERE");
-      const credOk = TRACCAR_EMAIL && !TRACCAR_EMAIL.includes("PUT_") && TRACCAR_PASSWORD && !TRACCAR_PASSWORD.includes("PUT_");
-
-      if (!baseOk || !credOk) {
-        if (managerAlert && !managerAlert.textContent) {
-          managerAlert.textContent = "⚠️ TRACCAR_BASE_URL / TRACCAR_EMAIL / TRACCAR_PASSWORD غير مضبوطة.";
-        }
-        return false;
+    // ✅ (جديد) Headers للتوكن
+    function traccarAuthHeaders() {
+      const h = {};
+      if (TRACCAR_TOKEN && !TRACCAR_TOKEN.includes("PUT_")) {
+        h["Authorization"] = "Bearer " + TRACCAR_TOKEN;
       }
-
-      // إذا سجلنا دخول خلال آخر 10 دقائق، ما نعيد
-      const now = Date.now();
-      if (traccarSessionOk && (now - traccarLastLoginAt < 10 * 60 * 1000)) return true;
-
-      try {
-        const body = new URLSearchParams();
-        body.set("email", TRACCAR_EMAIL);
-        body.set("password", TRACCAR_PASSWORD);
-
-        const r = await fetch(traccarApi("/api/session"), {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: body.toString(),
-          credentials: "include",
-          cache: "no-store"
-        });
-
-        if (!r.ok) throw new Error("Login failed: " + r.status);
-
-        traccarSessionOk = true;
-        traccarLastLoginAt = now;
-        return true;
-      } catch (e) {
-        console.error("Traccar login error:", e);
-
-        // ⚠️ غالباً CORS إذا طلع TypeError: Failed to fetch
-        if (managerAlert) {
-          managerAlert.textContent =
-            "⚠️ فشل تسجيل دخول Traccar من المتصفح. إذا المشكلة CORS نحتاج Proxy بسيط (أخبرني ونسويه).";
-        }
-        traccarSessionOk = false;
-        return false;
-      }
+      return h;
     }
 
-    // ✅ (جديد) جلب devices + positions من Traccar مباشرة
+    // ✅ (جديد) فحص سريع هل التوكن مضبوط
+    function traccarTokenOk() {
+      return !!(TRACCAR_TOKEN && TRACCAR_TOKEN.length > 20 && !TRACCAR_TOKEN.includes("PUT_"));
+    }
+
+    // ✅ (جديد) جلب devices + positions من Traccar مباشرة بالتوكن
     async function fetchTraccarPositionsDirect() {
-      const ok = await traccarLoginIfNeeded();
-      if (!ok) return null;
+      if (!USE_TRACCAR) return null;
+
+      const baseOk = TRACCAR_BASE_URL && !TRACCAR_BASE_URL.includes("PUT_YOUR_TRACCAR_HTTP_DOMAIN_HERE");
+      if (!baseOk || !traccarTokenOk()) {
+        if (managerAlert && !managerAlert.textContent) {
+          managerAlert.textContent = "⚠️ TRACCAR_BASE_URL / TRACCAR_TOKEN غير مضبوطة.";
+        }
+        return null;
+      }
+
+      const headers = traccarAuthHeaders();
 
       const [devR, posR] = await Promise.all([
-        fetch(traccarApi("/api/devices"), { credentials: "include", cache: "no-store" }),
-        fetch(traccarApi("/api/positions"), { credentials: "include", cache: "no-store" })
+        fetch(traccarApi("/api/devices"), {
+          headers,
+          cache: "no-store"
+        }),
+        fetch(traccarApi("/api/positions"), {
+          headers,
+          cache: "no-store"
+        })
       ]);
 
       if (!devR.ok) throw new Error("devices failed: " + devR.status);
@@ -328,7 +301,7 @@
           const r = await fetch(TRACCAR_PROXY_URL, { cache: "no-store" });
           j = await r.json();
         } else {
-          // (B) Direct من Traccar API
+          // (B) Direct من Traccar API (Token)
           j = await fetchTraccarPositionsDirect();
         }
 
@@ -402,7 +375,7 @@
         if (managerAlert) {
           managerAlert.textContent =
             managerAlert.textContent ||
-            "⚠️ تعذر جلب مواقع Traccar الآن. إذا ظهرت مشكلة CORS نحتاج Proxy بسيط.";
+            "⚠️ تعذر جلب مواقع Traccar الآن. إذا ظهر CORS نحتاج Proxy بسيط.";
         }
       }
     }
@@ -655,7 +628,7 @@
 
       // ✅ إذا Traccar شغال ومو دا يرجع بيانات لفترة، ننبه
       if (USE_TRACCAR && lastTraccarOkAt && (now - lastTraccarOkAt > 15000)) {
-        managerAlert.textContent = "⚠️ انقطع جلب مواقع Traccar (تأكد من الإعدادات / أو CORS).";
+        managerAlert.textContent = "⚠️ انقطع جلب مواقع Traccar (تأكد من التوكن / أو CORS).";
       }
 
       Object.entries(driversMetaCache).forEach(([id, meta]) => {
@@ -1039,7 +1012,7 @@
       // ✅ ملاحظة واضحة للمدير إذا Traccar مفعّل
       if (USE_TRACCAR) {
         appStatus.textContent = "";
-        managerAlert.textContent = managerAlert.textContent || "ℹ️ المواقع تُجلب من Traccar مباشرة (أو Proxy إذا ضبطته).";
+        managerAlert.textContent = managerAlert.textContent || "ℹ️ المواقع تُجلب من Traccar مباشرة (Token).";
       }
     };
 
