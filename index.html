@@ -46,6 +46,9 @@
     /* حل عرض option داخل select */
     select option{background:#020617;color:#e5e7eb}
     select option:checked{background:#22c55e;color:#020617}
+
+    /* ✅ إضافة: حالة أصفر (متأخر شوي) */
+    .warn{background:#f59e0b}
   </style>
 </head>
 
@@ -215,6 +218,37 @@
     let traccarPollTimer = null;
     let lastTraccarOkAt = 0;
 
+    // ✅ إضافة: سياسة “ذكية” للاستقرار (أخضر/أصفر/Offline)
+    const WARN_MS  = 2 * 60 * 1000; // بعد دقيقتين يصير أصفر
+    const STALE_MS = 5 * 60 * 1000; // بعد 5 دقائق يصير Offline فعلاً
+
+    // ✅ (مضاف) تحويل timestamp إلى milliseconds بشكل آمن (يصلح خطأ ثواني/ميلي ثانية)
+    function tsToMs(ts) {
+      if (ts == null) return 0;
+      if (typeof ts === "object" && typeof ts.toMillis === "function") return ts.toMillis();
+      if (typeof ts === "string") {
+        const t = Date.parse(ts);
+        return Number.isFinite(t) ? t : 0;
+      }
+      const n = Number(ts);
+      if (!Number.isFinite(n)) return 0;
+      return (n < 1e12) ? (n * 1000) : n;
+    }
+
+    // ✅ (مضاف) حساب الحالة حسب العمر
+    function calcLiveState(updatedAt) {
+      const now = Date.now();
+      const lastMs = tsToMs(updatedAt);
+      const ageMs = lastMs ? (now - lastMs) : Infinity;
+      return {
+        lastMs,
+        ageMs,
+        isOnline: ageMs <= WARN_MS,
+        isWarn: (ageMs > WARN_MS && ageMs <= STALE_MS),
+        isStale: ageMs > STALE_MS
+      };
+    }
+
     // ✅ (جديد) helper: يبني رابط API
     function traccarApi(path) {
       const base = String(TRACCAR_BASE_URL || "").replace(/\/+$/, "");
@@ -250,29 +284,23 @@
       const headers = traccarAuthHeaders();
 
       const [devR, posR] = await Promise.all([
-        fetch(traccarApi("/api/devices"), {
-          headers,
-          cache: "no-store"
-        }),
-        fetch(traccarApi("/api/positions"), {
-          headers,
-          cache: "no-store"
-        })
+        fetch(traccarApi("/api/devices"), { headers, cache: "no-store" }),
+        fetch(traccarApi("/api/positions"), { headers, cache: "no-store" })
       ]);
 
       if (!devR.ok) throw new Error("devices failed: " + devR.status);
       if (!posR.ok) throw new Error("positions failed: " + posR.status);
 
-      const devices = await devR.json();   // [{id,name,uniqueId,lastUpdate,...}]
-      const positions = await posR.json(); // [{id,deviceId,latitude,longitude,accuracy,deviceTime,serverTime,...}]
+      const devices = await devR.json();
+      const positions = await posR.json();
 
       const devById = {};
       (devices || []).forEach(d => { if (d && d.id != null) devById[String(d.id)] = d; });
 
-      // ✅ نرجع بنفس الشكل القديم ok/data حتى ما نكسر أي جزء
       const data = (positions || []).map(p => {
         const dev = devById[String(p.deviceId)] || {};
         const t = p.deviceTime || p.fixTime || p.serverTime || p.updatedAt || null;
+        const tMs = tsToMs(t) || Date.now(); // ✅ إصلاح الوقت
 
         return {
           deviceId: String(p.deviceId),
@@ -280,28 +308,23 @@
           lat: Number(p.latitude),
           lng: Number(p.longitude),
           accuracy: (p.accuracy != null ? Number(p.accuracy) : null),
-          time: (t ? new Date(t).getTime() : Date.now())
+          time: tMs
         };
       }).filter(x => !Number.isNaN(x.lat) && !Number.isNaN(x.lng));
 
       return { ok: true, data };
     }
 
-    // ✅ (تعديل) نفس دالتك لكن الآن تدعم:
-    // 1) Proxy URL إذا موجود
-    // 2) Direct API إذا proxy فاضي
     async function fetchTraccarPositions() {
       if (!USE_TRACCAR) return;
 
       try {
         let j = null;
 
-        // (A) إذا عندك Proxy خارجي
         if (TRACCAR_PROXY_URL && !TRACCAR_PROXY_URL.includes("PUT_YOUR_PROXY_URL_HERE")) {
           const r = await fetch(TRACCAR_PROXY_URL, { cache: "no-store" });
           j = await r.json();
         } else {
-          // (B) Direct من Traccar API (Token)
           j = await fetchTraccarPositionsDirect();
         }
 
@@ -311,13 +334,6 @@
 
         lastTraccarOkAt = Date.now();
 
-        // ✅ نحول بيانات Traccar إلى نفس شكل driversLocationsCache حتى باقي الكود يشتغل بدون تغيير كبير
-        // driversLocationsCache[id] = { lat,lng,accuracy,active,updatedAt,name,gpsOk }
-        //
-        // ✅ (مهم) ربط Traccar device بالمندوبين في Firebase:
-        // - إذا slugify(device.name) == driverId  => نستخدم driverId كمفتاح
-        // - أو إذا meta.name == device.name (تطابق مباشر)
-        // - غير هذا نخليه على deviceId (حتى على الأقل يبين باللوحة)
         const next = {};
         j.data.forEach((p) => {
           const devId = String(p.deviceId ?? p.id ?? "");
@@ -327,23 +343,18 @@
           const lng = Number(p.lng);
           if (Number.isNaN(lat) || Number.isNaN(lng)) return;
 
-          const when = p.time ? Number(p.time) : Date.now();
+          const whenMs = tsToMs(p.time) || Date.now(); // ✅ وقت صحيح
           const acc = (p.accuracy != null) ? Number(p.accuracy) : null;
 
-          // active: إذا التحديث خلال دقيقتين يعتبر متصل
-          const isActive = (Date.now() - when) <= (2 * 60 * 1000);
+          const state = calcLiveState(whenMs);
 
           const devName = (p.name || devId);
 
-          // ✅ محاولة ربطه بمندوب Firebase
           let key = devId;
-
-          // 1) slugify الاسم
           const slug = slugify(devName);
           if (slug && driversMetaCache && driversMetaCache[slug]) {
             key = slug;
           } else {
-            // 2) تطابق الاسم مباشرة مع meta.name
             const found = Object.entries(driversMetaCache || {}).find(([id, meta]) => {
               return meta && meta.name && String(meta.name).trim() === String(devName).trim();
             });
@@ -357,21 +368,21 @@
             accuracy: acc,
             gpsOk: true,
             gpsError: null,
-            active: isActive,
-            updatedAt: when
+
+            active: !state.isStale, // ✅ يبقى ظاهر لحد 5 دقائق
+            liveState: (state.isOnline ? "online" : (state.isWarn ? "warn" : "offline")),
+            updatedAt: whenMs
           };
         });
 
         driversLocationsCache = next;
 
-        // تحديث واجهة المدير (قائمة + خريطة + تنبيه)
         renderDriversList();
         updateDriverMarkers();
         updateManagerAlertAndNotify();
 
       } catch (e) {
         console.error("Traccar fetch error:", e);
-        // لا نقطع كل شيء، فقط ننبه المدير بشكل لطيف
         if (managerAlert) {
           managerAlert.textContent =
             managerAlert.textContent ||
@@ -488,7 +499,7 @@
 
     function formatTime(ts) {
       if (!ts) return "";
-      const d = new Date(ts);
+      const d = new Date(tsToMs(ts)); // ✅ عرض صحيح
       return d.toLocaleTimeString("ar-IQ", { hour12:false });
     }
 
@@ -503,47 +514,37 @@
       window.open(`https://waze.com/ul?ll=${lat},${lng}&navigate=yes`, "_blank");
     }
 
-    // ✅ (مضاف) تحقق PIN 4 أرقام فقط
     function isPin4(pin) {
       return /^\d{4}$/.test(String(pin || "").trim());
     }
 
-    // ✅ (مضاف) تغيير اسم المندوب من لوحة المدير
     function changeDriverName(id) {
       const oldName = (driversMetaCache[id] && driversMetaCache[id].name) ? driversMetaCache[id].name : id;
       const newName = prompt("اكتب الاسم الجديد للمندوب:", oldName);
       if (!newName) return;
 
       const clean = newName.trim();
-      if (clean.length < 2) {
-        alert("الاسم قصير جداً.");
-        return;
-      }
+      if (clean.length < 2) { alert("الاسم قصير جداً."); return; }
 
       db.ref(`driversMeta/${id}`).update({ name: clean });
-      db.ref(`driversLocations/${id}`).update({ name: clean }); // يبقى كما هو (حتى لو ما نستخدمه)
+      db.ref(`driversLocations/${id}`).update({ name: clean });
 
       if (currentDriverId === id) {
         currentDriverNameLabel.textContent = clean;
       }
     }
 
-    // ✅ (مضاف) تغيير PIN للمندوب (4 أرقام) من لوحة المدير
     function changeDriverPin(id) {
       const newPin = prompt("اكتب PIN الجديد (4 أرقام):", "");
       if (newPin == null) return;
 
       const clean = String(newPin).trim();
-      if (!isPin4(clean)) {
-        alert("PIN لازم يكون 4 أرقام فقط.");
-        return;
-      }
+      if (!isPin4(clean)) { alert("PIN لازم يكون 4 أرقام فقط."); return; }
 
       db.ref(`driversMeta/${id}`).update({ pin: clean });
       alert("تم تغيير PIN ✅");
     }
 
-    // Beep + popup
     function beepOnce() {
       try {
         if (beepToggle && !beepToggle.checked) return;
@@ -570,11 +571,8 @@
       } catch(e) {}
     }
 
-    function showPopup(msg) {
-      alert(msg);
-    }
+    function showPopup(msg) { alert(msg); }
 
-    // Map
     function initMap() {
       if (map) return;
       map = L.map("map").setView([33.3152, 44.3661], 11);
@@ -584,7 +582,6 @@
       }).addTo(map);
     }
 
-    // Subscriptions
     function subscribeDrivers() {
       db.ref("driversMeta").on("value", snap => {
         driversMetaCache = snap.val() || {};
@@ -593,17 +590,14 @@
         updateManagerAlertAndNotify();
       });
 
-      // ✅ إبقيناها مثل ما هي (ما حذفناها)
-      // لكن إذا USE_TRACCAR true، المواقع راح تجي من Traccar polling بدل هذا
       db.ref("driversLocations").on("value", snap => {
-        if (USE_TRACCAR) return; // تجاهل بيانات Firebase للمواقع عند استخدام Traccar
+        if (USE_TRACCAR) return;
         driversLocationsCache = snap.val() || {};
         renderDriversList();
         updateDriverMarkers();
         updateManagerAlertAndNotify();
       });
 
-      // ✅ تشغيل سحب مواقع Traccar (بدون حذف أي جزء قديم)
       if (USE_TRACCAR) {
         startTraccarPolling();
       }
@@ -617,16 +611,15 @@
       });
     }
 
-    // Manager alert logic + notify
     function updateManagerAlertAndNotify() {
       if (!managerAlert) return;
 
       const now = Date.now();
-      const staleMs = 2 * 60 * 1000; // 2 minutes
+      const warnMs  = WARN_MS;
+      const staleMs = STALE_MS;
 
       const badList = [];
 
-      // ✅ إذا Traccar شغال ومو دا يرجع بيانات لفترة، ننبه
       if (USE_TRACCAR && lastTraccarOkAt && (now - lastTraccarOkAt > 15000)) {
         managerAlert.textContent = "⚠️ انقطع جلب مواقع Traccar (تأكد من التوكن / أو CORS).";
       }
@@ -640,8 +633,13 @@
 
         if (!loc) { isBad = true; reason = "لا يوجد موقع مرسل"; }
         else if (loc.gpsOk === false) { isBad = true; reason = "GPS مطفي/مرفوض"; }
-        else if (loc.active === false) { isBad = true; reason = "غير نشط"; }
-        else if (loc.updatedAt && (now - loc.updatedAt > staleMs)) { isBad = true; reason = "انقطاع تحديث لأكثر من دقيقتين"; }
+        else {
+          const lastMs = tsToMs(loc.updatedAt);
+          const ageMs = lastMs ? (now - lastMs) : Infinity;
+
+          if (ageMs > staleMs) { isBad = true; reason = "انقطاع تحديث لأكثر من 5 دقائق"; }
+          else if (ageMs > warnMs) { /* warn فقط */ }
+        }
 
         const newState = isBad ? "bad" : "ok";
         const oldState = lastDriverState[id] || "ok";
@@ -652,14 +650,12 @@
         }
 
         lastDriverState[id] = newState;
-
         if (isBad) badList.push(`${name} (${reason})`);
       });
 
       managerAlert.textContent = badList.length ? ("⚠️ تنبيه: " + badList.join(" — ")) : "";
     }
 
-    // Drivers UI
     function renderDriversSelect() {
       const currentValue = driverSelect.value;
       driverSelect.innerHTML = '<option value="">-- اختر مندوب --</option>';
@@ -696,19 +692,28 @@
         statusEl.className = "small";
 
         const dot = document.createElement("span");
-        dot.className = "status-dot " + (loc && loc.active ? "online" : "offline");
+        let dotClass = "offline";
+        if (loc) {
+          const st = calcLiveState(loc.updatedAt);
+          if (st.isOnline) dotClass = "online";
+          else if (st.isWarn) dotClass = "warn";
+          else dotClass = "offline";
+        }
+        dot.className = "status-dot " + dotClass;
         statusEl.appendChild(dot);
 
         if (!loc) {
           statusEl.appendChild(document.createTextNode("لا يوجد موقع"));
         } else if (loc.gpsOk === false) {
           statusEl.appendChild(document.createTextNode("GPS مطفي/مرفوض"));
-        } else if (loc.active) {
+        } else {
+          const st = calcLiveState(loc.updatedAt);
           const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
           const accText = acc ? ` | ±${acc}m` : "";
-          statusEl.appendChild(document.createTextNode(`نشط - ${formatTime(loc.updatedAt)}${accText}`));
-        } else {
-          statusEl.appendChild(document.createTextNode("غير متصل"));
+
+          if (st.isOnline) statusEl.appendChild(document.createTextNode(`نشط - ${formatTime(loc.updatedAt)}${accText}`));
+          else if (st.isWarn) statusEl.appendChild(document.createTextNode(`متأخر شوي - ${formatTime(loc.updatedAt)}${accText}`));
+          else statusEl.appendChild(document.createTextNode("غير متصل"));
         }
 
         left.appendChild(nameEl);
@@ -739,32 +744,50 @@
       });
     }
 
-    // Markers
     function updateDriverMarkers() {
       if (!map) return;
 
       Object.keys(driverMarkers).forEach(id => {
         const loc = driversLocationsCache[id];
-        if (!loc || !loc.active) {
+        if (!loc) {
+          map.removeLayer(driverMarkers[id]);
+          delete driverMarkers[id];
+          return;
+        }
+        const st = calcLiveState(loc.updatedAt);
+        if (st.isStale) {
           map.removeLayer(driverMarkers[id]);
           delete driverMarkers[id];
         }
       });
 
       Object.entries(driversLocationsCache).forEach(([id, loc]) => {
-        if (!loc || !loc.active) return;
+        if (!loc) return;
         if (typeof loc.lat !== "number" || typeof loc.lng !== "number") return;
+
+        const st = calcLiveState(loc.updatedAt);
+        if (st.isStale) return;
 
         const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
         const accText = acc ? `<br/>الدقة: ±${acc}m` : "";
 
+        const stateText = st.isOnline ? "🟢 مباشر" : "🟡 آخر إشارة قديمة شوي";
+        const opacity = st.isOnline ? 1 : 0.55;
+
+        const popupHtml =
+          `مندوب: ${loc.name || id}<br/>` +
+          `الحالة: ${stateText}<br/>` +
+          `آخر تحديث: ${formatTime(loc.updatedAt)}${accText}`;
+
         if (!driverMarkers[id]) {
           const marker = L.marker([loc.lat, loc.lng], { title: loc.name || id }).addTo(map);
-          marker.bindPopup(`مندوب: ${loc.name || id}<br/>آخر تحديث: ${formatTime(loc.updatedAt)}${accText}`);
+          marker.setOpacity(opacity);
+          marker.bindPopup(popupHtml);
           driverMarkers[id] = marker;
         } else {
           driverMarkers[id].setLatLng([loc.lat, loc.lng]);
-          driverMarkers[id].setPopupContent(`مندوب: ${loc.name || id}<br/>آخر تحديث: ${formatTime(loc.updatedAt)}${accText}`);
+          driverMarkers[id].setOpacity(opacity);
+          driverMarkers[id].setPopupContent(popupHtml);
         }
       });
     }
@@ -792,7 +815,6 @@
       });
     }
 
-    // Clients lists + search
     function renderClientsLists() {
       clientsListDiv.innerHTML = "";
       driverClientsListDiv.innerHTML = "";
@@ -852,7 +874,6 @@
       driverFiltered.forEach(([id, c]) => driverClientsListDiv.appendChild(makeRow(c)));
     }
 
-    // DB ops
     function addDriver() {
       const name = newDriverNameInput.value.trim();
       const pin  = String(newDriverPinInput.value || "").trim();
@@ -877,7 +898,7 @@
     function deleteDriver(id) {
       if (!confirm("هل أنت متأكد من حذف هذا المندوب؟")) return;
       db.ref(`driversMeta/${id}`).remove();
-      db.ref(`driversLocations/${id}`).remove(); // يبقى كما هو
+      db.ref(`driversLocations/${id}`).remove();
     }
 
     function addClient() {
@@ -907,13 +928,11 @@
         });
     }
 
-    // Tracking (mandatory, no stop button)
     let lastSentAt = 0;
     const MIN_SEND_INTERVAL_MS = 3000;
     const MAX_BAD_ACCURACY = 1500;
 
     function startTrackingMandatory() {
-      // ✅ إذا نستخدم Traccar، ما نرسل GPS من الموقع
       if (USE_TRACCAR) {
         trackingStatus.textContent = "✅ التتبع يتم عبر تطبيق Traccar Client على هاتفك. افتحه وتأكد أنه شغال.";
         return;
@@ -996,7 +1015,6 @@
       }
     }
 
-    // Login actions
     managerLoginBtn.onclick = () => {
       if (managerPasswordInput.value !== MANAGER_PASSWORD) {
         managerLoginError.textContent = "كلمة المرور غير صحيحة.";
@@ -1009,7 +1027,6 @@
       subscribeDrivers();
       subscribeClients();
 
-      // ✅ ملاحظة واضحة للمدير إذا Traccar مفعّل
       if (USE_TRACCAR) {
         appStatus.textContent = "";
         managerAlert.textContent = managerAlert.textContent || "ℹ️ المواقع تُجلب من Traccar مباشرة (Token).";
@@ -1045,8 +1062,8 @@
       hide(loginCard);
       show(driverCard);
 
-      subscribeClients();          // show clients
-      startTrackingMandatory();    // ✅ now either Traccar message or web tracking fallback
+      subscribeClients();
+      startTrackingMandatory();
     };
 
     logoutDriverBtn.onclick = () => {
@@ -1056,7 +1073,6 @@
       hide(driverCard);
     };
 
-    // search bindings
     clientSearchManager.addEventListener("input", (e) => {
       clientSearchTextManager = e.target.value || "";
       renderClientsLists();
@@ -1070,10 +1086,8 @@
     addDriverBtn.onclick = addDriver;
     addClientBtn.onclick = addClient;
 
-    // preload select list
     subscribeDrivers();
 
-    // ping
     db.ref("_ping").set({ t: SERVER_TS }).catch(err => {
       console.warn("DB write blocked:", err);
       appStatus.textContent = "⚠️ قواعد Firebase تمنع الكتابة (Rules).";
