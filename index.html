@@ -204,6 +204,10 @@
             <option value="">-- اختر مندوب --</option>
           </select>
 
+          <!-- ✅ NEW: بحث داخل قائمة الزبائن للتسجيل -->
+          <label for="order-client-search">بحث الزبون</label>
+          <input id="order-client-search" type="text" placeholder="اكتب اسم الزبون للبحث..." />
+
           <label for="order-client-select">اختر الزبون</label>
           <select id="order-client-select">
             <option value="">-- اختر زبون --</option>
@@ -217,14 +221,21 @@
             <div class="tab active" data-tab="uncollected">غير مستلمة</div>
             <div class="tab" data-tab="collected">تم استلامها</div>
             <div class="tab" data-tab="returned">الراجعة</div>
+            <!-- ✅ NEW: المسجّلة تظهر عند الأدمن -->
+            <div class="tab" data-tab="registered">المسجّلة</div>
           </div>
 
           <div class="list" id="manager-orders-list"></div>
 
           <div class="sum-box" id="manager-sum-box">
-            <div class="small">مجموع المبالغ غير المستلمة</div>
+            <div class="small" id="manager-sum-label">مجموع المبالغ غير المستلمة</div>
             <div class="big" id="manager-uncollected-sum">0.000</div>
           </div>
+
+          <!-- ✅ NEW: قائمة كاملة للطلبات الراجعة لكل المندوبين -->
+          <hr style="border-color:#111827;margin:10px 0;" />
+          <h4>كل الطلبات الراجعة (لكل المندوبين)</h4>
+          <div class="list" id="manager-returned-all-list"></div>
           <!-- ========================= -->
         </div>
       </div>
@@ -617,12 +628,16 @@
 
     const orderDriverSelect = document.getElementById("order-driver-select");
     const orderClientSelect = document.getElementById("order-client-select");
+    const orderClientSearch = document.getElementById("order-client-search"); // ✅ NEW
     const addOrderBtn = document.getElementById("add-order-btn");
     const orderAddMsg = document.getElementById("order-add-msg");
 
     const managerOrdersTabs = document.getElementById("manager-orders-tabs");
     const managerOrdersList = document.getElementById("manager-orders-list");
     const managerUncollectedSumEl = document.getElementById("manager-uncollected-sum");
+    const managerSumLabel = document.getElementById("manager-sum-label"); // ✅ NEW
+
+    const managerReturnedAllList = document.getElementById("manager-returned-all-list"); // ✅ NEW
 
     const driverMapDiv = document.getElementById("driver-map");
     const driverOrdersList = document.getElementById("driver-orders-list");
@@ -641,6 +656,9 @@
     let driverSelfLatLng = null;   // {lat,lng}
 
     const NEARBY_METERS = 150;
+
+    // ✅ NEW: بحث select الزبون
+    let orderClientSearchText = "";
 
     // Helpers
     function show(el){ el.classList.remove("hidden"); }
@@ -835,6 +853,7 @@
 
         // ✅ NEW
         renderOrderClientSelect();
+        renderOrderClientSelectFiltered(); // ✅ NEW
       });
     }
 
@@ -872,6 +891,7 @@
       updateOrdersOnManagerMap();
       updateOrdersOnDriverMap();
       renderManagerOrdersList();
+      renderManagerReturnedAll(); // ✅ NEW
       renderDriverOrdersLists();
     }
 
@@ -1084,6 +1104,46 @@
     }
 
     // =========================
+    // ✅ NEW: Manager edit/delete orders (Added only)
+    // =========================
+    async function managerDeleteOrder(orderId){
+      if (!orderId) return;
+      if (!confirm("تأكيد حذف الطلب؟")) return;
+      await db.ref(`orders/${ordersWorkDate}/${orderId}`).remove();
+    }
+
+    async function managerEditOrder(orderId){
+      const o = ordersCache[orderId];
+      if (!o) return;
+
+      const newClientName = prompt("اسم الزبون داخل الطلب:", o.clientName || "");
+      if (newClientName == null) return;
+
+      const newLatStr = prompt("Latitude داخل الطلب:", String(o.lat ?? ""));
+      if (newLatStr == null) return;
+
+      const newLngStr = prompt("Longitude داخل الطلب:", String(o.lng ?? ""));
+      if (newLngStr == null) return;
+
+      const lat = Number(normalizeNumberText(newLatStr));
+      const lng = Number(normalizeNumberText(newLngStr));
+      if (!newClientName.trim() || Number.isNaN(lat) || Number.isNaN(lng)) {
+        alert("بيانات غير صحيحة.");
+        return;
+      }
+
+      const newDriverId = prompt("ID المندوب (اتركه فارغ بدون تغيير):", o.assignedDriverId || "");
+      let patch = { clientName: newClientName.trim(), lat, lng };
+
+      if (newDriverId && driversMetaCache[newDriverId]) {
+        patch.assignedDriverId = newDriverId;
+        patch.assignedDriverName = driverNameById(newDriverId);
+      }
+
+      await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
+    }
+
+    // =========================
     // ✅ NEW: Manager create order
     // =========================
     async function addOrder(){
@@ -1161,6 +1221,30 @@
       if (cur) orderClientSelect.value = cur;
     }
 
+    // ✅ NEW: فلترة select الزبائن حسب البحث
+    function renderOrderClientSelectFiltered(){
+      if (!orderClientSelect) return;
+
+      const cur = orderClientSelect.value;
+      const q = (orderClientSearchText || "").toLowerCase();
+
+      orderClientSelect.innerHTML = `<option value="">-- اختر زبون --</option>`;
+
+      Object.entries(clientsCache).forEach(([id, c])=>{
+        const name = (c && c.name) ? c.name : id;
+        if (q && !name.toLowerCase().includes(q)) return;
+
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = name;
+        orderClientSelect.appendChild(opt);
+      });
+
+      if (cur && Array.from(orderClientSelect.options).some(o=>o.value===cur)) {
+        orderClientSelect.value = cur;
+      }
+    }
+
     // =========================
     // ✅ NEW: Manager orders list render
     // =========================
@@ -1181,22 +1265,28 @@
         list = list.filter(x => x.status === "delivered" && x.cashCollected === true);
       } else if (tab === "returned") {
         list = list.filter(x => x.status === "returned");
+      } else if (tab === "registered") {
+        // ✅ NEW: المسجلة + القريبة
+        list = list.filter(x => x.status === "registered" || x.status === "nearby");
       }
 
       // sort newest first by relevant time
       list.sort((a,b)=>{
-        const ta = tsToMs(a.deliveredAt || a.returnedAt || a.createdAt || 0);
-        const tb = tsToMs(b.deliveredAt || b.returnedAt || b.createdAt || 0);
+        const ta = tsToMs(a.deliveredAt || a.returnedAt || a.nearbyAt || a.createdAt || 0);
+        const tb = tsToMs(b.deliveredAt || b.returnedAt || b.nearbyAt || b.createdAt || 0);
         return tb - ta;
       });
 
-      // sum for uncollected only
+      // sum label + sum
       let sum = 0;
       if (tab === "uncollected") {
         list.forEach(x=>{
           const v = Number(x.deliveredCash);
           if (Number.isFinite(v)) sum += v;
         });
+        if (managerSumLabel) managerSumLabel.textContent = "مجموع المبالغ غير المستلمة";
+      } else {
+        if (managerSumLabel) managerSumLabel.textContent = "المجموع";
       }
       managerUncollectedSumEl.textContent = formatIQD(sum);
 
@@ -1231,6 +1321,9 @@
         if (x.status === "returned") {
           extra += ` | سبب: ${x.returnReason ? x.returnReason : "-"}`;
         }
+        if (x.status === "nearby") {
+          extra += ` | قريب ✅`;
+        }
 
         meta.textContent = extra;
 
@@ -1253,6 +1346,11 @@
           pill.className = "pill";
           pill.innerHTML = `↩️ <b>راجع</b>`;
           right.appendChild(pill);
+        } else if (tab === "registered") {
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.innerHTML = `🟦 <b>نشط</b>`;
+          right.appendChild(pill);
         }
 
         const go = document.createElement("button");
@@ -1261,9 +1359,78 @@
         go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
         right.appendChild(go);
 
+        // ✅ NEW: تعديل/حذف للادمن
+        const edit = document.createElement("button");
+        edit.textContent = "تعديل";
+        edit.className = "secondary";
+        edit.onclick = ()=>managerEditOrder(x.id);
+        right.appendChild(edit);
+
+        const del = document.createElement("button");
+        del.textContent = "حذف";
+        del.className = "danger";
+        del.onclick = ()=>managerDeleteOrder(x.id);
+        right.appendChild(del);
+
         item.appendChild(left);
         item.appendChild(right);
         managerOrdersList.appendChild(item);
+      });
+    }
+
+    // ✅ NEW: قائمة كاملة للطلبات الراجعة لكل المندوبين
+    function renderManagerReturnedAll(){
+      if (!managerReturnedAllList) return;
+
+      const list = Object.entries(ordersCache || {})
+        .map(([id,o])=>({id, ...o}))
+        .filter(x => x.status === "returned")
+        .sort((a,b)=>tsToMs(b.returnedAt||0)-tsToMs(a.returnedAt||0));
+
+      managerReturnedAllList.innerHTML = "";
+      if (!list.length){
+        managerReturnedAllList.innerHTML = `<div class="small">لا يوجد طلبات راجعة.</div>`;
+        return;
+      }
+
+      list.forEach(x=>{
+        const item = document.createElement("div");
+        item.className = "list-item";
+
+        const left = document.createElement("div");
+        const right = document.createElement("div");
+
+        const title = document.createElement("strong");
+        title.textContent = x.clientName || "زبون";
+
+        const meta = document.createElement("div");
+        meta.className = "small";
+        meta.textContent = `مندوب: ${driverNameById(x.assignedDriverId)} | سبب: ${x.returnReason ? x.returnReason : "-"} | ${formatTime(x.returnedAt)}`;
+
+        left.appendChild(title);
+        left.appendChild(meta);
+
+        const go = document.createElement("button");
+        go.textContent = "اتجاه";
+        go.className = "secondary";
+        go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
+        right.appendChild(go);
+
+        const edit = document.createElement("button");
+        edit.textContent = "تعديل";
+        edit.className = "secondary";
+        edit.onclick = ()=>managerEditOrder(x.id);
+        right.appendChild(edit);
+
+        const del = document.createElement("button");
+        del.textContent = "حذف";
+        del.className = "danger";
+        del.onclick = ()=>managerDeleteOrder(x.id);
+        right.appendChild(del);
+
+        item.appendChild(left);
+        item.appendChild(right);
+        managerReturnedAllList.appendChild(item);
       });
     }
 
@@ -1621,6 +1788,35 @@
       });
     }
 
+    // ✅ NEW: تعديل/حذف الزبون للأدمن (Added only)
+    function editClient(id){
+      const c = clientsCache[id];
+      if (!c) return;
+
+      const newName = prompt("اسم الزبون الجديد:", c.name || "");
+      if (newName == null) return;
+
+      const newLatStr = prompt("Latitude:", String(c.lat ?? ""));
+      if (newLatStr == null) return;
+
+      const newLngStr = prompt("Longitude:", String(c.lng ?? ""));
+      if (newLngStr == null) return;
+
+      const lat = Number(normalizeNumberText(newLatStr));
+      const lng = Number(normalizeNumberText(newLngStr));
+      if (!newName.trim() || Number.isNaN(lat) || Number.isNaN(lng)) {
+        alert("بيانات غير صحيحة.");
+        return;
+      }
+
+      db.ref(`clients/${id}`).update({ name: newName.trim(), lat, lng });
+    }
+
+    function deleteClient(id){
+      if (!confirm("تأكيد حذف هذا الزبون؟")) return;
+      db.ref(`clients/${id}`).remove();
+    }
+
     function renderClientsLists() {
       clientsListDiv.innerHTML = "";
       driverClientsListDiv.innerHTML = "";
@@ -1673,8 +1869,29 @@
         return item;
       }
 
+      // ✅ NEW: نسخة للمدير تضيف تعديل/حذف بدون حذف makeRow القديم
+      function makeRowManager(id, c){
+        const item = makeRow(c);
+        const right = item.lastChild;
+
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "تعديل";
+        editBtn.className = "secondary";
+        editBtn.onclick = ()=>editClient(id);
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "حذف";
+        delBtn.className = "danger";
+        delBtn.onclick = ()=>deleteClient(id);
+
+        right.appendChild(editBtn);
+        right.appendChild(delBtn);
+
+        return item;
+      }
+
       if (!managerFiltered.length) clientsListDiv.innerHTML = '<div class="small">لا توجد نتائج.</div>';
-      managerFiltered.forEach(([id, c]) => clientsListDiv.appendChild(makeRow(c)));
+      managerFiltered.forEach(([id, c]) => clientsListDiv.appendChild(makeRowManager(id, c)));
 
       if (!driverFiltered.length) driverClientsListDiv.innerHTML = '<div class="small">لا توجد نتائج.</div>';
       driverFiltered.forEach(([id, c]) => driverClientsListDiv.appendChild(makeRow(c)));
@@ -1928,6 +2145,7 @@
 
     managerDriverFilter.addEventListener("change", ()=>{
       renderManagerOrdersList();
+      renderManagerReturnedAll();
     });
 
     managerOrdersTabs.addEventListener("click", (e)=>{
@@ -1946,6 +2164,14 @@
       driverOrderSearchText = e.target.value || "";
       renderDriverOrdersLists();
     });
+
+    // ✅ NEW: بحث الزبون أثناء تسجيل الطلب
+    if (orderClientSearch) {
+      orderClientSearch.addEventListener("input", (e)=>{
+        orderClientSearchText = e.target.value || "";
+        renderOrderClientSelectFiltered();
+      });
+    }
 
     // preload select list
     subscribeDrivers();
