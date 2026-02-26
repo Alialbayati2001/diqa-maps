@@ -59,6 +59,19 @@
     .driver-pin.online{background:#22c55e}
     .driver-pin.warn{background:#f59e0b}
     .driver-pin.offline{background:#6b7280}
+
+    /* =========================
+       ✅ NEW UI for Orders (Added only)
+       ========================= */
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+    .tab{padding:6px 10px;border-radius:999px;border:1px solid #1f2937;background:#020617;color:#9ca3af;cursor:pointer;font-size:12px}
+    .tab.active{background:#22c55e;color:#020617;border-color:#22c55e;font-weight:800}
+    .pill{display:inline-flex;gap:6px;align-items:center;padding:3px 8px;border-radius:999px;border:1px solid #1f2937;background:#020617;color:#9ca3af;font-size:11px}
+    .pill b{color:#e5e7eb}
+    .sum-box{margin-top:8px;padding:10px;border-radius:14px;border:1px solid #1f2937;background:#020617}
+    .sum-box .big{font-size:18px;font-weight:900;color:#e5e7eb}
+    #driver-map{width:100%;height:420px;border-radius:16px;overflow:hidden;margin-top:10px;border:1px solid #1f2937}
+    .hint{color:#cbd5e1;font-size:12px;line-height:1.5}
   </style>
 </head>
 
@@ -116,6 +129,18 @@
               <input type="checkbox" id="beep-toggle" class="cb" checked>
               تنبيه صوتي
             </label>
+
+            <!-- ✅ NEW: Day selector for daily pages (today/yesterday only) -->
+            <span class="badge">اليوم/أمس (طلبات يومية)</span>
+            <select id="manager-day-select" style="max-width:180px;">
+              <option value="today">اليوم</option>
+              <option value="yesterday">أمس</option>
+            </select>
+
+            <!-- ✅ NEW: Filter driver for cash/returned lists -->
+            <select id="manager-driver-filter" style="max-width:240px;">
+              <option value="">كل المندوبين</option>
+            </select>
           </div>
         </div>
         <div class="col" style="text-align:left;">
@@ -126,6 +151,7 @@
       <div class="row">
         <div class="col">
           <h3>الخريطة</h3>
+          <div class="hint">✅ الطلبات تظهر كمربعات على الخريطة حسب الحالة: مسجل 🟦 / قريب 🟨 / تم التسليم 🟩 / راجع 🟥</div>
           <div id="map"></div>
         </div>
 
@@ -160,6 +186,46 @@
           <input id="client-search-manager" type="text" placeholder="اكتب اسم الزبون..." />
 
           <div class="list" id="clients-list"></div>
+
+          <!-- =========================
+               ✅ NEW: Orders (Manager) - Added only
+               ========================= -->
+          <hr style="border-color:#111827;margin:10px 0;" />
+          <h3>الطلبات (يومية)</h3>
+
+          <div class="hint">
+            ✅ تسجّل طلب على مندوب → يظهر عند الاثنين كمربع على الخريطة.<br/>
+            ✅ المندوب عند القرب يختار: تم التسليم (مبلغ إجباري حتى لو 0) أو راجع.
+          </div>
+
+          <h4>تسجيل طلب على مندوب</h4>
+          <label for="order-driver-select">اختر المندوب</label>
+          <select id="order-driver-select">
+            <option value="">-- اختر مندوب --</option>
+          </select>
+
+          <label for="order-client-select">اختر الزبون</label>
+          <select id="order-client-select">
+            <option value="">-- اختر زبون --</option>
+          </select>
+
+          <button id="add-order-btn">تسجيل الطلب على المندوب</button>
+          <p class="small" id="order-add-msg"></p>
+
+          <h4>متابعة التحصيل / الراجع</h4>
+          <div class="tabs" id="manager-orders-tabs">
+            <div class="tab active" data-tab="uncollected">غير مستلمة</div>
+            <div class="tab" data-tab="collected">تم استلامها</div>
+            <div class="tab" data-tab="returned">الراجعة</div>
+          </div>
+
+          <div class="list" id="manager-orders-list"></div>
+
+          <div class="sum-box" id="manager-sum-box">
+            <div class="small">مجموع المبالغ غير المستلمة</div>
+            <div class="big" id="manager-uncollected-sum">0.000</div>
+          </div>
+          <!-- ========================= -->
         </div>
       </div>
     </div>
@@ -170,6 +236,15 @@
         <div class="col">
           <h2>لوحة المندوب</h2>
           <p class="small">مشاركة الموقع تعمل تلقائيًا (إجباري).</p>
+
+          <!-- ✅ NEW: Day selector (today/yesterday) -->
+          <div class="inline-actions">
+            <span class="badge">اليوم/أمس (طلبات يومية)</span>
+            <select id="driver-day-select" style="max-width:180px;">
+              <option value="today">اليوم</option>
+              <option value="yesterday">أمس</option>
+            </select>
+          </div>
         </div>
         <div class="col" style="text-align:left;">
           <button class="secondary" id="logout-driver">تسجيل الخروج</button>
@@ -178,6 +253,30 @@
 
       <p>المندوب: <strong id="current-driver-name"></strong></p>
       <p class="small" id="tracking-status"></p>
+
+      <hr style="border-color:#111827;margin:10px 0;" />
+
+      <!-- ✅ NEW: Driver map + orders -->
+      <h3>طلباتك على الخريطة</h3>
+      <div class="hint">✅ إذا اقتربت من الطلب (≤ 150 متر) يظهر لك خيار: تم التسليم أو راجع.</div>
+      <div id="driver-map"></div>
+
+      <div class="row" style="margin-top:12px;">
+        <div class="col">
+          <h3>طلبات اليوم</h3>
+          <label for="order-search-driver">بحث باسم الزبون (طلبات)</label>
+          <input id="order-search-driver" type="text" placeholder="اكتب اسم الزبون..." />
+          <div class="list" id="driver-orders-list"></div>
+        </div>
+        <div class="col">
+          <h3>تم التسليم</h3>
+          <div class="list" id="driver-delivered-list"></div>
+          <div class="sum-box">
+            <div class="small">مجموع مبالغ التسليم (حسب اليوم المختار)</div>
+            <div class="big" id="driver-delivered-sum">0.000</div>
+          </div>
+        </div>
+      </div>
 
       <hr style="border-color:#111827;margin:10px 0;" />
 
@@ -397,6 +496,10 @@
         updateDriverMarkers();
         updateManagerAlertAndNotify();
 
+        // ✅ NEW: update driver page live location + nearby status
+        updateDriverSelfLocationFromCache();
+        refreshOrdersUIAndMap(); // will only act if orders subscriptions active
+
       } catch (e) {
         console.error("Traccar fetch error:", e);
         if (managerAlert) {
@@ -505,6 +608,40 @@
     let clientSearchTextManager = "";
     let clientSearchTextDriver = "";
 
+    // =========================
+    // ✅ NEW: Orders State (Added only)
+    // =========================
+    const managerDaySelect = document.getElementById("manager-day-select");
+    const driverDaySelect  = document.getElementById("driver-day-select");
+    const managerDriverFilter = document.getElementById("manager-driver-filter");
+
+    const orderDriverSelect = document.getElementById("order-driver-select");
+    const orderClientSelect = document.getElementById("order-client-select");
+    const addOrderBtn = document.getElementById("add-order-btn");
+    const orderAddMsg = document.getElementById("order-add-msg");
+
+    const managerOrdersTabs = document.getElementById("manager-orders-tabs");
+    const managerOrdersList = document.getElementById("manager-orders-list");
+    const managerUncollectedSumEl = document.getElementById("manager-uncollected-sum");
+
+    const driverMapDiv = document.getElementById("driver-map");
+    const driverOrdersList = document.getElementById("driver-orders-list");
+    const driverDeliveredList = document.getElementById("driver-delivered-list");
+    const driverDeliveredSumEl = document.getElementById("driver-delivered-sum");
+    const orderSearchDriver = document.getElementById("order-search-driver");
+
+    let managerOrdersTab = "uncollected";
+    let ordersCache = {};          // { orderId: order }
+    let ordersWorkDate = "";       // active workDate for subscription
+    let ordersUnsubRef = null;
+
+    let driverMap = null;
+    let orderLayersManager = {};   // rectangles on manager map
+    let orderLayersDriver  = {};   // rectangles on driver map
+    let driverSelfLatLng = null;   // {lat,lng}
+
+    const NEARBY_METERS = 150;
+
     // Helpers
     function show(el){ el.classList.remove("hidden"); }
     function hide(el){ el.classList.add("hidden"); }
@@ -532,6 +669,63 @@
 
     function isPin4(pin) {
       return /^\d{4}$/.test(String(pin || "").trim());
+    }
+
+    // =========================
+    // ✅ NEW: WorkDate (today/yesterday) helpers
+    // =========================
+    function toISODateLocal(d){
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,"0");
+      const day = String(d.getDate()).padStart(2,"0");
+      return `${y}-${m}-${day}`;
+    }
+    function getWorkDateByKey(key){
+      const now = new Date();
+      if (key === "yesterday"){
+        const yd = new Date(now);
+        yd.setDate(now.getDate()-1);
+        return toISODateLocal(yd);
+      }
+      return toISODateLocal(now);
+    }
+    function getActiveWorkDate(){
+      // manager or driver: whichever is visible
+      if (!managerCard.classList.contains("hidden")) return getWorkDateByKey(managerDaySelect.value || "today");
+      return getWorkDateByKey(driverDaySelect.value || "today");
+    }
+
+    // =========================
+    // ✅ NEW: Money format (IQD with commas + 3 decimals)
+    // =========================
+    function formatIQD(n){
+      const x = Number(n);
+      const v = Number.isFinite(x) ? x : 0;
+      return new Intl.NumberFormat("en-US", { minimumFractionDigits:3, maximumFractionDigits:3 }).format(v);
+    }
+
+    // =========================
+    // ✅ NEW: Distance (Haversine)
+    // =========================
+    function haversineMeters(lat1, lon1, lat2, lon2){
+      const R = 6371000;
+      const toRad = (a)=>a*Math.PI/180;
+      const dLat = toRad(lat2-lat1);
+      const dLon = toRad(lon2-lon1);
+      const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+      const c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R*c;
+    }
+
+    // =========================
+    // ✅ NEW: Driver self location update
+    // =========================
+    function updateDriverSelfLocationFromCache(){
+      if (!currentDriverId) return;
+      const loc = driversLocationsCache[currentDriverId];
+      if (loc && typeof loc.lat === "number" && typeof loc.lng === "number") {
+        driverSelfLatLng = { lat: loc.lat, lng: loc.lng };
+      }
     }
 
     function changeDriverName(id) {
@@ -596,12 +790,26 @@
       }).addTo(map);
     }
 
+    // ✅ NEW: init driver map
+    function initDriverMap(){
+      if (driverMap) return;
+      driverMap = L.map("driver-map").setView([33.3152, 44.3661], 12);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap"
+      }).addTo(driverMap);
+    }
+
     function subscribeDrivers() {
       db.ref("driversMeta").on("value", snap => {
         driversMetaCache = snap.val() || {};
         renderDriversSelect();
         renderDriversList();
         updateManagerAlertAndNotify();
+
+        // ✅ NEW: fill filters/selects
+        renderManagerDriverFilter();
+        renderOrderDriverSelect();
       });
 
       db.ref("driversLocations").on("value", snap => {
@@ -610,6 +818,10 @@
         renderDriversList();
         updateDriverMarkers();
         updateManagerAlertAndNotify();
+
+        // ✅ NEW
+        updateDriverSelfLocationFromCache();
+        refreshOrdersUIAndMap();
       });
 
       if (USE_TRACCAR) startTraccarPolling();
@@ -620,7 +832,585 @@
         clientsCache = snap.val() || {};
         renderClientsLists();
         updateClientMarkers();
+
+        // ✅ NEW
+        renderOrderClientSelect();
       });
+    }
+
+    // =========================
+    // ✅ NEW: Orders subscribe (Realtime)
+    // =========================
+    function unsubscribeOrders(){
+      if (ordersUnsubRef && typeof ordersUnsubRef.off === "function") {
+        ordersUnsubRef.off();
+      }
+      ordersUnsubRef = null;
+      ordersCache = {};
+      ordersWorkDate = "";
+      refreshOrdersUIAndMap();
+    }
+
+    function subscribeOrdersFor(workDate){
+      if (!workDate) return;
+      if (ordersWorkDate === workDate) return;
+
+      unsubscribeOrders();
+
+      ordersWorkDate = workDate;
+      const ref = db.ref(`orders/${workDate}`);
+      ordersUnsubRef = ref;
+
+      ref.on("value", snap => {
+        ordersCache = snap.val() || {};
+        refreshOrdersUIAndMap();
+      });
+    }
+
+    function refreshOrdersUIAndMap(){
+      // update manager lists + driver lists + rectangles
+      updateOrdersOnManagerMap();
+      updateOrdersOnDriverMap();
+      renderManagerOrdersList();
+      renderDriverOrdersLists();
+    }
+
+    // =========================
+    // ✅ NEW: Orders drawing (rectangles)
+    // =========================
+    function orderColorByStatus(o){
+      const st = (o && o.status) ? o.status : "registered";
+      if (st === "delivered") return "#22c55e";   // green
+      if (st === "returned") return "#ef4444";    // red
+      if (st === "nearby") return "#f59e0b";      // yellow/orange
+      return "#3b82f6";                           // blue for registered
+    }
+
+    function makeRectBounds(lat, lng){
+      // small square around point
+      const d = 0.00035; // ~ 35-40m (rough)
+      return [[lat - d, lng - d], [lat + d, lng + d]];
+    }
+
+    function clearOrderLayers(layerMap, leafletMap){
+      Object.keys(layerMap).forEach(id=>{
+        try { leafletMap.removeLayer(layerMap[id]); } catch(e){}
+        delete layerMap[id];
+      });
+    }
+
+    function updateOrdersOnManagerMap(){
+      if (!map) return;
+
+      // remove stale
+      Object.keys(orderLayersManager).forEach(orderId=>{
+        if (!ordersCache[orderId]) {
+          map.removeLayer(orderLayersManager[orderId]);
+          delete orderLayersManager[orderId];
+        }
+      });
+
+      Object.entries(ordersCache).forEach(([orderId, o])=>{
+        if (!o || typeof o.lat !== "number" || typeof o.lng !== "number") return;
+
+        const color = orderColorByStatus(o);
+        const bounds = makeRectBounds(o.lat, o.lng);
+
+        const popupHtml =
+          `طلب: <b>${o.clientName || "زبون"}</b><br/>` +
+          `الحالة: <b>${statusLabel(o.status)}</b><br/>` +
+          `مندوب: <b>${driverNameById(o.assignedDriverId)}</b><br/>` +
+          (o.status === "delivered" ? `المبلغ: <b>${formatIQD(o.deliveredCash)}</b><br/>` : "") +
+          (o.status === "returned" ? `وقت الرجوع: <b>${formatTime(o.returnedAt)}</b><br/>` : "") +
+          `<span class="small">اليوم: ${ordersWorkDate}</span>`;
+
+        if (!orderLayersManager[orderId]) {
+          const rect = L.rectangle(bounds, { color, weight:2, fillOpacity:0.35 });
+          rect.addTo(map);
+          rect.bindPopup(popupHtml);
+          orderLayersManager[orderId] = rect;
+        } else {
+          orderLayersManager[orderId].setBounds(bounds);
+          orderLayersManager[orderId].setStyle({ color });
+          orderLayersManager[orderId].setPopupContent(popupHtml);
+        }
+      });
+    }
+
+    function updateOrdersOnDriverMap(){
+      if (!driverMap) return;
+
+      // remove stale
+      Object.keys(orderLayersDriver).forEach(orderId=>{
+        if (!ordersCache[orderId]) {
+          driverMap.removeLayer(orderLayersDriver[orderId]);
+          delete orderLayersDriver[orderId];
+        }
+      });
+
+      Object.entries(ordersCache).forEach(([orderId, o])=>{
+        if (!o || typeof o.lat !== "number" || typeof o.lng !== "number") return;
+        if (!currentDriverId) return;
+        if (o.assignedDriverId !== currentDriverId) return; // driver sees only own orders
+
+        // nearby auto detection (if we have driver location)
+        const isNearby = driverSelfLatLng
+          ? (haversineMeters(driverSelfLatLng.lat, driverSelfLatLng.lng, o.lat, o.lng) <= NEARBY_METERS)
+          : false;
+
+        // auto set nearby (without forcing if delivered/returned)
+        if ((o.status === "registered" || o.status === "nearby") && isNearby && o.status !== "nearby") {
+          // update to nearby
+          db.ref(`orders/${ordersWorkDate}/${orderId}`).update({ status: "nearby", nearbyAt: SERVER_TS }).catch(()=>{});
+        }
+        if (o.status === "nearby" && !isNearby) {
+          // optional: revert to registered if moved away
+          db.ref(`orders/${ordersWorkDate}/${orderId}`).update({ status: "registered" }).catch(()=>{});
+        }
+
+        const color = orderColorByStatus(o);
+        const bounds = makeRectBounds(o.lat, o.lng);
+
+        const actionsHint = (o.status === "nearby")
+          ? `<br/><b>قريب ✅</b> (تقدر تسوي: تم التسليم / راجع)`
+          : "";
+
+        const popupHtml =
+          `طلب: <b>${o.clientName || "زبون"}</b><br/>` +
+          `الحالة: <b>${statusLabel(o.status)}</b>` +
+          actionsHint +
+          (o.status === "delivered" ? `<br/>المبلغ: <b>${formatIQD(o.deliveredCash)}</b>` : "") +
+          (o.status === "returned" ? `<br/>سبب: <b>${escapeHtml(o.returnReason || "")}</b>` : "") +
+          `<br/><span class="small">${ordersWorkDate}</span>`;
+
+        if (!orderLayersDriver[orderId]) {
+          const rect = L.rectangle(bounds, { color, weight:2, fillOpacity:0.35 });
+          rect.addTo(driverMap);
+          rect.bindPopup(popupHtml);
+
+          rect.on("click", () => {
+            // if nearby allow actions
+            if (o.status === "nearby") {
+              driverOrderAction(orderId, o);
+            }
+          });
+
+          orderLayersDriver[orderId] = rect;
+        } else {
+          orderLayersDriver[orderId].setBounds(bounds);
+          orderLayersDriver[orderId].setStyle({ color });
+          orderLayersDriver[orderId].setPopupContent(popupHtml);
+        }
+      });
+    }
+
+    function statusLabel(st){
+      const s = String(st || "registered");
+      if (s === "registered") return "مسجل";
+      if (s === "nearby") return "قريب";
+      if (s === "delivered") return "تم التسليم";
+      if (s === "returned") return "راجع";
+      return s;
+    }
+
+    function driverNameById(id){
+      if (!id) return "-";
+      const m = driversMetaCache[id];
+      return (m && m.name) ? m.name : id;
+    }
+
+    function escapeHtml(str){
+      return String(str || "")
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#039;");
+    }
+
+    // =========================
+    // ✅ NEW: Driver actions (deliver/return)
+    // =========================
+    async function driverOrderAction(orderId, o){
+      if (!currentDriverId) return;
+      if (!o || o.assignedDriverId !== currentDriverId) return;
+
+      const choice = prompt("اكتب رقم الخيار:\n1) تم التسليم\n2) الطلب راجع", "1");
+      if (!choice) return;
+
+      if (String(choice).trim() === "1") {
+        // delivered: amount required (even 0)
+        let amountStr = prompt("اكتب مبلغ الاستلام (إجباري حتى لو 0):", "0");
+        if (amountStr == null) return;
+
+        amountStr = normalizeNumberText(amountStr);
+        const amount = Number(amountStr);
+
+        if (!Number.isFinite(amount)) {
+          alert("المبلغ غير صحيح.");
+          return;
+        }
+
+        await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
+          status: "delivered",
+          deliveredCash: amount,
+          deliveredAt: SERVER_TS,
+          cashCollected: false
+        });
+
+        alert("تم تسجيل (تم التسليم) ✅");
+      } else if (String(choice).trim() === "2") {
+        const reason = prompt("سبب الرجوع (اختياري):", "");
+        await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
+          status: "returned",
+          returnedAt: SERVER_TS,
+          returnReason: (reason || "").trim() || null,
+          cashCollected: false
+        });
+        alert("تم تسجيل (راجع) ✅");
+      }
+    }
+
+    // =========================
+    // ✅ NEW: Manager actions (collect cash)
+    // =========================
+    async function managerMarkCashCollected(orderId){
+      if (!orderId) return;
+      if (!confirm("تأكيد: تم استلام المبلغ لهذا الطلب؟")) return;
+      await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
+        cashCollected: true,
+        cashCollectedAt: SERVER_TS
+      });
+    }
+
+    // =========================
+    // ✅ NEW: Manager create order
+    // =========================
+    async function addOrder(){
+      const driverId = orderDriverSelect.value;
+      const clientId = orderClientSelect.value;
+
+      if (!driverId) { orderAddMsg.textContent = "اختر المندوب."; return; }
+      if (!clientId) { orderAddMsg.textContent = "اختر الزبون."; return; }
+
+      const c = clientsCache[clientId];
+      if (!c || typeof c.lat !== "number" || typeof c.lng !== "number") {
+        orderAddMsg.textContent = "بيانات الزبون غير كاملة.";
+        return;
+      }
+
+      const workDate = getWorkDateByKey(managerDaySelect.value || "today");
+      const ref = db.ref(`orders/${workDate}`).push();
+
+      const payload = {
+        workDate,
+        assignedDriverId: driverId,
+        assignedDriverName: driverNameById(driverId),
+        clientId,
+        clientName: c.name || "زبون",
+        lat: c.lat,
+        lng: c.lng,
+        status: "registered",
+        cashCollected: false,
+        createdAt: SERVER_TS
+      };
+
+      try {
+        await ref.set(payload);
+        orderAddMsg.textContent = "تم تسجيل الطلب ✅";
+        setTimeout(()=>orderAddMsg.textContent="", 2000);
+      } catch(e) {
+        console.error(e);
+        orderAddMsg.textContent = "فشل تسجيل الطلب (Rules).";
+      }
+    }
+
+    function renderManagerDriverFilter(){
+      const cur = managerDriverFilter.value;
+      managerDriverFilter.innerHTML = `<option value="">كل المندوبين</option>`;
+      Object.entries(driversMetaCache).forEach(([id, d])=>{
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = d && d.name ? d.name : id;
+        managerDriverFilter.appendChild(opt);
+      });
+      managerDriverFilter.value = cur || "";
+    }
+
+    function renderOrderDriverSelect(){
+      const cur = orderDriverSelect.value;
+      orderDriverSelect.innerHTML = `<option value="">-- اختر مندوب --</option>`;
+      Object.entries(driversMetaCache).forEach(([id, d])=>{
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = d && d.name ? d.name : id;
+        orderDriverSelect.appendChild(opt);
+      });
+      if (cur) orderDriverSelect.value = cur;
+    }
+
+    function renderOrderClientSelect(){
+      const cur = orderClientSelect.value;
+      orderClientSelect.innerHTML = `<option value="">-- اختر زبون --</option>`;
+      Object.entries(clientsCache).forEach(([id, c])=>{
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = (c && c.name) ? c.name : id;
+        orderClientSelect.appendChild(opt);
+      });
+      if (cur) orderClientSelect.value = cur;
+    }
+
+    // =========================
+    // ✅ NEW: Manager orders list render
+    // =========================
+    function renderManagerOrdersList(){
+      if (!managerOrdersList) return;
+
+      const filterDriver = managerDriverFilter.value || "";
+      const tab = managerOrdersTab;
+
+      const entries = Object.entries(ordersCache || {});
+      let list = entries.map(([id, o]) => ({ id, ...o }));
+
+      if (filterDriver) list = list.filter(x => x.assignedDriverId === filterDriver);
+
+      if (tab === "uncollected") {
+        list = list.filter(x => x.status === "delivered" && x.cashCollected === false);
+      } else if (tab === "collected") {
+        list = list.filter(x => x.status === "delivered" && x.cashCollected === true);
+      } else if (tab === "returned") {
+        list = list.filter(x => x.status === "returned");
+      }
+
+      // sort newest first by relevant time
+      list.sort((a,b)=>{
+        const ta = tsToMs(a.deliveredAt || a.returnedAt || a.createdAt || 0);
+        const tb = tsToMs(b.deliveredAt || b.returnedAt || b.createdAt || 0);
+        return tb - ta;
+      });
+
+      // sum for uncollected only
+      let sum = 0;
+      if (tab === "uncollected") {
+        list.forEach(x=>{
+          const v = Number(x.deliveredCash);
+          if (Number.isFinite(v)) sum += v;
+        });
+      }
+      managerUncollectedSumEl.textContent = formatIQD(sum);
+
+      // UI
+      managerOrdersList.innerHTML = "";
+      if (!list.length) {
+        managerOrdersList.innerHTML = `<div class="small">لا يوجد بيانات.</div>`;
+        return;
+      }
+
+      list.forEach(x=>{
+        const item = document.createElement("div");
+        item.className = "list-item";
+
+        const left = document.createElement("div");
+        const right = document.createElement("div");
+
+        const title = document.createElement("strong");
+        title.textContent = x.clientName || "زبون";
+
+        const meta = document.createElement("div");
+        meta.className = "small";
+
+        const drv = driverNameById(x.assignedDriverId);
+        const st = statusLabel(x.status);
+
+        let extra = ` | مندوب: ${drv} | ${st}`;
+        if (x.status === "delivered") {
+          extra += ` | مبلغ: ${formatIQD(x.deliveredCash)}`;
+          extra += x.cashCollected ? " | ✅ تم الاستلام" : " | 💰 غير مستلم";
+        }
+        if (x.status === "returned") {
+          extra += ` | سبب: ${x.returnReason ? x.returnReason : "-"}`;
+        }
+
+        meta.textContent = extra;
+
+        left.appendChild(title);
+        left.appendChild(meta);
+
+        if (tab === "uncollected") {
+          const btn = document.createElement("button");
+          btn.textContent = "تم استلام المبلغ";
+          btn.className = "secondary";
+          btn.onclick = ()=>managerMarkCashCollected(x.id);
+          right.appendChild(btn);
+        } else if (tab === "collected") {
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.innerHTML = `✅ <b>تم الاستلام</b>`;
+          right.appendChild(pill);
+        } else if (tab === "returned") {
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.innerHTML = `↩️ <b>راجع</b>`;
+          right.appendChild(pill);
+        }
+
+        const go = document.createElement("button");
+        go.textContent = "اتجاه";
+        go.className = "secondary";
+        go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
+        right.appendChild(go);
+
+        item.appendChild(left);
+        item.appendChild(right);
+        managerOrdersList.appendChild(item);
+      });
+    }
+
+    // =========================
+    // ✅ NEW: Driver orders list render
+    // =========================
+    let driverOrderSearchText = "";
+    function renderDriverOrdersLists(){
+      if (!currentDriverId) return;
+      if (!driverOrdersList || !driverDeliveredList) return;
+
+      const q = (driverOrderSearchText || "").toLowerCase();
+
+      const list = Object.entries(ordersCache || {})
+        .map(([id,o])=>({id, ...o}))
+        .filter(x=>x.assignedDriverId === currentDriverId);
+
+      const active = list.filter(x => x.status !== "delivered" && x.status !== "returned");
+      const delivered = list.filter(x => x.status === "delivered");
+      const returned = list.filter(x => x.status === "returned");
+
+      const activeFiltered = active.filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
+      const deliveredFiltered = delivered.filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
+
+      // active list
+      driverOrdersList.innerHTML = "";
+      if (!activeFiltered.length) {
+        driverOrdersList.innerHTML = `<div class="small">لا توجد طلبات نشطة.</div>`;
+      } else {
+        activeFiltered.sort((a,b)=>tsToMs(a.createdAt||0)-tsToMs(b.createdAt||0));
+        activeFiltered.forEach(x=>{
+          const item = document.createElement("div");
+          item.className = "list-item";
+
+          const left = document.createElement("div");
+          const right = document.createElement("div");
+
+          const title = document.createElement("strong");
+          title.textContent = x.clientName || "زبون";
+
+          const meta = document.createElement("div");
+          meta.className = "small";
+          meta.textContent = `الحالة: ${statusLabel(x.status)}`;
+
+          left.appendChild(title);
+          left.appendChild(meta);
+
+          const go = document.createElement("button");
+          go.textContent = "اتجاه";
+          go.className = "secondary";
+          go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
+
+          right.appendChild(go);
+
+          // if nearby -> quick action
+          if (x.status === "nearby") {
+            const act = document.createElement("button");
+            act.textContent = "تحديث";
+            act.className = "";
+            act.onclick = ()=>driverOrderAction(x.id, x);
+            right.appendChild(act);
+          }
+
+          item.appendChild(left);
+          item.appendChild(right);
+          driverOrdersList.appendChild(item);
+        });
+      }
+
+      // delivered list + sum
+      driverDeliveredList.innerHTML = "";
+      let sum = 0;
+      if (!deliveredFiltered.length && !returned.length) {
+        driverDeliveredList.innerHTML = `<div class="small">لا توجد بيانات.</div>`;
+      } else {
+        deliveredFiltered.sort((a,b)=>tsToMs(b.deliveredAt||0)-tsToMs(a.deliveredAt||0));
+        deliveredFiltered.forEach(x=>{
+          const item = document.createElement("div");
+          item.className = "list-item";
+
+          const left = document.createElement("div");
+          const right = document.createElement("div");
+
+          const title = document.createElement("strong");
+          title.textContent = x.clientName || "زبون";
+
+          const meta = document.createElement("div");
+          meta.className = "small";
+          const v = Number(x.deliveredCash);
+          if (Number.isFinite(v)) sum += v;
+
+          meta.textContent = `مبلغ: ${formatIQD(x.deliveredCash)} | ${x.cashCollected ? "✅ تم الاستلام" : "💰 غير مستلم"}`;
+
+          left.appendChild(title);
+          left.appendChild(meta);
+
+          const go = document.createElement("button");
+          go.textContent = "اتجاه";
+          go.className = "secondary";
+          go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
+          right.appendChild(go);
+
+          item.appendChild(left);
+          item.appendChild(right);
+          driverDeliveredList.appendChild(item);
+        });
+
+        // returned section appended
+        if (returned.length) {
+          const sep = document.createElement("div");
+          sep.className = "small";
+          sep.style.margin = "8px 0";
+          sep.textContent = "الطلبات الراجعة:";
+          driverDeliveredList.appendChild(sep);
+
+          returned.sort((a,b)=>tsToMs(b.returnedAt||0)-tsToMs(a.returnedAt||0));
+          returned.forEach(x=>{
+            const item = document.createElement("div");
+            item.className = "list-item";
+
+            const left = document.createElement("div");
+            const right = document.createElement("div");
+
+            const title = document.createElement("strong");
+            title.textContent = x.clientName || "زبون";
+
+            const meta = document.createElement("div");
+            meta.className = "small";
+            meta.textContent = `راجع | سبب: ${x.returnReason ? x.returnReason : "-"}`;
+
+            left.appendChild(title);
+            left.appendChild(meta);
+
+            const go = document.createElement("button");
+            go.textContent = "اتجاه";
+            go.className = "secondary";
+            go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
+            right.appendChild(go);
+
+            item.appendChild(left);
+            item.appendChild(right);
+            driverDeliveredList.appendChild(item);
+          });
+        }
+      }
+
+      driverDeliveredSumEl.textContent = formatIQD(sum);
     }
 
     function updateManagerAlertAndNotify() {
@@ -987,6 +1777,9 @@
             return;
           }
 
+          // ✅ NEW: keep driver self location
+          driverSelfLatLng = { lat, lng };
+
           locRef.update({
             name: currentDriverNameLabel.textContent,
             lat, lng,
@@ -999,6 +1792,9 @@
 
           trackingStatus.textContent =
             `📍 مشاركة الموقع فعّالة | الدقة ±${acc}m | آخر تحديث: ${formatTime(now)}`;
+
+          // ✅ NEW: refresh nearby
+          refreshOrdersUIAndMap();
         },
         (err) => {
           console.error(err);
@@ -1044,6 +1840,9 @@
       subscribeDrivers();
       subscribeClients();
 
+      // ✅ NEW: subscribe orders for selected day
+      subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
+
       if (USE_TRACCAR) {
         appStatus.textContent = "";
         managerAlert.textContent = managerAlert.textContent || "ℹ️ المواقع تُجلب من Traccar مباشرة (Token).";
@@ -1052,6 +1851,7 @@
 
     logoutManagerBtn.onclick = () => {
       stopTraccarPolling();
+      unsubscribeOrders();
       show(loginCard);
       hide(managerCard);
     };
@@ -1079,13 +1879,26 @@
       hide(loginCard);
       show(driverCard);
 
+      // ✅ NEW
+      initDriverMap();
       subscribeClients();
       startTrackingMandatory();
+
+      // ✅ NEW: start traccar polling also for driver view if needed
+      if (USE_TRACCAR) startTraccarPolling();
+
+      // ✅ NEW: subscribe orders for driver selected day
+      subscribeOrdersFor(getWorkDateByKey(driverDaySelect.value || "today"));
     };
 
     logoutDriverBtn.onclick = () => {
       stopTrackingOnLogout();
       currentDriverId = null;
+      driverSelfLatLng = null;
+
+      // ✅ NEW
+      unsubscribeOrders();
+
       show(loginCard);
       hide(driverCard);
     };
@@ -1102,6 +1915,37 @@
 
     addDriverBtn.onclick = addDriver;
     addClientBtn.onclick = addClient;
+
+    // ✅ NEW: orders events
+    addOrderBtn.onclick = addOrder;
+
+    managerDaySelect.addEventListener("change", ()=>{
+      subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
+    });
+    driverDaySelect.addEventListener("change", ()=>{
+      subscribeOrdersFor(getWorkDateByKey(driverDaySelect.value || "today"));
+    });
+
+    managerDriverFilter.addEventListener("change", ()=>{
+      renderManagerOrdersList();
+    });
+
+    managerOrdersTabs.addEventListener("click", (e)=>{
+      const tab = e.target && e.target.dataset ? e.target.dataset.tab : "";
+      if (!tab) return;
+      managerOrdersTab = tab;
+
+      Array.from(managerOrdersTabs.querySelectorAll(".tab")).forEach(x=>{
+        x.classList.toggle("active", x.dataset.tab === tab);
+      });
+
+      renderManagerOrdersList();
+    });
+
+    orderSearchDriver.addEventListener("input", (e)=>{
+      driverOrderSearchText = e.target.value || "";
+      renderDriverOrdersLists();
+    });
 
     // preload select list
     subscribeDrivers();
