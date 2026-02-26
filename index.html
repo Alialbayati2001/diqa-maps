@@ -47,8 +47,18 @@
     select option{background:#020617;color:#e5e7eb}
     select option:checked{background:#22c55e;color:#020617}
 
-    /* ✅ إضافة: حالة أصفر (متأخر شوي) */
+    /* ✅ إضافة: حالة أصفر داخل القائمة */
     .warn{background:#f59e0b}
+
+    /* ✅ إضافة: أيقونة مندوب ملوّنة على الخريطة (أخضر/أصفر/رمادي) */
+    .driver-pin{
+      width:18px;height:18px;border-radius:999px;
+      border:2px solid rgba(255,255,255,.85);
+      box-shadow:0 10px 25px rgba(0,0,0,.45);
+    }
+    .driver-pin.online{background:#22c55e}
+    .driver-pin.warn{background:#f59e0b}
+    .driver-pin.offline{background:#6b7280}
   </style>
 </head>
 
@@ -218,11 +228,11 @@
     let traccarPollTimer = null;
     let lastTraccarOkAt = 0;
 
-    // ✅ إضافة: سياسة “ذكية” للاستقرار (أخضر/أصفر/Offline)
+    // ✅ سياسة “ذكية” للاستقرار (أخضر/أصفر/Offline)
     const WARN_MS  = 2 * 60 * 1000; // بعد دقيقتين يصير أصفر
     const STALE_MS = 5 * 60 * 1000; // بعد 5 دقائق يصير Offline فعلاً
 
-    // ✅ (مضاف) تحويل timestamp إلى milliseconds بشكل آمن (يصلح خطأ ثواني/ميلي ثانية)
+    // ✅ تحويل timestamp إلى milliseconds بشكل آمن (يصلح خطأ ثواني/ميلي ثانية)
     function tsToMs(ts) {
       if (ts == null) return 0;
       if (typeof ts === "object" && typeof ts.toMillis === "function") return ts.toMillis();
@@ -235,7 +245,7 @@
       return (n < 1e12) ? (n * 1000) : n;
     }
 
-    // ✅ (مضاف) حساب الحالة حسب العمر
+    // ✅ حساب الحالة حسب العمر
     function calcLiveState(updatedAt) {
       const now = Date.now();
       const lastMs = tsToMs(updatedAt);
@@ -249,13 +259,23 @@
       };
     }
 
-    // ✅ (جديد) helper: يبني رابط API
+    // ✅ Icon ملوّن حسب الحالة (Leaflet divIcon)
+    function makeDriverIcon(state) {
+      const cls = (state === "warn") ? "warn" : (state === "online" ? "online" : "offline");
+      return L.divIcon({
+        className: "",
+        html: `<div class="driver-pin ${cls}"></div>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+        popupAnchor: [0, -10]
+      });
+    }
+
     function traccarApi(path) {
       const base = String(TRACCAR_BASE_URL || "").replace(/\/+$/, "");
       return base + path;
     }
 
-    // ✅ (جديد) Headers للتوكن
     function traccarAuthHeaders() {
       const h = {};
       if (TRACCAR_TOKEN && !TRACCAR_TOKEN.includes("PUT_")) {
@@ -264,12 +284,10 @@
       return h;
     }
 
-    // ✅ (جديد) فحص سريع هل التوكن مضبوط
     function traccarTokenOk() {
       return !!(TRACCAR_TOKEN && TRACCAR_TOKEN.length > 20 && !TRACCAR_TOKEN.includes("PUT_"));
     }
 
-    // ✅ (جديد) جلب devices + positions من Traccar مباشرة بالتوكن
     async function fetchTraccarPositionsDirect() {
       if (!USE_TRACCAR) return null;
 
@@ -300,7 +318,7 @@
       const data = (positions || []).map(p => {
         const dev = devById[String(p.deviceId)] || {};
         const t = p.deviceTime || p.fixTime || p.serverTime || p.updatedAt || null;
-        const tMs = tsToMs(t) || Date.now(); // ✅ إصلاح الوقت
+        const tMs = tsToMs(t) || Date.now();
 
         return {
           deviceId: String(p.deviceId),
@@ -343,11 +361,10 @@
           const lng = Number(p.lng);
           if (Number.isNaN(lat) || Number.isNaN(lng)) return;
 
-          const whenMs = tsToMs(p.time) || Date.now(); // ✅ وقت صحيح
+          const whenMs = tsToMs(p.time) || Date.now();
           const acc = (p.accuracy != null) ? Number(p.accuracy) : null;
 
-          const state = calcLiveState(whenMs);
-
+          const st = calcLiveState(whenMs);
           const devName = (p.name || devId);
 
           let key = devId;
@@ -368,9 +385,8 @@
             accuracy: acc,
             gpsOk: true,
             gpsError: null,
-
-            active: !state.isStale, // ✅ يبقى ظاهر لحد 5 دقائق
-            liveState: (state.isOnline ? "online" : (state.isWarn ? "warn" : "offline")),
+            active: !st.isStale,
+            liveState: (st.isOnline ? "online" : (st.isWarn ? "warn" : "offline")),
             updatedAt: whenMs
           };
         });
@@ -499,7 +515,7 @@
 
     function formatTime(ts) {
       if (!ts) return "";
-      const d = new Date(tsToMs(ts)); // ✅ عرض صحيح
+      const d = new Date(tsToMs(ts));
       return d.toLocaleTimeString("ar-IQ", { hour12:false });
     }
 
@@ -529,9 +545,7 @@
       db.ref(`driversMeta/${id}`).update({ name: clean });
       db.ref(`driversLocations/${id}`).update({ name: clean });
 
-      if (currentDriverId === id) {
-        currentDriverNameLabel.textContent = clean;
-      }
+      if (currentDriverId === id) currentDriverNameLabel.textContent = clean;
     }
 
     function changeDriverPin(id) {
@@ -598,9 +612,7 @@
         updateManagerAlertAndNotify();
       });
 
-      if (USE_TRACCAR) {
-        startTraccarPolling();
-      }
+      if (USE_TRACCAR) startTraccarPolling();
     }
 
     function subscribeClients() {
@@ -744,6 +756,7 @@
       });
     }
 
+    // ✅ تعديل كامل: ماركر المندوب يغيّر اللون (أخضر/أصفر) ويبقى ظاهر لحد 5 دقائق
     function updateDriverMarkers() {
       if (!map) return;
 
@@ -768,26 +781,29 @@
         const st = calcLiveState(loc.updatedAt);
         if (st.isStale) return;
 
+        const liveState = st.isOnline ? "online" : (st.isWarn ? "warn" : "offline");
+        const icon = makeDriverIcon(liveState);
+
         const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
         const accText = acc ? `<br/>الدقة: ±${acc}m` : "";
 
         const stateText = st.isOnline ? "🟢 مباشر" : "🟡 آخر إشارة قديمة شوي";
-        const opacity = st.isOnline ? 1 : 0.55;
-
         const popupHtml =
           `مندوب: ${loc.name || id}<br/>` +
           `الحالة: ${stateText}<br/>` +
           `آخر تحديث: ${formatTime(loc.updatedAt)}${accText}`;
 
         if (!driverMarkers[id]) {
-          const marker = L.marker([loc.lat, loc.lng], { title: loc.name || id }).addTo(map);
-          marker.setOpacity(opacity);
+          const marker = L.marker([loc.lat, loc.lng], {
+            title: loc.name || id,
+            icon
+          }).addTo(map);
           marker.bindPopup(popupHtml);
           driverMarkers[id] = marker;
         } else {
           driverMarkers[id].setLatLng([loc.lat, loc.lng]);
-          driverMarkers[id].setOpacity(opacity);
           driverMarkers[id].setPopupContent(popupHtml);
+          driverMarkers[id].setIcon(icon);
         }
       });
     }
@@ -928,6 +944,7 @@
         });
     }
 
+    // Tracking (mandatory, no stop button)
     let lastSentAt = 0;
     const MIN_SEND_INTERVAL_MS = 3000;
     const MAX_BAD_ACCURACY = 1500;
@@ -1086,8 +1103,10 @@
     addDriverBtn.onclick = addDriver;
     addClientBtn.onclick = addClient;
 
+    // preload select list
     subscribeDrivers();
 
+    // ping
     db.ref("_ping").set({ t: SERVER_TS }).catch(err => {
       console.warn("DB write blocked:", err);
       appStatus.textContent = "⚠️ قواعد Firebase تمنع الكتابة (Rules).";
