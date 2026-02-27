@@ -75,6 +75,14 @@
 
     /* ✅ تحسين لطيف لحقل Autocomplete */
     input[list]{padding-left:12px}
+
+    /* ✅ NEW: أيقونة موقع المندوب نفسه على خريطة المندوب */
+    .self-pin{
+      width:18px;height:18px;border-radius:999px;
+      border:2px solid rgba(255,255,255,.9);
+      box-shadow:0 12px 28px rgba(0,0,0,.45);
+      background:#60a5fa; /* أزرق */
+    }
   </style>
 </head>
 
@@ -270,7 +278,13 @@
 
       <!-- ✅ Driver map + orders -->
       <h3>طلباتك على الخريطة</h3>
-      <div class="hint">✅ إذا اقتربت من الطلب (≤ 150 متر) يظهر لك خيار: تم التسليم أو راجع. <br/>✅ (3) تقدر تسجّل "راجع سابق" أيضاً.</div>
+      <div class="hint">
+        ✅ إذا اقتربت من الطلب (≤ 150 متر) يظهر لك خيار: تم التسليم أو راجع.
+        <br/>
+        ✅ (3) تقدر تسجّل "راجع سابق" أيضاً.
+        <br/>
+        ✅ NEW: تظهر نقطة موقعك + مسار حركتك (لنفسك فقط).
+      </div>
       <div id="driver-map"></div>
 
       <div class="row" style="margin-top:12px;">
@@ -383,6 +397,17 @@
       return L.divIcon({
         className: "",
         html: `<div class="driver-pin ${cls}"></div>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+        popupAnchor: [0, -10]
+      });
+    }
+
+    // ✅ NEW: Icon لموقع المندوب نفسه (خريطة المندوب فقط)
+    function makeSelfIcon(){
+      return L.divIcon({
+        className: "",
+        html: `<div class="self-pin"></div>`,
         iconSize: [18, 18],
         iconAnchor: [9, 9],
         popupAnchor: [0, -10]
@@ -518,6 +543,9 @@
         // ✅ update driver page live location + nearby status
         updateDriverSelfLocationFromCache();
         refreshOrdersUIAndMap();
+
+        // ✅ NEW: تحديث نقطة ومسار المندوب على خريطة المندوب فقط
+        updateDriverSelfTrackOnMap();
 
       } catch (e) {
         console.error("Traccar fetch error:", e);
@@ -672,6 +700,14 @@
 
     const NEARBY_METERS = 150;
 
+    // ✅ NEW: عناصر مسار المندوب (Driver only)
+    let driverSelfMarker = null;
+    let driverPathLine = null;
+    let driverPathPoints = []; // [{lat,lng,t}]
+    const DRIVER_PATH_MAX_POINTS = 250;
+    const DRIVER_PATH_MIN_MOVE_M = 8;   // تجاهل الاهتزاز البسيط
+    const DRIVER_PATH_MAX_AGE_MS = 2 * 60 * 60 * 1000; // آخر ساعتين (عرض فقط)
+
     // Helpers
     function show(el){ el.classList.remove("hidden"); }
     function hide(el){ el.classList.add("hidden"); }
@@ -680,10 +716,11 @@
       return name.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_أ-ي]/g, "");
     }
 
+    // ✅ تعديل العرض إلى 12 ساعة (1:00 م) بدون تغيير الداتا المخزونة
     function formatTime(ts) {
       if (!ts) return "";
       const d = new Date(tsToMs(ts));
-      return d.toLocaleTimeString("ar-IQ", { hour12:false });
+      return d.toLocaleTimeString("ar-IQ", { hour12:true, hour:"numeric", minute:"2-digit" });
     }
 
     function normalizeNumberText(s) {
@@ -755,6 +792,76 @@
       if (loc && typeof loc.lat === "number" && typeof loc.lng === "number") {
         driverSelfLatLng = { lat: loc.lat, lng: loc.lng };
       }
+    }
+
+    // ✅ NEW: تحديث نقطة/مسار المندوب على خريطة المندوب فقط
+    function pushDriverPathPoint(lat, lng, tMs){
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      // فلترة حسب الحركة لتقليل الاهتزاز
+      const last = driverPathPoints.length ? driverPathPoints[driverPathPoints.length - 1] : null;
+      if (last){
+        const moved = haversineMeters(last.lat, last.lng, lat, lng);
+        if (moved < DRIVER_PATH_MIN_MOVE_M) return;
+      }
+
+      driverPathPoints.push({ lat, lng, t: Number.isFinite(tMs) ? tMs : Date.now() });
+
+      // قص حسب العدد
+      if (driverPathPoints.length > DRIVER_PATH_MAX_POINTS) {
+        driverPathPoints.splice(0, driverPathPoints.length - DRIVER_PATH_MAX_POINTS);
+      }
+
+      // قص حسب العمر
+      const now = Date.now();
+      driverPathPoints = driverPathPoints.filter(p => (now - (p.t || now)) <= DRIVER_PATH_MAX_AGE_MS);
+    }
+
+    function updateDriverSelfTrackOnMap(){
+      if (!driverMap) return;
+      if (!currentDriverId) return;
+      if (!driverSelfLatLng) return;
+
+      const lat = driverSelfLatLng.lat;
+      const lng = driverSelfLatLng.lng;
+
+      // أضف للنقاط
+      pushDriverPathPoint(lat, lng, Date.now());
+
+      // Marker
+      const popup = `موقعك الآن ✅<br/>آخر تحديث: <b>${formatTime(Date.now())}</b>`;
+      if (!driverSelfMarker){
+        driverSelfMarker = L.marker([lat, lng], { icon: makeSelfIcon(), title: "موقعك" }).addTo(driverMap);
+        driverSelfMarker.bindPopup(popup);
+      } else {
+        driverSelfMarker.setLatLng([lat, lng]);
+        driverSelfMarker.setPopupContent(popup);
+      }
+
+      // Polyline
+      const latlngs = driverPathPoints.map(p => [p.lat, p.lng]);
+      if (!driverPathLine){
+        driverPathLine = L.polyline(latlngs, { weight: 4, opacity: 0.9 }).addTo(driverMap);
+      } else {
+        driverPathLine.setLatLngs(latlngs);
+      }
+
+      // إذا أول مرة، خلّها تلحق موقعه شوي (بدون ازعاج)
+      if (latlngs.length === 1){
+        driverMap.setView([lat, lng], Math.max(driverMap.getZoom(), 14));
+      }
+    }
+
+    function resetDriverSelfTrack(){
+      driverPathPoints = [];
+      if (driverMap && driverSelfMarker){
+        try { driverMap.removeLayer(driverSelfMarker); } catch(e){}
+      }
+      if (driverMap && driverPathLine){
+        try { driverMap.removeLayer(driverPathLine); } catch(e){}
+      }
+      driverSelfMarker = null;
+      driverPathLine = null;
     }
 
     function changeDriverName(id) {
@@ -897,6 +1004,9 @@
 
         updateDriverSelfLocationFromCache();
         refreshOrdersUIAndMap();
+
+        // ✅ NEW: تحديث نقطة/مسار المندوب على خريطة المندوب فقط
+        updateDriverSelfTrackOnMap();
       });
 
       if (USE_TRACCAR) startTraccarPolling();
@@ -2103,6 +2213,9 @@
             `📍 مشاركة الموقع فعّالة | الدقة ±${acc}m | آخر تحديث: ${formatTime(now)}`;
 
           refreshOrdersUIAndMap();
+
+          // ✅ NEW: تحديث نقطة/مسار المندوب على خريطة المندوب فقط
+          updateDriverSelfTrackOnMap();
         },
         (err) => {
           console.error(err);
@@ -2182,6 +2295,9 @@
       currentDriverId = selectedId;
       currentDriverNameLabel.textContent = meta && meta.name ? meta.name : selectedId;
 
+      // ✅ NEW: تصفير مسار المندوب عند كل دخول
+      resetDriverSelfTrack();
+
       driverPinInput.value = "";
       hide(loginCard);
       show(driverCard);
@@ -2193,12 +2309,19 @@
       if (USE_TRACCAR) startTraccarPolling();
 
       subscribeOrdersFor(getWorkDateByKey(driverDaySelect.value || "today"));
+
+      // ✅ NEW: إذا عنده موقع بالكاش، ارسمه فوراً
+      updateDriverSelfLocationFromCache();
+      updateDriverSelfTrackOnMap();
     };
 
     logoutDriverBtn.onclick = () => {
       stopTrackingOnLogout();
       currentDriverId = null;
       driverSelfLatLng = null;
+
+      // ✅ NEW: مسح مسار المندوب عند الخروج (عرض فقط)
+      resetDriverSelfTrack();
 
       unsubscribeOrders();
 
