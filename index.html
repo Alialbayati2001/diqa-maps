@@ -83,6 +83,13 @@
       box-shadow:0 12px 28px rgba(0,0,0,.45);
       background:#60a5fa; /* أزرق */
     }
+
+    /* ✅ NEW: حضور */
+    .att-box{margin-top:8px;padding:10px;border-radius:14px;border:1px solid #1f2937;background:#020617}
+    .att-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .att-row .badge{cursor:default}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+    .prio-btn{padding:6px 10px;font-size:12px}
   </style>
 </head>
 
@@ -207,7 +214,8 @@
           <div class="hint">
             ✅ تسجّل طلب على مندوب → يظهر عند الاثنين كمربع على الخريطة.<br/>
             ✅ المندوب عند القرب يختار: تم التسليم (مبلغ إجباري حتى لو 0) أو راجع.<br/>
-            ✅ المندوب يقدر أيضاً يسجّل "راجع سابق" (قطعة قديمة) ويظهر عند الأدمن ضمن كل الرواجع.
+            ✅ المندوب يقدر أيضاً يسجّل "راجع سابق" (قطعة قديمة) ويظهر عند الأدمن ضمن كل الرواجع.<br/>
+            ✅ NEW: تقدر تحدد أولوية توصيل (1/2/3...) للمندوب.
           </div>
 
           <h4>تسجيل طلب على مندوب</h4>
@@ -245,6 +253,23 @@
           <hr style="border-color:#111827;margin:10px 0;" />
           <h4>كل الطلبات الراجعة (لكل المندوبين)</h4>
           <div class="list" id="manager-returned-all-list"></div>
+
+          <!-- =========================
+               ✅ Attendance (Manager)
+               ========================= -->
+          <hr style="border-color:#111827;margin:10px 0;" />
+          <h3>الحضور (دوام الشركة)</h3>
+          <div class="hint">
+            ✅ يعرض دخول/خروج المندوبين داخل نطاق الشركة (150m).<br/>
+            ✅ NEW: يظهر مدة حضور اليوم لكل مندوب، وإذا بعده ما سجل خروج يظهر "مستمر".
+          </div>
+          <div class="att-box">
+            <div class="att-row">
+              <span class="badge">نطاق الشركة: <span class="mono">33.2520520, 44.3625600</span> — 150m</span>
+              <span class="badge">خروج تلقائي: <b>11:30 PM</b></span>
+            </div>
+            <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
+          </div>
           <!-- ========================= -->
         </div>
       </div>
@@ -274,6 +299,27 @@
       <p>المندوب: <strong id="current-driver-name"></strong></p>
       <p class="small" id="tracking-status"></p>
 
+      <!-- =========================
+           ✅ Attendance (Driver)
+           ========================= -->
+      <hr style="border-color:#111827;margin:10px 0;" />
+      <h3>الحضور (داخل الشركة)</h3>
+      <div class="hint">
+        ✅ تقدر تسجّل دخول/خروج فقط إذا كنت داخل نطاق الشركة (150m).<br/>
+        ✅ إذا تعدّت الساعة 11:30 مساءً يسجل خروج تلقائي (إذا الصفحة شغالة).<br/>
+        ✅ وقت حضورك اليوم يظهر هنا وأيضاً عند الأدمن.
+      </div>
+      <div class="att-box">
+        <div class="att-row">
+          <button class="secondary" id="btn-checkin">تسجيل دخول</button>
+          <button class="secondary" id="btn-checkout">تسجيل خروج</button>
+          <span class="badge" id="att-status">—</span>
+          <span class="badge" id="att-worked">مدة اليوم: —</span>
+        </div>
+        <p class="small" id="att-msg" style="margin:6px 0 0; color:#fca5a5;"></p>
+      </div>
+      <!-- ========================= -->
+
       <hr style="border-color:#111827;margin:10px 0;" />
 
       <!-- ✅ Driver map + orders -->
@@ -284,6 +330,8 @@
         ✅ (3) تقدر تسجّل "راجع سابق" أيضاً.
         <br/>
         ✅ NEW: تظهر نقطة موقعك + مسار حركتك (لنفسك فقط).
+        <br/>
+        ✅ NEW: الطلبات مرتبة حسب أولوية الأدمن (1/2/3...).
       </div>
       <div id="driver-map"></div>
 
@@ -547,6 +595,10 @@
         // ✅ NEW: تحديث نقطة ومسار المندوب على خريطة المندوب فقط
         updateDriverSelfTrackOnMap();
 
+        // ✅ NEW: حضور - تحديث حالته اذا عنده موقع
+        renderDriverAttendanceBox();
+        renderManagerAttendanceList();
+
       } catch (e) {
         console.error("Traccar fetch error:", e);
         if (managerAlert) {
@@ -641,6 +693,14 @@
     const beepToggle = document.getElementById("beep-toggle");
     let lastDriverState = {}; // {id: "ok"|"bad"}
 
+    // ✅ Attendance UI
+    const managerAttendanceList = document.getElementById("manager-attendance-list");
+    const btnCheckIn = document.getElementById("btn-checkin");
+    const btnCheckOut = document.getElementById("btn-checkout");
+    const attStatusEl = document.getElementById("att-status");
+    const attWorkedEl = document.getElementById("att-worked");
+    const attMsgEl = document.getElementById("att-msg");
+
     // State
     let map;
     let driverMarkers = {};
@@ -707,6 +767,18 @@
     const DRIVER_PATH_MAX_POINTS = 250;
     const DRIVER_PATH_MIN_MOVE_M = 8;   // تجاهل الاهتزاز البسيط
     const DRIVER_PATH_MAX_AGE_MS = 2 * 60 * 60 * 1000; // آخر ساعتين (عرض فقط)
+
+    // =========================
+    // ✅ Attendance State (RTDB)
+    // =========================
+    const OFFICE = { lat: 33.2520520, lng: 44.3625600, radius: 150 };
+    const AUTO_CHECKOUT_HOUR = 23;
+    const AUTO_CHECKOUT_MIN  = 30;
+    let attendanceCache = {};     // { driverId: {checkInAt, checkOutAt, ...} }
+    let attendanceDateKey = "";
+    let attendanceUnsubRef = null;
+    let attendanceTickTimer = null;
+    let autoCheckoutTimer = null;
 
     // Helpers
     function show(el){ el.classList.remove("hidden"); }
@@ -781,6 +853,348 @@
       const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
       const c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
       return R*c;
+    }
+
+    // =========================
+    // ✅ Duration helpers
+    // =========================
+    function formatDuration(ms){
+      if (!Number.isFinite(ms) || ms < 0) ms = 0;
+      const totalMin = Math.floor(ms / 60000);
+      const h = Math.floor(totalMin / 60);
+      const m = totalMin % 60;
+      return `${h}س ${m}د`;
+    }
+    function calcWorkedMs(checkInAt, checkOutAt){
+      const inMs = tsToMs(checkInAt);
+      if (!inMs) return 0;
+      const outMs = checkOutAt ? tsToMs(checkOutAt) : Date.now();
+      return outMs - inMs;
+    }
+
+    // =========================
+    // ✅ Geolocation helper for Attendance
+    // =========================
+    async function getCurrentPos(){
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) return reject(new Error("no geolocation"));
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy:true,
+          timeout: 15000,
+          maximumAge: 0
+        });
+      });
+    }
+
+    async function getBestLatLngForAttendance(){
+      // 1) إذا عندنا موقع من التتبع
+      if (driverSelfLatLng && Number.isFinite(driverSelfLatLng.lat) && Number.isFinite(driverSelfLatLng.lng)) {
+        return { lat: driverSelfLatLng.lat, lng: driverSelfLatLng.lng, acc: null, source: "cache" };
+      }
+      // 2) خذ موقع مباشر (أدق)
+      const p = await getCurrentPos();
+      return { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy || null, source: "gps" };
+    }
+
+    function inOfficeRadius(lat, lng){
+      const d = haversineMeters(lat, lng, OFFICE.lat, OFFICE.lng);
+      return { ok: d <= OFFICE.radius, d };
+    }
+
+    // =========================
+    // ✅ Attendance subscribe
+    // =========================
+    function unsubscribeAttendance(){
+      if (attendanceUnsubRef && typeof attendanceUnsubRef.off === "function") attendanceUnsubRef.off();
+      attendanceUnsubRef = null;
+      attendanceCache = {};
+      attendanceDateKey = "";
+      renderManagerAttendanceList();
+      renderDriverAttendanceBox();
+    }
+
+    function subscribeAttendanceFor(dateKey){
+      if (!dateKey) return;
+      if (attendanceDateKey === dateKey) return;
+
+      unsubscribeAttendance();
+
+      attendanceDateKey = dateKey;
+      const ref = db.ref(`attendance/${dateKey}`);
+      attendanceUnsubRef = ref;
+
+      ref.on("value", snap => {
+        attendanceCache = snap.val() || {};
+        renderManagerAttendanceList();
+        renderDriverAttendanceBox();
+      });
+
+      // live tick (مدة مستمرة)
+      if (attendanceTickTimer) clearInterval(attendanceTickTimer);
+      attendanceTickTimer = setInterval(()=>{
+        renderManagerAttendanceList(true);
+        renderDriverAttendanceBox(true);
+      }, 60000);
+    }
+
+    function getAttendanceDocFor(driverId){
+      if (!driverId) return null;
+      return attendanceCache[driverId] || null;
+    }
+
+    // ✅ Auto checkout 11:30 PM (Web-side)
+    function ensureAutoCheckoutTimer(){
+      if (autoCheckoutTimer) clearInterval(autoCheckoutTimer);
+      autoCheckoutTimer = setInterval(async ()=>{
+        if (!currentDriverId) return;
+        const dateKey = getWorkDateByKey(driverDaySelect.value || "today");
+        if (attendanceDateKey !== dateKey) return;
+        const doc = getAttendanceDocFor(currentDriverId);
+        if (!doc || !doc.checkInAt || doc.checkOutAt) return;
+
+        const now = new Date();
+        const h = now.getHours();
+        const m = now.getMinutes();
+
+        const passed = (h > AUTO_CHECKOUT_HOUR) || (h === AUTO_CHECKOUT_HOUR && m >= AUTO_CHECKOUT_MIN);
+        if (!passed) return;
+
+        try {
+          const pos = await getBestLatLngForAttendance().catch(()=>null);
+          let lat = null, lng = null, acc = null, dist = null;
+          if (pos) {
+            lat = pos.lat; lng = pos.lng; acc = pos.acc;
+            dist = inOfficeRadius(lat, lng).d;
+          }
+          await db.ref(`attendance/${dateKey}/${currentDriverId}`).update({
+            checkOutAt: SERVER_TS,
+            checkOutLat: (lat!=null?lat:null),
+            checkOutLng: (lng!=null?lng:null),
+            checkOutAcc: (acc!=null?Math.round(acc):null),
+            checkOutDistance: (dist!=null?Math.round(dist):null),
+            autoCheckOut: true,
+            updatedAt: SERVER_TS
+          });
+        } catch(e){}
+      }, 30000);
+    }
+
+    // ✅ Driver attendance actions
+    async function doCheckIn(){
+      if (!currentDriverId) return;
+      if (attMsgEl) attMsgEl.textContent = "";
+
+      const dateKey = getWorkDateByKey(driverDaySelect.value || "today");
+      subscribeAttendanceFor(dateKey);
+
+      let pos;
+      try {
+        pos = await getBestLatLngForAttendance();
+      } catch(e){
+        if (attMsgEl) attMsgEl.textContent = "⚠️ لازم تفعّل الموقع حتى تسجّل حضور.";
+        return;
+      }
+
+      const gate = inOfficeRadius(pos.lat, pos.lng);
+      if (!gate.ok){
+        if (attMsgEl) attMsgEl.textContent = `⚠️ أنت خارج نطاق الشركة. المسافة تقريباً: ${Math.round(gate.d)}m`;
+        return;
+      }
+
+      const drvName = currentDriverNameLabel.textContent || driverNameById(currentDriverId);
+      const patch = {
+        driverId: currentDriverId,
+        driverName: drvName,
+        checkInAt: SERVER_TS,
+        checkInLat: pos.lat,
+        checkInLng: pos.lng,
+        checkInAcc: pos.acc != null ? Math.round(pos.acc) : null,
+        checkInDistance: Math.round(gate.d),
+        autoCheckOut: false,
+        updatedAt: SERVER_TS
+      };
+
+      try {
+        const ref = db.ref(`attendance/${dateKey}/${currentDriverId}`);
+        // إذا عنده دخول سابق وما عنده خروج، لا نعيد
+        const cur = getAttendanceDocFor(currentDriverId);
+        if (cur && cur.checkInAt && !cur.checkOutAt){
+          if (attMsgEl) attMsgEl.textContent = "ℹ️ أنت مسجّل دخول مسبقاً اليوم.";
+          return;
+        }
+        await ref.update(patch);
+        if (attMsgEl) {
+          attMsgEl.style.color = "#86efac";
+          attMsgEl.textContent = "✅ تم تسجيل الدخول داخل الشركة";
+          setTimeout(()=>{ if(attMsgEl){ attMsgEl.textContent=""; attMsgEl.style.color="#fca5a5"; } }, 2500);
+        }
+      } catch(e){
+        if (attMsgEl) attMsgEl.textContent = "⚠️ فشل تسجيل الدخول (Rules).";
+      }
+    }
+
+    async function doCheckOut(manual=true){
+      if (!currentDriverId) return;
+      if (attMsgEl) attMsgEl.textContent = "";
+
+      const dateKey = getWorkDateByKey(driverDaySelect.value || "today");
+      subscribeAttendanceFor(dateKey);
+
+      const cur = getAttendanceDocFor(currentDriverId);
+      if (!cur || !cur.checkInAt){
+        if (attMsgEl) attMsgEl.textContent = "⚠️ ما مسجّل دخول حتى تسجّل خروج.";
+        return;
+      }
+      if (cur.checkOutAt){
+        if (attMsgEl) attMsgEl.textContent = "ℹ️ أنت مسجّل خروج مسبقاً.";
+        return;
+      }
+
+      let pos = null;
+      try { pos = await getBestLatLngForAttendance(); } catch(e){}
+
+      // نحاول نتحقق من النطاق (حسب طلبك)
+      if (pos){
+        const gate = inOfficeRadius(pos.lat, pos.lng);
+        if (!gate.ok){
+          if (attMsgEl) attMsgEl.textContent = `⚠️ تسجيل الخروج يحتاج تكون داخل الشركة. المسافة: ${Math.round(gate.d)}m`;
+          return;
+        }
+      }
+
+      try{
+        const lat = pos ? pos.lat : null;
+        const lng = pos ? pos.lng : null;
+        const acc = pos && pos.acc != null ? Math.round(pos.acc) : null;
+        const dist = (pos ? Math.round(inOfficeRadius(pos.lat, pos.lng).d) : null);
+
+        await db.ref(`attendance/${dateKey}/${currentDriverId}`).update({
+          checkOutAt: SERVER_TS,
+          checkOutLat: lat,
+          checkOutLng: lng,
+          checkOutAcc: acc,
+          checkOutDistance: dist,
+          autoCheckOut: !manual,
+          updatedAt: SERVER_TS
+        });
+
+        if (attMsgEl) {
+          attMsgEl.style.color = "#86efac";
+          attMsgEl.textContent = "✅ تم تسجيل الخروج";
+          setTimeout(()=>{ if(attMsgEl){ attMsgEl.textContent=""; attMsgEl.style.color="#fca5a5"; } }, 2500);
+        }
+      }catch(e){
+        if (attMsgEl) attMsgEl.textContent = "⚠️ فشل تسجيل الخروج (Rules).";
+      }
+    }
+
+    function renderDriverAttendanceBox(tickOnly=false){
+      if (!attStatusEl || !attWorkedEl) return;
+      if (!currentDriverId) {
+        attStatusEl.textContent = "—";
+        attWorkedEl.textContent = "مدة اليوم: —";
+        return;
+      }
+      const dateKey = getWorkDateByKey(driverDaySelect.value || "today");
+      if (attendanceDateKey !== dateKey && !tickOnly){
+        // فقط لو المندوب داخل صفحة المندوب
+        subscribeAttendanceFor(dateKey);
+      }
+      const doc = getAttendanceDocFor(currentDriverId);
+      if (!doc || !doc.checkInAt){
+        attStatusEl.textContent = "الحالة: غير حاضر";
+        attWorkedEl.textContent = "مدة اليوم: 0س 0د";
+        return;
+      }
+      const worked = formatDuration(calcWorkedMs(doc.checkInAt, doc.checkOutAt));
+      const st = doc.checkOutAt ? "منتهي" : "مستمر";
+      attStatusEl.textContent = `الحالة: ${st} | دخول: ${formatTime(doc.checkInAt)}${doc.checkOutAt ? ` | خروج: ${formatTime(doc.checkOutAt)}` : ""}`;
+      attWorkedEl.textContent = `مدة اليوم: ${worked}`;
+    }
+
+    function renderManagerAttendanceList(tickOnly=false){
+      if (!managerAttendanceList) return;
+      const dateKey = getWorkDateByKey(managerDaySelect.value || "today");
+      if (attendanceDateKey !== dateKey && !tickOnly){
+        subscribeAttendanceFor(dateKey);
+      }
+
+      const filterDriver = managerDriverFilter.value || "";
+      const entries = Object.entries(attendanceCache || {})
+        .map(([id, a]) => ({ id, ...a }))
+        .filter(x => !filterDriver || x.id === filterDriver);
+
+      // ضيف حتى اللي ما عنده سجل حضور: نعرضهم صفر
+      const allDrivers = Object.entries(driversMetaCache || {}).map(([id, meta]) => ({
+        id,
+        driverName: (meta && meta.name) ? meta.name : id
+      }));
+
+      const mapById = {};
+      entries.forEach(x => { mapById[x.id] = x; });
+
+      const merged = allDrivers
+        .filter(x => !filterDriver || x.id === filterDriver)
+        .map(d => {
+          const a = mapById[d.id] || {};
+          return {
+            id: d.id,
+            driverName: a.driverName || d.driverName,
+            checkInAt: a.checkInAt || null,
+            checkOutAt: a.checkOutAt || null,
+            autoCheckOut: !!a.autoCheckOut,
+            checkInDistance: a.checkInDistance ?? null
+          };
+        });
+
+      merged.sort((a,b)=>{
+        const aIn = tsToMs(a.checkInAt||0);
+        const bIn = tsToMs(b.checkInAt||0);
+        return bIn - aIn;
+      });
+
+      managerAttendanceList.innerHTML = "";
+      if (!merged.length){
+        managerAttendanceList.innerHTML = `<div class="small">لا يوجد بيانات حضور.</div>`;
+        return;
+      }
+
+      merged.forEach(x=>{
+        const item = document.createElement("div");
+        item.className = "list-item";
+
+        const left = document.createElement("div");
+        const right = document.createElement("div");
+
+        const title = document.createElement("strong");
+        title.textContent = x.driverName || driverNameById(x.id);
+
+        const meta = document.createElement("div");
+        meta.className = "small";
+
+        if (!x.checkInAt){
+          meta.textContent = "غير حاضر اليوم";
+        } else {
+          const worked = formatDuration(calcWorkedMs(x.checkInAt, x.checkOutAt));
+          const st = x.checkOutAt ? "منتهي" : "مستمر";
+          const auto = x.autoCheckOut ? " | 🕦 خروج تلقائي" : "";
+          const dist = (x.checkInDistance != null) ? ` | داخل الشركة (${x.checkInDistance}m)` : "";
+          meta.textContent = `دخول: ${formatTime(x.checkInAt)}${x.checkOutAt ? ` | خروج: ${formatTime(x.checkOutAt)}` : ""} | ${st} | مدة: ${worked}${auto}${dist}`;
+        }
+
+        left.appendChild(title);
+        left.appendChild(meta);
+
+        // زر سريع: (لو تريد يدوي من الأدمن لاحقاً ممكن)
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.innerHTML = x.checkInAt ? (x.checkOutAt ? `✅ <b>مكتمل</b>` : `🟡 <b>مستمر</b>`) : `— <b>لا يوجد</b>`;
+        right.appendChild(pill);
+
+        item.appendChild(left);
+        item.appendChild(right);
+        managerAttendanceList.appendChild(item);
+      });
     }
 
     // =========================
@@ -993,6 +1407,9 @@
 
         renderManagerDriverFilter();
         renderOrderDriverSelect();
+
+        // حضور: حتى يطلع أسماء المندوبين بالجدول
+        renderManagerAttendanceList();
       });
 
       db.ref("driversLocations").on("value", snap => {
@@ -1007,6 +1424,10 @@
 
         // ✅ NEW: تحديث نقطة/مسار المندوب على خريطة المندوب فقط
         updateDriverSelfTrackOnMap();
+
+        // ✅ NEW: حضور
+        renderDriverAttendanceBox();
+        renderManagerAttendanceList();
       });
 
       if (USE_TRACCAR) startTraccarPolling();
@@ -1092,8 +1513,12 @@
         const color = orderColorByStatus(o);
         const bounds = makeRectBounds(o.lat, o.lng);
 
+        const pr = (Number.isFinite(Number(o.priority)) ? Number(o.priority) : null);
+        const prTxt = (pr!=null ? `أولوية: <b>${pr}</b><br/>` : "");
+
         const popupHtml =
           `طلب: <b>${o.clientName || "زبون"}</b><br/>` +
+          prTxt +
           `الحالة: <b>${statusLabel(o.status)}</b><br/>` +
           `مندوب: <b>${o.assignedDriverName || driverNameById(o.assignedDriverId)}</b><br/>` +
           (o.status === "delivered" ? `المبلغ: <b>${formatIQD(o.deliveredCash)}</b><br/>` : "") +
@@ -1147,10 +1572,14 @@
           ? `<br/><b>قريب ✅</b> (تقدر: تم التسليم / راجع)`
           : "";
 
+        const pr = (Number.isFinite(Number(o.priority)) ? Number(o.priority) : null);
+        const prTxt = (pr!=null ? `<br/>أولوية: <b>${pr}</b>` : "");
+
         const popupHtml =
           `طلب: <b>${o.clientName || "زبون"}</b><br/>` +
           `الحالة: <b>${statusLabel(o.status)}</b>` +
           actionsHint +
+          prTxt +
           (o.status === "delivered" ? `<br/>المبلغ: <b>${formatIQD(o.deliveredCash)}</b>` : "") +
           (o.status === "returned" ? `<br/>سبب: <b>${escapeHtml(o.returnReason || "")}</b>` : "") +
           `<br/><span class="small">${ordersWorkDate}</span>`;
@@ -1197,6 +1626,50 @@
         .replace(/>/g,"&gt;")
         .replace(/"/g,"&quot;")
         .replace(/'/g,"&#039;");
+    }
+
+    // =========================
+    // ✅ Priority (Admin)
+    // =========================
+    function normalizePriority(n){
+      const x = Number(n);
+      if (!Number.isFinite(x) || x < 1) return null;
+      return Math.floor(x);
+    }
+
+    async function managerSetPriority(orderId, newPriority){
+      const p = normalizePriority(newPriority);
+      if (!p) return;
+      try{
+        await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
+          priority: p,
+          priorityUpdatedAt: SERVER_TS
+        });
+      }catch(e){}
+    }
+
+    async function managerBumpPriority(orderId, dir){
+      const o = ordersCache[orderId];
+      if (!o) return;
+      // فقط للطلبات النشطة
+      if (!(o.status === "registered" || o.status === "nearby")) return;
+
+      const p = normalizePriority(o.priority) || 9999;
+      const next = p + (dir === "up" ? -1 : 1);
+      if (next < 1) return;
+      await managerSetPriority(orderId, next);
+
+      // اختياري: حاول تمنع تكرار نفس الرقم داخل نفس مندوب
+      // (نسوي تسوية بسيطة: إذا أكو طلب ثاني يحمل نفس الأولوية، نزوّده واحد)
+      const driverId = o.assignedDriverId;
+      const list = Object.entries(ordersCache||{})
+        .map(([id,x])=>({id, ...x}))
+        .filter(x=>x && x.assignedDriverId === driverId && (x.status==="registered"||x.status==="nearby") && x.id !== orderId);
+
+      const clash = list.find(x => normalizePriority(x.priority) === next);
+      if (clash) {
+        await managerSetPriority(clash.id, next + (dir === "up" ? 1 : 1));
+      }
     }
 
     // =========================
@@ -1361,6 +1834,13 @@
         patch.assignedDriverName = driverNameById(newDriverId);
       }
 
+      // ✅ أولوية
+      const pr = prompt("أولوية التوصيل (رقم 1/2/3.. - اتركه فارغ بدون تغيير):", (o.priority!=null?String(o.priority):""));
+      if (pr != null && String(pr).trim() !== ""){
+        const p = normalizePriority(pr);
+        if (p) patch.priority = p;
+      }
+
       await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
     }
 
@@ -1386,6 +1866,14 @@
       const workDate = getWorkDateByKey(managerDaySelect.value || "today");
       const ref = db.ref(`orders/${workDate}`).push();
 
+      // ✅ أعطي أولوية افتراضية = آخر رقم + 1 لنفس المندوب (اليوم)
+      const existing = Object.values(ordersCache||{}).filter(x => x && x.assignedDriverId === driverId && (x.status==="registered"||x.status==="nearby"));
+      const maxP = existing.reduce((m,x)=>{
+        const p = normalizePriority(x.priority);
+        return (p && p>m) ? p : m;
+      }, 0);
+      const nextP = maxP + 1;
+
       const payload = {
         workDate,
         type: "order",
@@ -1397,6 +1885,7 @@
         lng: c.lng,
         status: "registered",
         cashCollected: false,
+        priority: nextP,           // ✅ NEW
         createdAt: SERVER_TS
       };
 
@@ -1460,11 +1949,24 @@
         list = list.filter(x => x.status === "registered" || x.status === "nearby");
       }
 
-      list.sort((a,b)=>{
-        const ta = tsToMs(a.deliveredAt || a.returnedAt || a.nearbyAt || a.createdAt || 0);
-        const tb = tsToMs(b.deliveredAt || b.returnedAt || b.nearbyAt || b.createdAt || 0);
-        return tb - ta;
-      });
+      // ✅ Sorting
+      if (tab === "registered") {
+        // الأولوية أولاً، ثم الوقت
+        list.sort((a,b)=>{
+          const pa = normalizePriority(a.priority) || 999999;
+          const pb = normalizePriority(b.priority) || 999999;
+          if (pa !== pb) return pa - pb;
+          const ta = tsToMs(a.nearbyAt || a.createdAt || 0);
+          const tb = tsToMs(b.nearbyAt || b.createdAt || 0);
+          return ta - tb;
+        });
+      } else {
+        list.sort((a,b)=>{
+          const ta = tsToMs(a.deliveredAt || a.returnedAt || a.nearbyAt || a.createdAt || 0);
+          const tb = tsToMs(b.deliveredAt || b.returnedAt || b.nearbyAt || b.createdAt || 0);
+          return tb - ta;
+        });
+      }
 
       let sum = 0;
       if (tab === "uncollected") {
@@ -1502,6 +2004,12 @@
 
         let extra = ` | مندوب: ${drv} | ${st}`;
 
+        // ✅ priority show
+        const pr = normalizePriority(x.priority);
+        if (tab === "registered") {
+          extra += ` | أولوية: ${pr ? pr : "-"}`;
+        }
+
         if (x.status === "delivered") {
           extra += ` | مبلغ: ${formatIQD(x.deliveredCash)}`;
           extra += x.cashCollected ? " | ✅ تم الاستلام" : " | 💰 غير مستلم";
@@ -1538,6 +2046,21 @@
           pill.innerHTML = `↩️ <b>راجع</b>`;
           right.appendChild(pill);
         } else if (tab === "registered") {
+          // ✅ Priority controls
+          const up = document.createElement("button");
+          up.textContent = "⬆️";
+          up.className = "secondary prio-btn";
+          up.title = "رفع الأولوية (يصير أقرب للتسليم)";
+          up.onclick = ()=>managerBumpPriority(x.id, "up");
+          right.appendChild(up);
+
+          const down = document.createElement("button");
+          down.textContent = "⬇️";
+          down.className = "secondary prio-btn";
+          down.title = "تنزيل الأولوية";
+          down.onclick = ()=>managerBumpPriority(x.id, "down");
+          right.appendChild(down);
+
           const pill = document.createElement("span");
           pill.className = "pill";
           pill.innerHTML = `🟦 <b>نشط</b>`;
@@ -1655,12 +2178,17 @@
       const activeFiltered = active.filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
       const deliveredFiltered = delivered.filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
 
-      // active list
+      // ✅ active list sorted by priority then createdAt
       driverOrdersList.innerHTML = "";
       if (!activeFiltered.length) {
         driverOrdersList.innerHTML = `<div class="small">لا توجد طلبات نشطة.</div>`;
       } else {
-        activeFiltered.sort((a,b)=>tsToMs(a.createdAt||0)-tsToMs(b.createdAt||0));
+        activeFiltered.sort((a,b)=>{
+          const pa = normalizePriority(a.priority) || 999999;
+          const pb = normalizePriority(b.priority) || 999999;
+          if (pa !== pb) return pa - pb;
+          return tsToMs(a.createdAt||0) - tsToMs(b.createdAt||0);
+        });
         activeFiltered.forEach(x=>{
           const item = document.createElement("div");
           item.className = "list-item";
@@ -1669,7 +2197,8 @@
           const right = document.createElement("div");
 
           const title = document.createElement("strong");
-          title.textContent = x.clientName || "زبون";
+          const pr = normalizePriority(x.priority);
+          title.textContent = `${x.clientName || "زبون"}${pr ? ` (أولوية ${pr})` : ""}`;
 
           const meta = document.createElement("div");
           meta.className = "small";
@@ -2216,6 +2745,9 @@
 
           // ✅ NEW: تحديث نقطة/مسار المندوب على خريطة المندوب فقط
           updateDriverSelfTrackOnMap();
+
+          // ✅ NEW: حضور
+          renderDriverAttendanceBox();
         },
         (err) => {
           console.error(err);
@@ -2263,6 +2795,9 @@
 
       subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
 
+      // ✅ Attendance subscribe for manager
+      subscribeAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+
       if (USE_TRACCAR) {
         appStatus.textContent = "";
         managerAlert.textContent = managerAlert.textContent || "ℹ️ المواقع تُجلب من Traccar مباشرة (Token).";
@@ -2272,6 +2807,7 @@
     logoutManagerBtn.onclick = () => {
       stopTraccarPolling();
       unsubscribeOrders();
+      unsubscribeAttendance();
       show(loginCard);
       hide(managerCard);
     };
@@ -2310,9 +2846,16 @@
 
       subscribeOrdersFor(getWorkDateByKey(driverDaySelect.value || "today"));
 
+      // ✅ Attendance subscribe for driver
+      subscribeAttendanceFor(getWorkDateByKey(driverDaySelect.value || "today"));
+      ensureAutoCheckoutTimer();
+
       // ✅ NEW: إذا عنده موقع بالكاش، ارسمه فوراً
       updateDriverSelfLocationFromCache();
       updateDriverSelfTrackOnMap();
+
+      // ✅ Render attendance box
+      renderDriverAttendanceBox();
     };
 
     logoutDriverBtn.onclick = () => {
@@ -2324,6 +2867,9 @@
       resetDriverSelfTrack();
 
       unsubscribeOrders();
+      unsubscribeAttendance();
+
+      if (autoCheckoutTimer) { clearInterval(autoCheckoutTimer); autoCheckoutTimer = null; }
 
       show(loginCard);
       hide(driverCard);
@@ -2346,14 +2892,18 @@
 
     managerDaySelect.addEventListener("change", ()=>{
       subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
+      subscribeAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
     });
     driverDaySelect.addEventListener("change", ()=>{
       subscribeOrdersFor(getWorkDateByKey(driverDaySelect.value || "today"));
+      subscribeAttendanceFor(getWorkDateByKey(driverDaySelect.value || "today"));
+      renderDriverAttendanceBox();
     });
 
     managerDriverFilter.addEventListener("change", ()=>{
       renderManagerOrdersList();
       renderManagerReturnedAll();
+      renderManagerAttendanceList();
     });
 
     managerOrdersTabs.addEventListener("click", (e)=>{
@@ -2379,6 +2929,10 @@
         await driverLegacyReturnFlow();
       });
     }
+
+    // ✅ Attendance buttons
+    if (btnCheckIn) btnCheckIn.addEventListener("click", doCheckIn);
+    if (btnCheckOut) btnCheckOut.addEventListener("click", ()=>doCheckOut(true));
 
     // preload select list
     subscribeDrivers();
