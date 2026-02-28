@@ -779,6 +779,9 @@
     let attendanceUnsubRef = null;
     let attendanceTickTimer = null;
     let autoCheckoutTimer = null;
+    // ✅ FIX: منع تكرار الاشتراك/إلغاء الاشتراك (حل مشكلة Maximum call stack)
+    let attendanceSubInProgress = false;
+    let attendanceRenderLock = false;
 
     // Helpers
     function show(el){ el.classList.remove("hidden"); }
@@ -904,24 +907,31 @@
     // =========================
     // ✅ Attendance subscribe
     // =========================
-    function unsubscribeAttendance(){
+    function unsubscribeAttendance(skipRender=false){
       if (attendanceUnsubRef && typeof attendanceUnsubRef.off === "function") attendanceUnsubRef.off();
       attendanceUnsubRef = null;
       attendanceCache = {};
       attendanceDateKey = "";
-      renderManagerAttendanceList();
-      renderDriverAttendanceBox();
+      // ✅ FIX: تجنب إعادة الرسم أثناء تبديل الاشتراك حتى لا يصير Loop
+      if (!skipRender){
+        renderManagerAttendanceList(true);
+        renderDriverAttendanceBox(true);
+      }
     }
 
     function subscribeAttendanceFor(dateKey){
       if (!dateKey) return;
       if (attendanceDateKey === dateKey) return;
+      // ✅ FIX: منع re-entry (كان يسبب Maximum call stack)
+      if (attendanceSubInProgress) return;
+      attendanceSubInProgress = true;
 
-      unsubscribeAttendance();
+      try {
+        unsubscribeAttendance(true);
 
-      attendanceDateKey = dateKey;
-      const ref = db.ref(`attendance/${dateKey}`);
-      attendanceUnsubRef = ref;
+        attendanceDateKey = dateKey;
+        const ref = db.ref(`attendance/${dateKey}`);
+        attendanceUnsubRef = ref;
 
       ref.on("value", snap => {
         attendanceCache = snap.val() || {};
@@ -935,6 +945,13 @@
         renderManagerAttendanceList(true);
         renderDriverAttendanceBox(true);
       }, 60000);
+
+      // ✅ رسم أولي بعد الاشتراك
+      renderManagerAttendanceList(true);
+      renderDriverAttendanceBox(true);
+      } finally {
+        attendanceSubInProgress = false;
+      }
     }
 
     function getAttendanceDocFor(driverId){
@@ -1097,8 +1114,8 @@
       }
       const dateKey = getWorkDateByKey(driverDaySelect.value || "today");
       if (attendanceDateKey !== dateKey && !tickOnly){
-        // فقط لو المندوب داخل صفحة المندوب
-        subscribeAttendanceFor(dateKey);
+        // ✅ FIX: لا تنادي subscribe مباشرة داخل render حتى ما يصير Loop
+        if (!attendanceSubInProgress) setTimeout(()=>subscribeAttendanceFor(dateKey), 0);
       }
       const doc = getAttendanceDocFor(currentDriverId);
       if (!doc || !doc.checkInAt){
@@ -1116,7 +1133,8 @@
       if (!managerAttendanceList) return;
       const dateKey = getWorkDateByKey(managerDaySelect.value || "today");
       if (attendanceDateKey !== dateKey && !tickOnly){
-        subscribeAttendanceFor(dateKey);
+        // ✅ FIX: لا تنادي subscribe مباشرة داخل render حتى ما يصير Loop
+        if (!attendanceSubInProgress) setTimeout(()=>subscribeAttendanceFor(dateKey), 0);
       }
 
       const filterDriver = managerDriverFilter.value || "";
