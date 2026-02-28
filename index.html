@@ -103,7 +103,7 @@
       <p id="app-status" class="small" style="color:#fca5a5;"></p>
 
       <div class="row">
-        <div class="col">
+<div class="col">
           <h3>دخول المدير</h3>
           <span class="badge">لوحة مراقبة المندوبين + الزبائن</span>
           <br /><br />
@@ -113,7 +113,7 @@
           <p id="manager-login-error" class="small" style="color:#fca5a5;"></p>
         </div>
 
-        <div class="col">
+<div class="col">
           <h3>دخول المندوب</h3>
           <span class="badge">مشاركة الموقع (إجباري تلقائي)</span>
           <br /><br />
@@ -129,7 +129,24 @@
           <button id="driver-login-btn">دخول كمندوب</button>
           <p id="driver-login-error" class="small" style="color:#fca5a5;"></p>
         </div>
+
+<div class="col">
+  <h3>دخول الموظف</h3>
+  <span class="badge">تسجيل حضور / انصراف فقط</span>
+  <br /><br />
+  <label for="employee-select">اختر اسمك من القائمة</label>
+  <select id="employee-select">
+    <option value="">-- اختر موظف --</option>
+  </select>
+
+  <label for="employee-pin">PIN (4 أرقام)</label>
+  <input id="employee-pin" type="password" inputmode="numeric" maxlength="4" placeholder="مثال: 1234" />
+
+  <button id="employee-login-btn">دخول كموظف</button>
+  <p id="employee-login-error" class="small" style="color:#fca5a5;"></p>
+</div>
       </div>
+    </div>
     </div>
 
     <!-- MANAGER -->
@@ -185,6 +202,18 @@
           <button id="add-driver-btn">إضافة مندوب</button>
           <p class="small" id="driver-add-msg"></p>
           <div class="list" id="drivers-list"></div>
+<hr style="border-color:#111827;margin:10px 0;" />
+
+<h3>إدارة الموظفين</h3>
+<label for="new-employee-name">اسم الموظف الجديد</label>
+<input id="new-employee-name" type="text" placeholder="مثال: علي فاضل" />
+
+<label for="new-employee-pin">PIN للموظف (4 أرقام)</label>
+<input id="new-employee-pin" type="password" inputmode="numeric" maxlength="4" placeholder="مثال: 1999" />
+
+<button id="add-employee-btn">إضافة موظف</button>
+<p class="small" id="employee-add-msg"></p>
+<div class="list" id="employees-list"></div>
 
           <hr style="border-color:#111827;margin:10px 0;" />
 
@@ -270,6 +299,20 @@
             </div>
             <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
           </div>
+<hr style="border-color:#111827;margin:10px 0;" />
+<h3>حضور الموظفين (دوام الشركة)</h3>
+<div class="hint">
+  ✅ يعرض دخول/خروج الموظفين داخل نطاق الشركة (250m).<br/>
+  ✅ يظهر مدة حضور اليوم لكل موظف.
+</div>
+<div class="att-box">
+  <div class="att-row">
+    <span class="badge">نفس نطاق الشركة</span>
+    <span class="badge">خروج تلقائي: <b>11:30 PM</b></span>
+  </div>
+  <div style="margin-top:8px" class="list" id="manager-emp-attendance-list"></div>
+</div>
+
           <!-- ========================= -->
         </div>
       </div>
@@ -366,6 +409,38 @@
       <input id="client-search-driver" type="text" placeholder="اكتب اسم الزبون..." />
       <div class="list" id="driver-clients-list"></div>
     </div>
+
+<!-- EMPLOYEE -->
+<div class="card hidden" id="employee-card">
+  <div class="row" style="align-items:center; margin-bottom:10px;">
+    <div class="col">
+      <h2>صفحة الموظف</h2>
+      <span class="badge">حضور / انصراف فقط</span>
+      <div class="hint" style="margin-top:6px">
+        ✅ تسجّل دخول وخروج داخل نطاق الشركة فقط.<br/>
+        ✅ نحسب مدة وجودك اليوم تلقائيًا.
+      </div>
+    </div>
+    <div class="col" style="text-align:left;">
+      <button class="secondary" id="logout-employee">تسجيل الخروج</button>
+    </div>
+  </div>
+
+  <p>الموظف: <strong id="current-employee-name"></strong></p>
+
+  <hr style="border-color:#111827;margin:10px 0;" />
+  <h3>الحضور (داخل الشركة)</h3>
+  <div class="att-box">
+    <div class="att-row">
+      <button class="secondary" id="emp-btn-checkin">تسجيل دخول</button>
+      <button class="secondary" id="emp-btn-checkout">تسجيل خروج</button>
+      <span class="badge" id="emp-att-status">—</span>
+      <span class="badge" id="emp-att-worked">مدة اليوم: —</span>
+    </div>
+    <p class="small" id="emp-att-msg" style="margin:6px 0 0; color:#fca5a5;"></p>
+  </div>
+</div>
+
   </div>
 
   <!-- Leaflet JS -->
@@ -655,6 +730,7 @@
     const loginCard = document.getElementById("login-card");
     const managerCard = document.getElementById("manager-card");
     const driverCard = document.getElementById("driver-card");
+    const employeeCard = document.getElementById("employee-card");
 
     const managerPasswordInput = document.getElementById("manager-password");
     const managerLoginBtn = document.getElementById("manager-login-btn");
@@ -667,11 +743,37 @@
     const driverLoginError = document.getElementById("driver-login-error");
     const logoutDriverBtn = document.getElementById("logout-driver");
 
+    // ✅ Employee login UI
+    const employeeSelect = document.getElementById("employee-select");
+    const employeePinInput = document.getElementById("employee-pin");
+    const employeeLoginBtn = document.getElementById("employee-login-btn");
+    const employeeLoginError = document.getElementById("employee-login-error");
+    const logoutEmployeeBtn = document.getElementById("logout-employee");
+    const currentEmployeeNameLabel = document.getElementById("current-employee-name");
+
+    // ✅ Employee attendance UI
+    const empBtnCheckIn = document.getElementById("emp-btn-checkin");
+    const empBtnCheckOut = document.getElementById("emp-btn-checkout");
+    const empAttStatusEl = document.getElementById("emp-att-status");
+    const empAttWorkedEl = document.getElementById("emp-att-worked");
+    const empAttMsgEl = document.getElementById("emp-att-msg");
+
+
     const driversListDiv = document.getElementById("drivers-list");
     const newDriverNameInput = document.getElementById("new-driver-name");
     const newDriverPinInput = document.getElementById("new-driver-pin");
     const addDriverBtn = document.getElementById("add-driver-btn");
     const driverAddMsg = document.getElementById("driver-add-msg");
+
+    // ✅ Employees (Manager)
+    const employeesListDiv = document.getElementById("employees-list");
+    const newEmployeeNameInput = document.getElementById("new-employee-name");
+    const newEmployeePinInput = document.getElementById("new-employee-pin");
+    const addEmployeeBtn = document.getElementById("add-employee-btn");
+    const employeeAddMsg = document.getElementById("employee-add-msg");
+
+    const managerEmpAttendanceList = document.getElementById("manager-emp-attendance-list");
+
 
     const clientNameInput = document.getElementById("client-name");
     const clientLatInput = document.getElementById("client-lat");
@@ -706,9 +808,11 @@
     let driverMarkers = {};
     let clientMarkers = {};
     let currentDriverId = null;
+    let currentEmployeeId = null;
     let watchId = null;
 
     let driversMetaCache = {};
+    let employeesMetaCache = {};
     let driversLocationsCache = {};
     let clientsCache = {};
 
@@ -775,6 +879,11 @@
     const AUTO_CHECKOUT_HOUR = 23;
     const AUTO_CHECKOUT_MIN  = 30;
     let attendanceCache = {};     // { driverId: {checkInAt, checkOutAt, ...} }
+    // ✅ Employee attendance state
+    let empAttendanceCache = {}; // { empId: {checkInAt, checkOutAt, ...} }
+    let empAttendanceDateKey = "";
+    let empAttendanceUnsubRef = null;
+    let empAttendanceTickTimer = null;
     let attendanceDateKey = "";
     let attendanceUnsubRef = null;
     let attendanceTickTimer = null;
@@ -1098,7 +1207,259 @@
         if (attMsgEl) {
           attMsgEl.style.color = "#86efac";
           attMsgEl.textContent = "✅ تم تسجيل الخروج";
-          setTimeout(()=>{ if(attMsgEl){ attMsgEl.textContent=""; attMsgEl.style.color="#fca5a5"; } }, 2500);
+          // =========================
+// ✅ Employee Attendance (RTDB)
+// =========================
+function unsubscribeEmpAttendance(skipRender=false){
+  if (empAttendanceUnsubRef && typeof empAttendanceUnsubRef.off === "function") empAttendanceUnsubRef.off();
+  empAttendanceUnsubRef = null;
+  empAttendanceCache = {};
+  empAttendanceDateKey = "";
+  if (!skipRender){
+    renderEmployeeAttendanceBox(true);
+    renderManagerEmployeesAttendanceList(true);
+  }
+}
+
+function subscribeEmpAttendanceFor(dateKey){
+  if (!dateKey) return;
+  if (empAttendanceDateKey === dateKey) return;
+
+  unsubscribeEmpAttendance(true);
+
+  empAttendanceDateKey = dateKey;
+  const ref = db.ref(`attendanceEmployees/${dateKey}`);
+  empAttendanceUnsubRef = ref;
+
+  ref.on("value", snap => {
+    empAttendanceCache = snap.val() || {};
+    renderEmployeeAttendanceBox();
+    renderManagerEmployeesAttendanceList();
+  });
+
+  if (empAttendanceTickTimer) clearInterval(empAttendanceTickTimer);
+  empAttendanceTickTimer = setInterval(()=>{
+    renderEmployeeAttendanceBox(true);
+    renderManagerEmployeesAttendanceList(true);
+  }, 60000);
+
+  renderEmployeeAttendanceBox(true);
+  renderManagerEmployeesAttendanceList(true);
+}
+
+function getEmpAttendanceDocFor(empId){
+  if (!empId) return null;
+  return empAttendanceCache[empId] || null;
+}
+
+async function getBestLatLngForEmployeeAttendance(){
+  const p = await getCurrentPos();
+  return { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy || null, source: "gps" };
+}
+
+async function empDoCheckIn(){
+  if (!currentEmployeeId) return;
+  if (empAttMsgEl) { empAttMsgEl.style.color = "#fca5a5"; empAttMsgEl.textContent = ""; }
+
+  const dateKey = getWorkDateByKey("today"); // الموظف دائماً "اليوم"
+  subscribeEmpAttendanceFor(dateKey);
+
+  let pos;
+  try { pos = await getBestLatLngForEmployeeAttendance(); }
+  catch(e){
+    if (empAttMsgEl) empAttMsgEl.textContent = "⚠️ لازم تفعّل الموقع حتى تسجّل حضور.";
+    return;
+  }
+
+  const gate = inOfficeRadius(pos.lat, pos.lng);
+  if (!gate.ok){
+    if (empAttMsgEl) empAttMsgEl.textContent = `⚠️ أنت خارج نطاق الشركة. المسافة تقريباً: ${Math.round(gate.d)}m`;
+    return;
+  }
+
+  const empName = (currentEmployeeNameLabel && currentEmployeeNameLabel.textContent) ? currentEmployeeNameLabel.textContent : employeeNameById(currentEmployeeId);
+  const patch = {
+    employeeId: currentEmployeeId,
+    employeeName: empName,
+    checkInAt: SERVER_TS,
+    checkInLat: pos.lat,
+    checkInLng: pos.lng,
+    checkInAcc: pos.acc != null ? Math.round(pos.acc) : null,
+    checkInDistance: Math.round(gate.d),
+    autoCheckOut: false,
+    updatedAt: SERVER_TS
+  };
+
+  try {
+    const ref = db.ref(`attendanceEmployees/${dateKey}/${currentEmployeeId}`);
+    const cur = getEmpAttendanceDocFor(currentEmployeeId);
+    if (cur && cur.checkInAt && !cur.checkOutAt){
+      if (empAttMsgEl) empAttMsgEl.textContent = "ℹ️ أنت مسجّل دخول مسبقاً اليوم.";
+      return;
+    }
+    await ref.update(patch);
+    if (empAttMsgEl){
+      empAttMsgEl.style.color = "#86efac";
+      empAttMsgEl.textContent = "✅ تم تسجيل الدخول داخل الشركة";
+      setTimeout(()=>{ if(empAttMsgEl){ empAttMsgEl.textContent=""; empAttMsgEl.style.color="#fca5a5"; } }, 2500);
+    }
+  } catch(e){
+    if (empAttMsgEl) empAttMsgEl.textContent = "⚠️ فشل تسجيل الدخول (Rules).";
+  }
+}
+
+async function empDoCheckOut(manual=true){
+  if (!currentEmployeeId) return;
+  if (empAttMsgEl) { empAttMsgEl.style.color = "#fca5a5"; empAttMsgEl.textContent = ""; }
+
+  const dateKey = getWorkDateByKey("today");
+  subscribeEmpAttendanceFor(dateKey);
+
+  const cur = getEmpAttendanceDocFor(currentEmployeeId);
+  if (!cur || !cur.checkInAt){
+    if (empAttMsgEl) empAttMsgEl.textContent = "⚠️ ما مسجّل دخول حتى تسجّل خروج.";
+    return;
+  }
+  if (cur.checkOutAt){
+    if (empAttMsgEl) empAttMsgEl.textContent = "ℹ️ أنت مسجّل خروج مسبقاً.";
+    return;
+  }
+
+  let pos = null;
+  try { pos = await getBestLatLngForEmployeeAttendance(); } catch(e){}
+
+  if (pos){
+    const gate = inOfficeRadius(pos.lat, pos.lng);
+    if (!gate.ok){
+      if (empAttMsgEl) empAttMsgEl.textContent = `⚠️ تسجيل الخروج يحتاج تكون داخل الشركة. المسافة: ${Math.round(gate.d)}m`;
+      return;
+    }
+  }
+
+  try{
+    const lat = pos ? pos.lat : null;
+    const lng = pos ? pos.lng : null;
+    const acc = pos && pos.acc != null ? Math.round(pos.acc) : null;
+    const dist = (pos ? Math.round(inOfficeRadius(pos.lat, pos.lng).d) : null);
+
+    await db.ref(`attendanceEmployees/${dateKey}/${currentEmployeeId}`).update({
+      checkOutAt: SERVER_TS,
+      checkOutLat: lat,
+      checkOutLng: lng,
+      checkOutAcc: acc,
+      checkOutDistance: dist,
+      autoCheckOut: !manual,
+      updatedAt: SERVER_TS
+    });
+
+    if (empAttMsgEl){
+      empAttMsgEl.style.color = "#86efac";
+      empAttMsgEl.textContent = "✅ تم تسجيل الخروج";
+      setTimeout(()=>{ if(empAttMsgEl){ empAttMsgEl.textContent=""; empAttMsgEl.style.color="#fca5a5"; } }, 2500);
+    }
+  } catch(e){
+    if (empAttMsgEl) empAttMsgEl.textContent = "⚠️ فشل تسجيل الخروج (Rules).";
+  }
+}
+
+function renderEmployeeAttendanceBox(tickOnly=false){
+  if (!empAttStatusEl || !empAttWorkedEl) return;
+  if (!currentEmployeeId){
+    empAttStatusEl.textContent = "—";
+    empAttWorkedEl.textContent = "مدة اليوم: —";
+    return;
+  }
+  const dateKey = getWorkDateByKey("today");
+  if (empAttendanceDateKey !== dateKey && !tickOnly){
+    setTimeout(()=>subscribeEmpAttendanceFor(dateKey), 0);
+  }
+  const doc = getEmpAttendanceDocFor(currentEmployeeId);
+  if (!doc || !doc.checkInAt){
+    empAttStatusEl.textContent = "الحالة: غير حاضر";
+    empAttWorkedEl.textContent = "مدة اليوم: 0س 0د";
+    return;
+  }
+  const worked = formatDuration(calcWorkedMs(doc.checkInAt, doc.checkOutAt));
+  const st = doc.checkOutAt ? "منتهي" : "مستمر";
+  empAttStatusEl.textContent = `الحالة: ${st} | دخول: ${formatTime(doc.checkInAt)}${doc.checkOutAt ? ` | خروج: ${formatTime(doc.checkOutAt)}` : ""}`;
+  empAttWorkedEl.textContent = `مدة اليوم: ${worked}`;
+}
+
+function renderManagerEmployeesAttendanceList(tickOnly=false){
+  if (!managerEmpAttendanceList) return;
+  const dateKey = getWorkDateByKey(managerDaySelect.value || "today");
+  if (empAttendanceDateKey !== dateKey && !tickOnly){
+    setTimeout(()=>subscribeEmpAttendanceFor(dateKey), 0);
+  }
+
+  const entries = Object.entries(empAttendanceCache || {}).map(([id, a]) => ({ id, ...a }));
+
+  const allEmps = Object.entries(employeesMetaCache || {}).map(([id, meta]) => ({
+    id,
+    employeeName: (meta && meta.name) ? meta.name : id
+  }));
+
+  const mapById = {};
+  entries.forEach(x => { mapById[x.id] = x; });
+
+  const merged = allEmps.map(e => {
+    const a = mapById[e.id] || {};
+    return {
+      id: e.id,
+      employeeName: a.employeeName || e.employeeName,
+      checkInAt: a.checkInAt || null,
+      checkOutAt: a.checkOutAt || null,
+      autoCheckOut: !!a.autoCheckOut,
+      checkInDistance: a.checkInDistance ?? null
+    };
+  });
+
+  merged.sort((a,b)=> tsToMs(b.checkInAt||0) - tsToMs(a.checkInAt||0));
+
+  managerEmpAttendanceList.innerHTML = "";
+  if (!merged.length){
+    managerEmpAttendanceList.innerHTML = `<div class="small">لا يوجد بيانات حضور للموظفين.</div>`;
+    return;
+  }
+
+  merged.forEach(x=>{
+    const item = document.createElement("div");
+    item.className = "list-item";
+
+    const left = document.createElement("div");
+    const right = document.createElement("div");
+
+    const title = document.createElement("strong");
+    title.textContent = x.employeeName || employeeNameById(x.id);
+
+    const meta = document.createElement("div");
+    meta.className = "small";
+
+    if (!x.checkInAt){
+      meta.textContent = "غير حاضر اليوم";
+    } else {
+      const worked = formatDuration(calcWorkedMs(x.checkInAt, x.checkOutAt));
+      const st = x.checkOutAt ? "منتهي" : "مستمر";
+      const auto = x.autoCheckOut ? " | 🕦 خروج تلقائي" : "";
+      const dist = (x.checkInDistance != null) ? ` | داخل الشركة (${x.checkInDistance}m)` : "";
+      meta.textContent = `دخول: ${formatTime(x.checkInAt)}${x.checkOutAt ? ` | خروج: ${formatTime(x.checkOutAt)}` : ""} | ${st} | مدة: ${worked}${auto}${dist}`;
+    }
+
+    left.appendChild(title);
+    left.appendChild(meta);
+
+    const pill = document.createElement("span");
+    pill.className = "pill";
+    pill.innerHTML = x.checkInAt ? (x.checkOutAt ? `✅ <b>مكتمل</b>` : `🟡 <b>مستمر</b>`) : `— <b>لا يوجد</b>`;
+    right.appendChild(pill);
+
+    item.appendChild(left);
+    item.appendChild(right);
+    managerEmpAttendanceList.appendChild(item);
+  });
+}
+
+setTimeout(()=>{ if(attMsgEl){ attMsgEl.textContent=""; attMsgEl.style.color="#fca5a5"; } }, 2500);
         }
       }catch(e){
         if (attMsgEl) attMsgEl.textContent = "⚠️ فشل تسجيل الخروج (Rules).";
@@ -1450,6 +1811,18 @@
 
       if (USE_TRACCAR) startTraccarPolling();
     }
+// =========================
+// ✅ Employees subscribe
+// =========================
+function subscribeEmployees(){
+  db.ref("employeesMeta").on("value", snap => {
+    employeesMetaCache = snap.val() || {};
+    renderEmployeesSelect();
+    renderEmployeesList();
+    renderManagerEmployeesAttendanceList();
+  });
+}
+
 
     function subscribeClients() {
       db.ref("clients").on("value", snap => {
@@ -2378,7 +2751,100 @@
       managerAlert.textContent = badList.length ? ("⚠️ تنبيه: " + badList.join(" — ")) : "";
     }
 
-    function renderDriversSelect() {
+    // =========================
+// ✅ Employees helpers + UI
+// =========================
+function employeeNameById(id){
+  const e = employeesMetaCache && employeesMetaCache[id];
+  return (e && e.name) ? e.name : (id || "");
+}
+
+function renderEmployeesSelect(){
+  if (!employeeSelect) return;
+  employeeSelect.innerHTML = '<option value="">-- اختر موظف --</option>';
+  Object.entries(employeesMetaCache || {}).forEach(([id, meta])=>{
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = (meta && meta.name) ? meta.name : id;
+    employeeSelect.appendChild(opt);
+  });
+}
+
+function renderEmployeesList(){
+  if (!employeesListDiv) return;
+  employeesListDiv.innerHTML = "";
+  const entries = Object.entries(employeesMetaCache || {});
+  if (!entries.length){
+    employeesListDiv.innerHTML = '<div class="small">لا يوجد موظفين بعد.</div>';
+    return;
+  }
+  entries.forEach(([id, meta])=>{
+    const item = document.createElement("div");
+    item.className = "list-item";
+
+    const left = document.createElement("div");
+    const right = document.createElement("div");
+
+    const title = document.createElement("strong");
+    title.textContent = (meta && meta.name) ? meta.name : id;
+
+    const small = document.createElement("div");
+    small.className = "small";
+    small.textContent = `ID: ${id}`;
+
+    left.appendChild(title);
+    left.appendChild(small);
+
+    const btnName = document.createElement("button");
+    btnName.className = "secondary prio-btn";
+    btnName.textContent = "تعديل الاسم";
+    btnName.onclick = ()=>changeEmployeeName(id);
+
+    const btnPin = document.createElement("button");
+    btnPin.className = "secondary prio-btn";
+    btnPin.textContent = "تغيير PIN";
+    btnPin.onclick = ()=>changeEmployeePin(id);
+
+    const btnDel = document.createElement("button");
+    btnDel.className = "danger prio-btn";
+    btnDel.textContent = "حذف";
+    btnDel.onclick = ()=>deleteEmployee(id);
+
+    right.appendChild(btnName);
+    right.appendChild(btnPin);
+    right.appendChild(btnDel);
+
+    item.appendChild(left);
+    item.appendChild(right);
+    employeesListDiv.appendChild(item);
+  });
+}
+
+function changeEmployeeName(id){
+  const oldName = employeeNameById(id) || id;
+  const newName = prompt("اكتب الاسم الجديد للموظف:", oldName);
+  if (!newName) return;
+  const clean = newName.trim();
+  if (clean.length < 2) { alert("الاسم قصير جداً."); return; }
+  db.ref(`employeesMeta/${id}`).update({ name: clean });
+  if (currentEmployeeId === id && currentEmployeeNameLabel) currentEmployeeNameLabel.textContent = clean;
+}
+
+function changeEmployeePin(id){
+  const newPin = prompt("اكتب PIN الجديد (4 أرقام):", "");
+  if (newPin == null) return;
+  const clean = String(newPin).trim();
+  if (!isPin4(clean)) { alert("PIN لازم يكون 4 أرقام فقط."); return; }
+  db.ref(`employeesMeta/${id}`).update({ pin: clean });
+  alert("تم تغيير PIN ✅");
+}
+
+function deleteEmployee(id){
+  if (!confirm("تأكيد حذف الموظف؟")) return;
+  db.ref(`employeesMeta/${id}`).remove();
+}
+
+function renderDriversSelect() {
       const currentValue = driverSelect.value;
       driverSelect.innerHTML = '<option value="">-- اختر مندوب --</option>';
       Object.entries(driversMetaCache).forEach(([id, d]) => {
@@ -2674,6 +3140,27 @@
       db.ref(`driversLocations/${id}`).remove();
     }
 
+function addEmployee(){
+  const name = (newEmployeeNameInput && newEmployeeNameInput.value ? newEmployeeNameInput.value : "").trim();
+  const pin  = String(newEmployeePinInput && newEmployeePinInput.value ? newEmployeePinInput.value : "").trim();
+
+  if (!name) { if(employeeAddMsg) employeeAddMsg.textContent = "الرجاء إدخال اسم الموظف."; return; }
+  if (!isPin4(pin)) { if(employeeAddMsg) employeeAddMsg.textContent = "PIN لازم يكون 4 أرقام."; return; }
+
+  const id = slugify(name);
+  db.ref(`employeesMeta/${id}`).set({ name, pin, createdAt: SERVER_TS })
+    .then(()=>{
+      if(employeeAddMsg) employeeAddMsg.textContent = "تمت إضافة الموظف.";
+      if(newEmployeeNameInput) newEmployeeNameInput.value = "";
+      if(newEmployeePinInput) newEmployeePinInput.value = "";
+      setTimeout(()=>{ if(employeeAddMsg) employeeAddMsg.textContent=""; }, 2000);
+    })
+    .catch(err=>{
+      console.error(err);
+      if(employeeAddMsg) employeeAddMsg.textContent = "فشل الإضافة (Rules).";
+    });
+}
+
     function addClient() {
       const name = clientNameInput.value.trim();
       const latStr = normalizeNumberText(clientLatInput.value);
@@ -2806,15 +3293,19 @@
       }
       managerLoginError.textContent = "";
       hide(loginCard);
+      hide(driverCard);
+      hide(employeeCard);
       show(managerCard);
       initMap();
       subscribeDrivers();
       subscribeClients();
+      subscribeEmployees();
 
       subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
 
       // ✅ Attendance subscribe for manager
       subscribeAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+      subscribeEmpAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
 
       if (USE_TRACCAR) {
         appStatus.textContent = "";
@@ -2828,6 +3319,9 @@
       unsubscribeAttendance();
       show(loginCard);
       hide(managerCard);
+      hide(driverCard);
+      hide(employeeCard);
+      unsubscribeEmpAttendance(true);
     };
 
     driverLoginBtn.onclick = async () => {
@@ -2854,6 +3348,7 @@
 
       driverPinInput.value = "";
       hide(loginCard);
+      hide(employeeCard);
       show(driverCard);
 
       initDriverMap();
@@ -2876,7 +3371,60 @@
       renderDriverAttendanceBox();
     };
 
-    logoutDriverBtn.onclick = () => {
+    
+// =========================
+// ✅ Employee login/logout
+// =========================
+employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
+  const selectedId = employeeSelect.value;
+  const pin = String(employeePinInput.value || "").trim();
+
+  if (!selectedId) {
+    employeeLoginError.textContent = "اختر اسم الموظف أولاً.";
+    return;
+  }
+  if (!isPin4(pin)) {
+    employeeLoginError.textContent = "PIN لازم يكون 4 أرقام.";
+    return;
+  }
+
+  const meta = employeesMetaCache[selectedId];
+  if (!meta || String(meta.pin || "") !== pin) {
+    employeeLoginError.textContent = "PIN غير صحيح.";
+    return;
+  }
+
+  employeeLoginError.textContent = "";
+  currentEmployeeId = selectedId;
+
+  hide(loginCard);
+  hide(managerCard);
+  hide(driverCard);
+  show(employeeCard);
+
+  currentEmployeeNameLabel.textContent = meta.name || selectedId;
+
+  // Subscribe attendance (today)
+  subscribeEmpAttendanceFor(getWorkDateByKey("today"));
+
+  // Buttons
+  empBtnCheckIn && (empBtnCheckIn.onclick = ()=>empDoCheckIn());
+  empBtnCheckOut && (empBtnCheckOut.onclick = ()=>empDoCheckOut(true));
+
+  renderEmployeeAttendanceBox(true);
+});
+
+logoutEmployeeBtn && (logoutEmployeeBtn.onclick = () => {
+  currentEmployeeId = null;
+  employeeSelect.value = "";
+  employeePinInput.value = "";
+
+  hide(employeeCard);
+  show(loginCard);
+  unsubscribeEmpAttendance(true);
+});
+
+logoutDriverBtn.onclick = () => {
       stopTrackingOnLogout();
       currentDriverId = null;
       driverSelfLatLng = null;
@@ -2891,6 +3439,7 @@
 
       show(loginCard);
       hide(driverCard);
+      hide(employeeCard);
     };
 
     clientSearchManager.addEventListener("input", (e) => {
@@ -2904,6 +3453,7 @@
     });
 
     addDriverBtn.onclick = addDriver;
+    addEmployeeBtn && (addEmployeeBtn.onclick = addEmployee);
     addClientBtn.onclick = addClient;
 
     addOrderBtn.onclick = addOrder;
@@ -2911,6 +3461,7 @@
     managerDaySelect.addEventListener("change", ()=>{
       subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
       subscribeAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+      subscribeEmpAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
     });
     driverDaySelect.addEventListener("change", ()=>{
       subscribeOrdersFor(getWorkDateByKey(driverDaySelect.value || "today"));
@@ -2954,6 +3505,7 @@
 
     // preload select list
     subscribeDrivers();
+    subscribeEmployees();
 
     // ping
     db.ref("_ping").set({ t: SERVER_TS }).catch(err => {
@@ -3028,5 +3580,4 @@ setTimeout(bindAttendanceButtons, 100);
   </script>
 </body>
 </html>
-
 
