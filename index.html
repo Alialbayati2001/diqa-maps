@@ -90,7 +90,18 @@
     .att-row .badge{cursor:default}
     .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
     .prio-btn{padding:6px 10px;font-size:12px}
-  </style>
+  
+    /* Employee marker (Traccar) */
+    .emp-icon{
+      width:30px;height:30px;border-radius:50%;
+      display:flex;align-items:center;justify-content:center;
+      border:2px solid rgba(255,255,255,.6);
+      background:rgba(2,6,23,.85);
+      color:#e5e7eb;
+      font-weight:800;
+      box-shadow:0 6px 18px rgba(0,0,0,.35);
+    }
+</style>
 </head>
 
 <body>
@@ -622,7 +633,8 @@
 
         lastTraccarOkAt = Date.now();
 
-        const next = {};
+        const nextDrivers = {};
+        const nextEmployees = {};
         j.data.forEach((p) => {
           const devId = String(p.deviceId ?? p.id ?? "");
           if (!devId) return;
@@ -648,7 +660,34 @@
             if (found && found[0]) key = found[0];
           }
 
-          next[key] = {
+          
+          // ✅ Also map Traccar device to an Employee (if matched by name)
+          let empKey = null;
+          const empSlug = slugify(devName);
+          if (empSlug && employeesMetaCache && employeesMetaCache[empSlug]) {
+            empKey = empSlug;
+          } else {
+            const efound = Object.entries(employeesMetaCache || {}).find(([id, meta]) => {
+              return meta && meta.name && String(meta.name).trim() === String(devName).trim();
+            });
+            if (efound && efound[0]) empKey = efound[0];
+          }
+
+          if (empKey) {
+            nextEmployees[empKey] = {
+              name: devName,
+              lat,
+              lng,
+              accuracy: acc,
+              gpsOk: true,
+              gpsError: null,
+              active: !st.isStale,
+              liveState: (st.isOnline ? "online" : (st.isWarn ? "warn" : "offline")),
+              updatedAt: whenMs
+            };
+          }
+
+nextDrivers[key] = {
             name: devName,
             lat,
             lng,
@@ -661,10 +700,13 @@
           };
         });
 
-        driversLocationsCache = next;
+        driversLocationsCache = nextDrivers;
+
+        employeesLocationsCache = nextEmployees;
 
         renderDriversList();
         updateDriverMarkers();
+        updateEmployeeMarkers();
         updateManagerAlertAndNotify();
 
         // ✅ update driver page live location + nearby status
@@ -810,6 +852,7 @@
     // State
     let map;
     let driverMarkers = {};
+    let employeeMarkers = {};
     let clientMarkers = {};
     let currentDriverId = null;
     let currentEmployeeId = null;
@@ -818,6 +861,7 @@
     let driversMetaCache = {};
     let employeesMetaCache = {};
     let driversLocationsCache = {};
+    let employeesLocationsCache = {};
     let clientsCache = {};
 
     let clientSearchTextManager = "";
@@ -2990,7 +3034,70 @@ function renderDriversSelect() {
       });
     }
 
-    function updateClientMarkers() {
+    
+    function makeEmployeeIcon(liveState) {
+      // reuse simple icon; liveState kept for future styling if needed
+      return L.divIcon({
+        className: "",
+        html: `<div class="emp-icon">م</div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+      });
+    }
+
+    function updateEmployeeMarkers() {
+      if (!map) return;
+
+      // remove stale / missing
+      Object.keys(employeeMarkers).forEach(id => {
+        const loc = employeesLocationsCache[id];
+        if (!loc) {
+          map.removeLayer(employeeMarkers[id]);
+          delete employeeMarkers[id];
+          return;
+        }
+        const st = calcLiveState(loc.updatedAt);
+        if (st.isStale) {
+          map.removeLayer(employeeMarkers[id]);
+          delete employeeMarkers[id];
+        }
+      });
+
+      Object.entries(employeesLocationsCache).forEach(([id, loc]) => {
+        if (!loc) return;
+        if (typeof loc.lat !== "number" || typeof loc.lng !== "number") return;
+
+        const st = calcLiveState(loc.updatedAt);
+        if (st.isStale) return;
+
+        const icon = makeEmployeeIcon(st.isOnline ? "online" : (st.isWarn ? "warn" : "offline"));
+
+        const empName = (employeesMetaCache && employeesMetaCache[id] && employeesMetaCache[id].name) ? employeesMetaCache[id].name : (loc.name || id);
+        const when = new Date(loc.updatedAt || Date.now());
+        const timeStr = when.toLocaleString("ar-IQ");
+
+        const popupHtml = `
+          <div style="min-width:180px">
+            <div style="font-weight:800;margin-bottom:6px">👤 موظف: ${escapeHtml(empName)}</div>
+            <div class="small">آخر تحديث: <span class="mono">${escapeHtml(timeStr)}</span></div>
+          </div>
+        `;
+
+        if (employeeMarkers[id]) {
+          employeeMarkers[id].setLatLng([loc.lat, loc.lng]);
+          employeeMarkers[id].setIcon(icon);
+        } else {
+          const mk = L.marker([loc.lat, loc.lng], { icon });
+          mk.bindPopup(popupHtml);
+          mk.addTo(map);
+          employeeMarkers[id] = mk;
+        }
+      });
+    }
+
+    // expose for early calls safety
+    window.updateEmployeeMarkers = updateEmployeeMarkers;
+function updateClientMarkers() {
       if (!map) return;
 
       Object.keys(clientMarkers).forEach(id => {
