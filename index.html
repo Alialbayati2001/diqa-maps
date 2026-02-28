@@ -455,6 +455,10 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 
   <script>
+
+    // ---- Safety: prevent ReferenceError if function is called before definition (or old cached build)
+    // We create a temporary stub and later overwrite it with the real function.
+    window.renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttendanceList || function(){};
     // =========================
     // ✅ Traccar (UPDATED CONFIG)
     // =========================
@@ -1458,6 +1462,9 @@ function renderManagerEmployeesAttendanceList(tickOnly=false){
     managerEmpAttendanceList.appendChild(item);
   });
 }
+// expose for global calls
+window.renderManagerEmployeesAttendanceList = renderManagerEmployeesAttendanceList;
+
 
 setTimeout(()=>{ if(attMsgEl){ attMsgEl.textContent=""; attMsgEl.style.color="#fca5a5"; } }, 2500);
         }
