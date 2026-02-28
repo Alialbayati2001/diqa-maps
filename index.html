@@ -3540,6 +3540,11 @@ window.addEventListener("unhandledrejection", (e)=>{
   showErr("Promise Error", e.reason);
 });
 
+
+// 🔌 Expose some helpers globally (fix ReferenceError in some browsers/builds)
+window.renderManagerEmployeesAttendanceList = renderManagerEmployeesAttendanceList;
+window.renderEmployeeAttendanceBox = renderEmployeeAttendanceBox;
+
 function bindAttendanceButtons(){
   const b1 = document.getElementById("btn-checkin");
   const b2 = document.getElementById("btn-checkout");
