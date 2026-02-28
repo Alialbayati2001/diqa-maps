@@ -289,12 +289,12 @@
           <hr style="border-color:#111827;margin:10px 0;" />
           <h3>الحضور (دوام الشركة)</h3>
           <div class="hint">
-            ✅ يعرض دخول/خروج المندوبين داخل نطاق الشركة (150m).<br/>
+            ✅ يعرض دخول/خروج المندوبين داخل نطاق الشركة (250m).<br/>
             ✅ NEW: يظهر مدة حضور اليوم لكل مندوب، وإذا بعده ما سجل خروج يظهر "مستمر".
           </div>
           <div class="att-box">
             <div class="att-row">
-              <span class="badge">نطاق الشركة: <span class="mono">33.2520520, 44.3625600</span> — 150m</span>
+              <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 250m</span>
               <span class="badge">خروج تلقائي: <b>11:30 PM</b></span>
             </div>
             <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
@@ -348,7 +348,7 @@
       <hr style="border-color:#111827;margin:10px 0;" />
       <h3>الحضور (داخل الشركة)</h3>
       <div class="hint">
-        ✅ تقدر تسجّل دخول/خروج فقط إذا كنت داخل نطاق الشركة (150m).<br/>
+        ✅ تقدر تسجّل دخول/خروج فقط إذا كنت داخل نطاق الشركة (250m).<br/>
         ✅ إذا تعدّت الساعة 11:30 مساءً يسجل خروج تلقائي (إذا الصفحة شغالة).<br/>
         ✅ وقت حضورك اليوم يظهر هنا وأيضاً عند الأدمن.
       </div>
@@ -1132,8 +1132,8 @@
         driverId: currentDriverId,
         driverName: drvName,
         checkInAt: SERVER_TS,
-        checkInLat: pos.lat,
-        checkInLng: pos.lng,
+        checkInLat: OFFICE.lat,
+    checkInLng: OFFICE.lng,
         checkInAcc: pos.acc != null ? Math.round(pos.acc) : null,
         checkInDistance: Math.round(gate.d),
         autoCheckOut: false,
@@ -1196,8 +1196,8 @@
 
         await db.ref(`attendance/${dateKey}/${currentDriverId}`).update({
           checkOutAt: SERVER_TS,
-          checkOutLat: lat,
-          checkOutLng: lng,
+          checkOutLat: OFFICE.lat,
+      checkOutLng: OFFICE.lng,
           checkOutAcc: acc,
           checkOutDistance: dist,
           autoCheckOut: !manual,
@@ -1282,8 +1282,8 @@ async function empDoCheckIn(){
     employeeId: currentEmployeeId,
     employeeName: empName,
     checkInAt: SERVER_TS,
-    checkInLat: pos.lat,
-    checkInLng: pos.lng,
+    checkInLat: OFFICE.lat,
+    checkInLng: OFFICE.lng,
     checkInAcc: pos.acc != null ? Math.round(pos.acc) : null,
     checkInDistance: Math.round(gate.d),
     autoCheckOut: false,
@@ -1344,8 +1344,8 @@ async function empDoCheckOut(manual=true){
 
     await db.ref(`attendanceEmployees/${dateKey}/${currentEmployeeId}`).update({
       checkOutAt: SERVER_TS,
-      checkOutLat: lat,
-      checkOutLng: lng,
+      checkOutLat: OFFICE.lat,
+      checkOutLng: OFFICE.lng,
       checkOutAcc: acc,
       checkOutDistance: dist,
       autoCheckOut: !manual,
