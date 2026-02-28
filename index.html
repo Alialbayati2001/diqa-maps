@@ -2942,6 +2942,72 @@
       console.warn("DB write blocked:", err);
       appStatus.textContent = "⚠️ قواعد Firebase تمنع الكتابة (Rules).";
     });
+    // =========================
+// ✅ ATTENDANCE FIX (NO DELETE)
+// =========================
+
+function showErr(where, err){
+  const msg =
+    `⚠️ ${where}: ` +
+    (err && (err.code || err.message)
+      ? `${err.code ? err.code + " - " : ""}${err.message || ""}`
+      : String(err || "unknown"));
+
+  console.error(where, err);
+  if (appStatus) appStatus.textContent = msg;
+  if (attMsgEl){
+    attMsgEl.style.color = "#fca5a5";
+    attMsgEl.textContent = msg;
+  }
+  try{ alert(msg); }catch(_){}
+}
+
+window.addEventListener("error", (e)=>{
+  showErr("JS Error", e.error || e.message);
+});
+
+window.addEventListener("unhandledrejection", (e)=>{
+  showErr("Promise Error", e.reason);
+});
+
+function bindAttendanceButtons(){
+  const b1 = document.getElementById("btn-checkin");
+  const b2 = document.getElementById("btn-checkout");
+
+  if(!b1 || !b2){
+    console.warn("Attendance buttons not found");
+    return;
+  }
+
+  b1.onclick = async ()=>{
+    try{
+      if(attMsgEl){
+        attMsgEl.style.color="#86efac";
+        attMsgEl.textContent="✅ تم الضغط على تسجيل دخول";
+      }
+      await doCheckIn();
+    }catch(err){
+      showErr("checkin failed", err);
+    }
+  };
+
+  b2.onclick = async ()=>{
+    try{
+      if(attMsgEl){
+        attMsgEl.style.color="#86efac";
+        attMsgEl.textContent="✅ تم الضغط على تسجيل خروج";
+      }
+      await doCheckOut(true);
+    }catch(err){
+      showErr("checkout failed", err);
+    }
+  };
+
+  console.log("✅ Attendance buttons linked");
+}
+
+setTimeout(bindAttendanceButtons, 100);
   </script>
 </body>
 </html>
+
