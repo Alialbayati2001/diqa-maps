@@ -470,6 +470,7 @@
     // ---- Safety: prevent ReferenceError if function is called before definition (or old cached build)
     // We create a temporary stub and later overwrite it with the real function.
     window.renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttendanceList || function(){};
+    window.renderEmployeeAttendanceBox = window.renderEmployeeAttendanceBox || function(){};
     // =========================
     // ✅ Traccar (UPDATED CONFIG)
     // =========================
@@ -1255,7 +1256,18 @@ nextDrivers[key] = {
         if (attMsgEl) {
           attMsgEl.style.color = "#86efac";
           attMsgEl.textContent = "✅ تم تسجيل الخروج";
-          // =========================
+          
+
+setTimeout(()=>{ if(attMsgEl){ attMsgEl.textContent=""; attMsgEl.style.color="#fca5a5"; } }, 2500);
+        }
+      }catch(e){
+        if (attMsgEl) attMsgEl.textContent = "⚠️ فشل تسجيل الخروج (Rules).";
+      }
+    }
+
+    
+
+// =========================
 // ✅ Employee Attendance (RTDB)
 // =========================
 function unsubscribeEmpAttendance(skipRender=false){
@@ -1509,15 +1521,7 @@ const renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttend
 // expose for global calls
 window.renderManagerEmployeesAttendanceList = renderManagerEmployeesAttendanceList;
 
-
-setTimeout(()=>{ if(attMsgEl){ attMsgEl.textContent=""; attMsgEl.style.color="#fca5a5"; } }, 2500);
-        }
-      }catch(e){
-        if (attMsgEl) attMsgEl.textContent = "⚠️ فشل تسجيل الخروج (Rules).";
-      }
-    }
-
-    function renderDriverAttendanceBox(tickOnly=false){
+function renderDriverAttendanceBox(tickOnly=false){
       if (!attStatusEl || !attWorkedEl) return;
       if (!currentDriverId) {
         attStatusEl.textContent = "—";
@@ -3699,4 +3703,3 @@ setTimeout(bindAttendanceButtons, 100);
   </script>
 </body>
 </html>
-
