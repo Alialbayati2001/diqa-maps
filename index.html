@@ -274,6 +274,11 @@
           <datalist id="clients-datalist"></datalist>
           <p class="small">اختر من الاقتراحات (يظهر بالشكل: الاسم — ID) حتى نتجنب تكرار الأسماء.</p>
 
+          <!-- ✅ NEW: مبلغ الفاتورة (اختياري من الأدمن) -->
+          <label for="order-admin-invoice-amount">مبلغ الفاتورة (اختياري)</label>
+          <input id="order-admin-invoice-amount" type="text" inputmode="numeric" placeholder="مثال: 30000 أو 30,000 د.ع" />
+          <p class="small" id="order-admin-invoice-preview"></p>
+
           <button id="add-order-btn">تسجيل الطلب على المندوب</button>
           <p class="small" id="order-add-msg"></p>
 
@@ -887,6 +892,10 @@ nextDrivers[key] = {
     const orderClientPick = document.getElementById("order-client-pick");
     const clientsDatalist = document.getElementById("clients-datalist");
 
+    // ✅ NEW: Admin invoice amount (optional)
+    const orderAdminInvoiceAmountInput = document.getElementById("order-admin-invoice-amount");
+    const orderAdminInvoicePreview = document.getElementById("order-admin-invoice-preview");
+
     const addOrderBtn = document.getElementById("add-order-btn");
     const orderAddMsg = document.getElementById("order-add-msg");
 
@@ -946,40 +955,6 @@ nextDrivers[key] = {
     // ✅ FIX: منع تكرار الاشتراك/إلغاء الاشتراك (حل مشكلة Maximum call stack)
     let attendanceSubInProgress = false;
     let attendanceRenderLock = false;
-
-    // =========================
-    // ✅ Office marker + radius layers (Map)
-    // =========================
-    let officeLayers = {
-      manager: { marker: null, circle: null },
-      driver:  { marker: null, circle: null }
-    };
-
-    function ensureOfficeOnMap(targetMap, which){
-      if (!targetMap) return;
-      const key = (which === "driver") ? "driver" : "manager";
-
-      // Marker
-      if (!officeLayers[key].marker) {
-        officeLayers[key].marker = L.marker([OFFICE.lat, OFFICE.lng])
-          .addTo(targetMap)
-          .bindPopup("📍 موقع الشركة");
-      }
-
-      // Circle radius
-      if (!officeLayers[key].circle) {
-        officeLayers[key].circle = L.circle([OFFICE.lat, OFFICE.lng], {
-          radius: Number(OFFICE.radius) || 15,
-          color: "#22c55e",
-          fillColor: "#22c55e",
-          fillOpacity: 0.15,
-          weight: 2
-        }).addTo(targetMap);
-      } else {
-        // إذا تغيّر radius لاحقاً
-        officeLayers[key].circle.setRadius(Number(OFFICE.radius) || 15);
-      }
-    }
 
     // Helpers
     function show(el){ el.classList.remove("hidden"); }
@@ -1111,9 +1086,20 @@ function openInGoogleMaps(lat, lng) {
     // ✅ Money format (IQD)
     // =========================
     function formatIQD(n){
+      // ✅ IQD: رقم صحيح + فاصلة آلاف + لاحقة د.ع
       const x = Number(n);
-      const v = Number.isFinite(x) ? x : 0;
-      return new Intl.NumberFormat("en-US", { minimumFractionDigits:3, maximumFractionDigits:3 }).format(v);
+      const v = Number.isFinite(x) ? Math.round(x) : 0;
+      return new Intl.NumberFormat("en-US", { maximumFractionDigits:0 }).format(v) + " د.ع";
+    }
+
+    // ✅ قراءة مبلغ (يسمح: 30000 / 30,000 / 30,000 د.ع)
+    function parseIQD(input){
+      const s = String(input ?? "").trim();
+      if (!s) return null;
+      const digits = s.replace(/[^\d]/g, "");
+      if (!digits) return null;
+      const n = Number(digits);
+      return Number.isFinite(n) ? n : null;
     }
 
     // =========================
@@ -1891,9 +1877,6 @@ function renderDriverAttendanceBox(tickOnly=false){
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap"
       }).addTo(map);
-
-      // ✅ NEW: موقع الشركة + مدى 15 متر
-      ensureOfficeOnMap(map, "manager");
     }
 
     function initDriverMap(){
@@ -1903,9 +1886,6 @@ function renderDriverAttendanceBox(tickOnly=false){
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap"
       }).addTo(driverMap);
-
-      // ✅ NEW: موقع الشركة + مدى 15 متر (على خريطة المندوب أيضاً)
-      ensureOfficeOnMap(driverMap, "driver");
     }
 
     // =========================
@@ -2317,13 +2297,15 @@ function subscribeEmployees(){
       if (!choice) return;
 
       if (String(choice).trim() === "1") {
-        let amountStr = prompt("اكتب مبلغ الاستلام (إجباري حتى لو 0):", "0");
+        let amountStr;
+        const suggested = (o && o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : null;
+        const hint = (suggested != null) ? `\n(مبلغ مقترح من الأدمن: ${formatIQD(suggested)})` : "";
+        amountStr = prompt("اكتب مبلغ الاستلام (إجباري حتى لو 0):" + hint, (suggested != null ? String(suggested) : "0"));
         if (amountStr == null) return;
 
-        amountStr = normalizeNumberText(amountStr);
-        const amount = Number(amountStr);
+        const amount = parseIQD(amountStr);
 
-        if (!Number.isFinite(amount)) {
+        if (amount == null || !Number.isFinite(amount)) {
           alert("المبلغ غير صحيح.");
           return;
         }
@@ -2434,6 +2416,9 @@ function subscribeEmployees(){
         return;
       }
 
+      // ✅ NEW: مبلغ الفاتورة من الأدمن (اختياري)
+      const adminAmount = orderAdminInvoiceAmountInput ? parseIQD(orderAdminInvoiceAmountInput.value) : null;
+
       const workDate = getWorkDateByKey(managerDaySelect.value || "today");
       const ref = db.ref(`orders/${workDate}`).push();
 
@@ -2448,6 +2433,7 @@ function subscribeEmployees(){
       const payload = {
         workDate,
         type: "order",
+        adminInvoiceAmount: (adminAmount != null ? adminAmount : null), // ✅ اختياري (مقترح من الأدمن)
         assignedDriverId: driverId,
         assignedDriverName: driverNameById(driverId),
         clientId,
@@ -2465,6 +2451,8 @@ function subscribeEmployees(){
         orderAddMsg.textContent = "تم تسجيل الطلب ✅";
         // تنظيف الحقل بعد التسجيل
         orderClientPick.value = "";
+        if (orderAdminInvoiceAmountInput) orderAdminInvoiceAmountInput.value = "";
+        if (orderAdminInvoicePreview) orderAdminInvoicePreview.textContent = "";
         setTimeout(()=>orderAddMsg.textContent="", 2000);
       } catch(e) {
         console.error(e);
@@ -2579,6 +2567,7 @@ function subscribeEmployees(){
         const pr = normalizePriority(x.priority);
         if (tab === "registered") {
           extra += ` | أولوية: ${pr ? pr : "-"}`;
+          if (x.adminInvoiceAmount != null) extra += ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}`;
         }
 
         if (x.status === "delivered") {
@@ -2773,7 +2762,7 @@ function subscribeEmployees(){
 
           const meta = document.createElement("div");
           meta.className = "small";
-          meta.textContent = `الحالة: ${statusLabel(x.status)}`;
+          meta.textContent = `الحالة: ${statusLabel(x.status)}` + (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
 
           left.appendChild(title);
           left.appendChild(meta);
@@ -3700,6 +3689,28 @@ logoutDriverBtn.onclick = () => {
     addClientBtn.onclick = addClient;
 
     addOrderBtn.onclick = addOrder;
+
+    // ✅ NEW: عرض معاينة مبلغ الفاتورة للأدمن + تنسيق تلقائي
+    if (orderAdminInvoiceAmountInput){
+      const refreshPreview = ()=>{
+        const n = parseIQD(orderAdminInvoiceAmountInput.value);
+        if (orderAdminInvoicePreview){
+          if (n == null){
+            orderAdminInvoicePreview.style.color = "";
+            orderAdminInvoicePreview.textContent = "";
+          } else {
+            orderAdminInvoicePreview.style.color = "#86efac";
+            orderAdminInvoicePreview.textContent = "سيظهر هكذا: " + formatIQD(n);
+          }
+        }
+      };
+      orderAdminInvoiceAmountInput.addEventListener("input", refreshPreview);
+      orderAdminInvoiceAmountInput.addEventListener("blur", ()=>{
+        const n = parseIQD(orderAdminInvoiceAmountInput.value);
+        if (n != null) orderAdminInvoiceAmountInput.value = new Intl.NumberFormat("en-US", { maximumFractionDigits:0 }).format(n) + " د.ع";
+        refreshPreview();
+      });
+    }
 
     managerDaySelect.addEventListener("change", ()=>{
       subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
