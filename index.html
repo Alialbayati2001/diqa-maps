@@ -232,7 +232,11 @@
           <p class="small">أدخل الإحداثيات من Google Maps (ضغط مطوّل على الموقع ونسخ الأرقام).</p>
           <label for="client-name">اسم الزبون</label>
           <input id="client-name" type="text" placeholder="مثال: مركز الدقّة - السيدية" />
-          <label for="client-lat">Latitude</label>
+          
+          <label for="client-map-url">رابط موقع الزبون (Google Maps)</label>
+          <input id="client-map-url" type="text" placeholder="الصق رابط Google Maps هنا وسيتم استخراج الإحداثيات تلقائياً" />
+          <p class="small" id="client-map-url-status"></p>
+<label for="client-lat">Latitude</label>
           <input id="client-lat" type="text" placeholder="33.3152" />
           <label for="client-lng">Longitude</label>
           <input id="client-lng" type="text" placeholder="44.3661" />
@@ -300,12 +304,12 @@
           <hr style="border-color:#111827;margin:10px 0;" />
           <h3>الحضور (دوام الشركة)</h3>
           <div class="hint">
-            ✅ يعرض دخول/خروج المندوبين داخل نطاق الشركة (50m).<br/>
+            ✅ يعرض دخول/خروج المندوبين داخل نطاق الشركة (15m).<br/>
             ✅ NEW: يظهر مدة حضور اليوم لكل مندوب، وإذا بعده ما سجل خروج يظهر "مستمر".
           </div>
           <div class="att-box">
             <div class="att-row">
-              <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 50m</span>
+              <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 15m</span>
               <span class="badge">خروج تلقائي: <b>11:30 PM</b></span>
             </div>
             <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
@@ -313,12 +317,12 @@
 <hr style="border-color:#111827;margin:10px 0;" />
 <h3>حضور الموظفين (دوام الشركة)</h3>
 <div class="hint">
-  ✅ يعرض دخول/خروج الموظفين داخل نطاق الشركة (50m).<br/>
+  ✅ يعرض دخول/خروج الموظفين داخل نطاق الشركة (15m).<br/>
   ✅ يظهر مدة حضور اليوم لكل موظف.
 </div>
 <div class="att-box">
   <div class="att-row">
-    <span class="badge">نفس نطاق الشركة (50m)</span>
+    <span class="badge">نفس نطاق الشركة</span>
     <span class="badge">خروج تلقائي: <b>11:30 PM</b></span>
   </div>
   <div style="margin-top:8px" class="list" id="manager-emp-attendance-list"></div>
@@ -359,7 +363,7 @@
       <hr style="border-color:#111827;margin:10px 0;" />
       <h3>الحضور (داخل الشركة)</h3>
       <div class="hint">
-        ✅ تقدر تسجّل دخول/خروج فقط إذا كنت داخل نطاق الشركة (50m).<br/>
+        ✅ تقدر تسجّل دخول/خروج فقط إذا كنت داخل نطاق الشركة (15m).<br/>
         ✅ إذا تعدّت الساعة 11:30 مساءً يسجل خروج تلقائي (إذا الصفحة شغالة).<br/>
         ✅ وقت حضورك اليوم يظهر هنا وأيضاً عند الأدمن.
       </div>
@@ -823,6 +827,8 @@ nextDrivers[key] = {
 
 
     const clientNameInput = document.getElementById("client-name");
+    const clientMapUrlInput = document.getElementById("client-map-url");
+    const clientMapUrlStatus = document.getElementById("client-map-url-status");
     const clientLatInput = document.getElementById("client-lat");
     const clientLngInput = document.getElementById("client-lng");
     const addClientBtn = document.getElementById("add-client-btn");
@@ -924,15 +930,10 @@ nextDrivers[key] = {
     // =========================
     // ✅ Attendance State (RTDB)
     // =========================
-    const OFFICE = { lat: 33.251945, lng: 44.362572, radius: 50 };
+    const OFFICE = { lat: 33.251945, lng: 44.362572, radius: 15 };
     const AUTO_CHECKOUT_HOUR = 23;
     const AUTO_CHECKOUT_MIN  = 30;
     let attendanceCache = {};     // { driverId: {checkInAt, checkOutAt, ...} }
-    // ✅ Office marker/circle
-    let officeMarker = null;
-    let officeCircle = null;
-    let officeMarkerDriver = null;
-    let officeCircleDriver = null;
     // ✅ Employee attendance state
     let empAttendanceCache = {}; // { empId: {checkInAt, checkOutAt, ...} }
     let empAttendanceDateKey = "";
@@ -955,19 +956,7 @@ nextDrivers[key] = {
     }
 
     // ✅ تعديل العرض إلى 12 ساعة (1:00 م) بدون تغيير الداتا المخزونة
-    
-    // ✅ FIX: لا تربط خروج قديم (قبل الدخول) بجلسة اليوم
-    function normalizeAttendanceDoc(doc){
-      if (!doc) return null;
-      const inMs = tsToMs(doc.checkInAt);
-      const outMs = doc.checkOutAt ? tsToMs(doc.checkOutAt) : 0;
-      if (inMs && outMs && outMs < inMs){
-        return { ...doc, checkOutAt: null, _ignoredOldCheckout: true };
-      }
-      return doc;
-    }
-
-function formatTime(ts) {
+    function formatTime(ts) {
       if (!ts) return "";
       const d = new Date(tsToMs(ts));
       return d.toLocaleTimeString("ar-IQ", { hour12:true, hour:"numeric", minute:"2-digit" });
@@ -977,7 +966,55 @@ function formatTime(ts) {
       return String(s || "").trim().replace(/،/g, ".").replace(/,/g, ".");
     }
 
-    function openInGoogleMaps(lat, lng) {
+    
+
+
+    // =========================
+    // ✅ استخراج الإحداثيات من رابط Google Maps (للزبائن)
+    // =========================
+    function parseLatLngFromGoogleMapsUrl(text){
+      if (!text) return null;
+      const s = String(text).trim();
+      if (!s) return null;
+
+      // 1) q=lat,lng أو query=lat,lng أو ll=lat,lng
+      try{
+        const u = new URL(s);
+        const q = u.searchParams.get("q") || u.searchParams.get("query") || u.searchParams.get("ll");
+        if (q){
+          const m = q.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+          if (m) return { lat: +m[1], lng: +m[2] };
+        }
+      } catch(e){
+        // مو URL كامل، نكمل بالـ regex
+      }
+
+      // 2) @lat,lng داخل الرابط
+      {
+        const m = s.match(/@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/);
+        if (m) return { lat: +m[1], lng: +m[2] };
+      }
+
+      // 3) !3dLAT!4dLNG
+      {
+        const m = s.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/);
+        if (m) return { lat: +m[1], lng: +m[2] };
+      }
+
+      // 4) lat,lng بدون رابط
+      {
+        const m = s.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+        if (m) return { lat: +m[1], lng: +m[2] };
+      }
+
+      return null;
+    }
+
+    function isValidLatLng(lat, lng){
+      return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90
+          && Number.isFinite(lng) && lng >= -180 && lng <= 180;
+    }
+function openInGoogleMaps(lat, lng) {
       window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`, "_blank");
     }
     function openInWaze(lat, lng) {
@@ -985,7 +1022,35 @@ function formatTime(ts) {
     }
 
     function isPin4(pin) {
-      return /^\d{4}$/.test(String(pin || "").trim());
+      return /^\d{4}
+
+
+    // =========================
+    // ✅ إدخال موقع الزبون عبر لصق رابط Google Maps
+    // =========================
+    (function bindClientMapUrlInput(){
+      if (!clientMapUrlInput || !clientLatInput || !clientLngInput) return;
+
+      clientMapUrlInput.addEventListener("input", ()=>{
+        const r = parseLatLngFromGoogleMapsUrl(clientMapUrlInput.value);
+        if (r && isValidLatLng(r.lat, r.lng)){
+          clientLatInput.value = r.lat.toFixed(6);
+          clientLngInput.value = r.lng.toFixed(6);
+          if (clientMapUrlStatus){
+            clientMapUrlStatus.style.color = "#86efac";
+            clientMapUrlStatus.textContent = "✅ تم استخراج الإحداثيات من الرابط";
+          }
+        } else {
+          if (clientMapUrlStatus){
+            clientMapUrlStatus.style.color = "#fca5a5";
+            clientMapUrlStatus.textContent = clientMapUrlInput.value.trim()
+              ? "⚠️ الرابط غير واضح. جرّب رابط فيه q= أو @ أو شارك موقع (Google Maps) مباشرة."
+              : "";
+          }
+        }
+      });
+    })();
+$/.test(String(pin || "").trim());
     }
 
     // =========================
@@ -1046,10 +1111,8 @@ function formatTime(ts) {
     function calcWorkedMs(checkInAt, checkOutAt){
       const inMs = tsToMs(checkInAt);
       if (!inMs) return 0;
-      let outMs = checkOutAt ? tsToMs(checkOutAt) : 0;
-      // ✅ FIX: إذا الخروج أقدم من الدخول (مثلاً خروج عند 12 بالليل + دخول اليوم) نهمله
-      if (!outMs || outMs < inMs) outMs = Date.now();
-      return Math.max(0, outMs - inMs);
+      const outMs = checkOutAt ? tsToMs(checkOutAt) : Date.now();
+      return outMs - inMs;
     }
 
     // =========================
@@ -1452,8 +1515,7 @@ const renderEmployeeAttendanceBox = window.renderEmployeeAttendanceBox = functio
   if (empAttendanceDateKey !== dateKey && !tickOnly){
     setTimeout(()=>subscribeEmpAttendanceFor(dateKey), 0);
   }
-  let doc = getEmpAttendanceDocFor(currentEmployeeId);
-  doc = normalizeAttendanceDoc(doc);
+  const doc = getEmpAttendanceDocFor(currentEmployeeId);
   if (!doc || !doc.checkInAt){
     empAttStatusEl.textContent = "الحالة: غير حاضر";
     empAttWorkedEl.textContent = "مدة اليوم: 0س 0د";
@@ -1522,7 +1584,7 @@ const renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttend
       const st = x.checkOutAt ? "منتهي" : "مستمر";
       const auto = x.autoCheckOut ? " | 🕦 خروج تلقائي" : "";
       const dist = (x.checkInDistance != null) ? ` | داخل الشركة (${x.checkInDistance}m)` : "";
-      meta.textContent = `دخول: ${formatTime(nx.checkInAt)}${nx.checkOutAt ? ` | خروج: ${formatTime(nx.checkOutAt)}` : ""} | ${st} | مدة: ${worked}${auto}${dist}`;
+      meta.textContent = `دخول: ${formatTime(x.checkInAt)}${x.checkOutAt ? ` | خروج: ${formatTime(x.checkOutAt)}` : ""} | ${st} | مدة: ${worked}${auto}${dist}`;
     }
 
     left.appendChild(title);
@@ -1553,8 +1615,7 @@ function renderDriverAttendanceBox(tickOnly=false){
         // ✅ FIX: لا تنادي subscribe مباشرة داخل render حتى ما يصير Loop
         if (!attendanceSubInProgress) setTimeout(()=>subscribeAttendanceFor(dateKey), 0);
       }
-      let doc = getAttendanceDocFor(currentDriverId);
-      doc = normalizeAttendanceDoc(doc);
+      const doc = getAttendanceDocFor(currentDriverId);
       if (!doc || !doc.checkInAt){
         attStatusEl.textContent = "الحالة: غير حاضر";
         attWorkedEl.textContent = "مدة اليوم: 0س 0د";
@@ -1630,12 +1691,11 @@ function renderDriverAttendanceBox(tickOnly=false){
         if (!x.checkInAt){
           meta.textContent = "غير حاضر اليوم";
         } else {
-          const nx = normalizeAttendanceDoc(x);
-          const worked = formatDuration(calcWorkedMs(nx.checkInAt, nx.checkOutAt));
-          const st = nx.checkOutAt ? "منتهي" : "مستمر";
+          const worked = formatDuration(calcWorkedMs(x.checkInAt, x.checkOutAt));
+          const st = x.checkOutAt ? "منتهي" : "مستمر";
           const auto = x.autoCheckOut ? " | 🕦 خروج تلقائي" : "";
           const dist = (x.checkInDistance != null) ? ` | داخل الشركة (${x.checkInDistance}m)` : "";
-          meta.textContent = `دخول: ${formatTime(nx.checkInAt)}${nx.checkOutAt ? ` | خروج: ${formatTime(nx.checkOutAt)}` : ""} | ${st} | مدة: ${worked}${auto}${dist}`;
+          meta.textContent = `دخول: ${formatTime(x.checkInAt)}${x.checkOutAt ? ` | خروج: ${formatTime(x.checkOutAt)}` : ""} | ${st} | مدة: ${worked}${auto}${dist}`;
         }
 
         left.appendChild(title);
@@ -1761,6 +1821,8 @@ function renderDriverAttendanceBox(tickOnly=false){
 
     function beepOnce() {
       try {
+        // ✅ الصوت فقط داخل صفحة الادمن
+        if (managerCard && managerCard.classList.contains("hidden")) return;
         if (beepToggle && !beepToggle.checked) return;
 
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -1785,53 +1847,19 @@ function renderDriverAttendanceBox(tickOnly=false){
       } catch(e) {}
     }
 
-    function showPopup(msg) { alert(msg); }
-
-    
-    function drawOfficeOnManagerMap(){
-      if (!map) return;
-      const latlng = [OFFICE.lat, OFFICE.lng];
-
-      if (!officeMarker){
-        officeMarker = L.marker(latlng).addTo(map).bindPopup("📍 موقع الشركة");
-      } else {
-        officeMarker.setLatLng(latlng);
-      }
-
-      if (!officeCircle){
-        officeCircle = L.circle(latlng, { radius: OFFICE.radius }).addTo(map);
-      } else {
-        officeCircle.setLatLng(latlng);
-        officeCircle.setRadius(OFFICE.radius);
-      }
+    function showPopup(msg) {
+      // ✅ الاشعارات (Popup) فقط داخل صفحة الادمن
+      if (managerCard && managerCard.classList.contains("hidden")) return;
+      alert(msg);
     }
 
-    function drawOfficeOnDriverMap(){
-      if (!driverMap) return;
-      const latlng = [OFFICE.lat, OFFICE.lng];
-
-      if (!officeMarkerDriver){
-        officeMarkerDriver = L.marker(latlng).addTo(driverMap).bindPopup("📍 موقع الشركة");
-      } else {
-        officeMarkerDriver.setLatLng(latlng);
-      }
-
-      if (!officeCircleDriver){
-        officeCircleDriver = L.circle(latlng, { radius: OFFICE.radius }).addTo(driverMap);
-      } else {
-        officeCircleDriver.setLatLng(latlng);
-        officeCircleDriver.setRadius(OFFICE.radius);
-      }
-    }
-
-function initMap() {
+    function initMap() {
       if (map) return;
       map = L.map("map").setView([33.3152, 44.3661], 11);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap"
       }).addTo(map);
-      drawOfficeOnManagerMap();
     }
 
     function initDriverMap(){
@@ -1841,7 +1869,6 @@ function initMap() {
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap"
       }).addTo(driverMap);
-      drawOfficeOnDriverMap();
     }
 
     // =========================
