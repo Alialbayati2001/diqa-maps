@@ -1022,10 +1022,9 @@ function openInGoogleMaps(lat, lng) {
     }
 
     function isPin4(pin) {
-      return /^\d{4}
+      return /^\d{4}$/.test(String(pin ?? "").trim());
+    }
 
-
-    // =========================
     // ✅ إدخال موقع الزبون عبر لصق رابط Google Maps
     // =========================
     (function bindClientMapUrlInput(){
