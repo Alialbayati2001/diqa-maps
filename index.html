@@ -1877,6 +1877,38 @@ function renderDriverAttendanceBox(tickOnly=false){
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap"
       }).addTo(map);
+
+      // =========================
+      // ✅ موقع الشركة + المدى
+      // =========================
+      const officeIcon = L.divIcon({
+        className: "",
+        html: `
+          <div style="
+            width:22px;
+            height:22px;
+            border-radius:50%;
+            background:#22c55e;
+            border:3px solid rgba(255,255,255,.95);
+            box-shadow:0 10px 25px rgba(0,0,0,.45);
+          "></div>
+        `,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        popupAnchor: [0, -10]
+      });
+
+      L.marker([OFFICE.lat, OFFICE.lng], { icon: officeIcon })
+        .addTo(map)
+        .bindPopup("🏢 موقع الشركة");
+
+      L.circle([OFFICE.lat, OFFICE.lng], {
+        radius: OFFICE.radius,
+        color: "#22c55e",
+        fillColor: "#22c55e",
+        fillOpacity: 0.15,
+        weight: 2
+      }).addTo(map);
     }
 
     function initDriverMap(){
@@ -1885,6 +1917,38 @@ function renderDriverAttendanceBox(tickOnly=false){
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap"
+      }).addTo(driverMap);
+
+      // =========================
+      // ✅ موقع الشركة + المدى (على خريطة المندوب أيضاً)
+      // =========================
+      const officeIcon = L.divIcon({
+        className: "",
+        html: `
+          <div style="
+            width:22px;
+            height:22px;
+            border-radius:50%;
+            background:#22c55e;
+            border:3px solid rgba(255,255,255,.95);
+            box-shadow:0 10px 25px rgba(0,0,0,.45);
+          "></div>
+        `,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        popupAnchor: [0, -10]
+      });
+
+      L.marker([OFFICE.lat, OFFICE.lng], { icon: officeIcon })
+        .addTo(driverMap)
+        .bindPopup("🏢 موقع الشركة");
+
+      L.circle([OFFICE.lat, OFFICE.lng], {
+        radius: OFFICE.radius,
+        color: "#22c55e",
+        fillColor: "#22c55e",
+        fillOpacity: 0.15,
+        weight: 2
       }).addTo(driverMap);
     }
 
