@@ -947,6 +947,40 @@ nextDrivers[key] = {
     let attendanceSubInProgress = false;
     let attendanceRenderLock = false;
 
+    // =========================
+    // ✅ Office marker + radius layers (Map)
+    // =========================
+    let officeLayers = {
+      manager: { marker: null, circle: null },
+      driver:  { marker: null, circle: null }
+    };
+
+    function ensureOfficeOnMap(targetMap, which){
+      if (!targetMap) return;
+      const key = (which === "driver") ? "driver" : "manager";
+
+      // Marker
+      if (!officeLayers[key].marker) {
+        officeLayers[key].marker = L.marker([OFFICE.lat, OFFICE.lng])
+          .addTo(targetMap)
+          .bindPopup("📍 موقع الشركة");
+      }
+
+      // Circle radius
+      if (!officeLayers[key].circle) {
+        officeLayers[key].circle = L.circle([OFFICE.lat, OFFICE.lng], {
+          radius: Number(OFFICE.radius) || 15,
+          color: "#22c55e",
+          fillColor: "#22c55e",
+          fillOpacity: 0.15,
+          weight: 2
+        }).addTo(targetMap);
+      } else {
+        // إذا تغيّر radius لاحقاً
+        officeLayers[key].circle.setRadius(Number(OFFICE.radius) || 15);
+      }
+    }
+
     // Helpers
     function show(el){ el.classList.remove("hidden"); }
     function hide(el){ el.classList.add("hidden"); }
@@ -1857,6 +1891,9 @@ function renderDriverAttendanceBox(tickOnly=false){
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap"
       }).addTo(map);
+
+      // ✅ NEW: موقع الشركة + مدى 15 متر
+      ensureOfficeOnMap(map, "manager");
     }
 
     function initDriverMap(){
@@ -1866,6 +1903,9 @@ function renderDriverAttendanceBox(tickOnly=false){
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap"
       }).addTo(driverMap);
+
+      // ✅ NEW: موقع الشركة + مدى 15 متر (على خريطة المندوب أيضاً)
+      ensureOfficeOnMap(driverMap, "driver");
     }
 
     // =========================
