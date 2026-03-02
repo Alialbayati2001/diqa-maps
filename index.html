@@ -1372,16 +1372,31 @@ function openInGoogleMaps(lat, lng) {
         autoCheckOut: false,
         updatedAt: SERVER_TS
       };
-
       try {
         const ref = db.ref(`attendance/${dateKey}/${currentDriverId}`);
-        // إذا عنده دخول سابق وما عنده خروج، لا نعيد
-        const cur = getAttendanceDocFor(currentDriverId);
-        if (cur && cur.checkInAt && !cur.checkOutAt){
-          if (attMsgEl) attMsgEl.textContent = "ℹ️ أنت مسجّل دخول مسبقاً اليوم.";
+
+        // ✅ FIX نهائي: يمنع تسجيل دخول فوق دخول حتى لو الكاش ما محدّث
+        // (يعالج حالة: الصبح دخل، وبالليل ضغط "تسجيل دخول" بالغلط)
+        const txRes = await new Promise((resolve, reject) => {
+          ref.transaction(
+            (curr) => {
+              // إذا أكو دوام مفتوح (بدون خروج) نمنع إنشاء/تعديل دخول جديد
+              if (curr && curr.checkInAt && !curr.checkOutAt) return; // abort
+              return Object.assign({}, curr || {}, patch);
+            },
+            (err, committed, snap) => {
+              if (err) return reject(err);
+              resolve({ committed, snap });
+            },
+            false
+          );
+        });
+
+        if (!txRes.committed) {
+          if (attMsgEl) attMsgEl.textContent = "ℹ️ أنت مسجّل دخول مسبقاً اليوم. اضغط تسجيل خروج.";
           return;
         }
-        await ref.update(patch);
+
         if (attMsgEl) {
           attMsgEl.style.color = "#86efac";
           attMsgEl.textContent = "✅ تم تسجيل الدخول داخل الشركة";
@@ -1390,6 +1405,7 @@ function openInGoogleMaps(lat, lng) {
       } catch(e){
         if (attMsgEl) attMsgEl.textContent = "⚠️ فشل تسجيل الدخول (Rules).";
       }
+
     }
 
     async function doCheckOut(manual=true){
@@ -1535,15 +1551,29 @@ async function empDoCheckIn(){
     autoCheckOut: false,
     updatedAt: SERVER_TS
   };
-
   try {
     const ref = db.ref(`attendanceEmployees/${dateKey}/${currentEmployeeId}`);
-    const cur = getEmpAttendanceDocFor(currentEmployeeId);
-    if (cur && cur.checkInAt && !cur.checkOutAt){
-      if (empAttMsgEl) empAttMsgEl.textContent = "ℹ️ أنت مسجّل دخول مسبقاً اليوم.";
+
+    // ✅ FIX نهائي: يمنع تسجيل دخول فوق دخول (حتى لو الكاش ما محدّث)
+    const txRes = await new Promise((resolve, reject) => {
+      ref.transaction(
+        (curr) => {
+          if (curr && curr.checkInAt && !curr.checkOutAt) return; // abort
+          return Object.assign({}, curr || {}, patch);
+        },
+        (err, committed, snap) => {
+          if (err) return reject(err);
+          resolve({ committed, snap });
+        },
+        false
+      );
+    });
+
+    if (!txRes.committed) {
+      if (empAttMsgEl) empAttMsgEl.textContent = "ℹ️ أنت مسجّل دخول مسبقاً اليوم. اضغط تسجيل خروج.";
       return;
     }
-    await ref.update(patch);
+
     if (empAttMsgEl){
       empAttMsgEl.style.color = "#86efac";
       empAttMsgEl.textContent = "✅ تم تسجيل الدخول داخل الشركة";
@@ -1552,6 +1582,7 @@ async function empDoCheckIn(){
   } catch(e){
     if (empAttMsgEl) empAttMsgEl.textContent = "⚠️ فشل تسجيل الدخول (Rules).";
   }
+
 }
 
 async function empDoCheckOut(manual=true){
