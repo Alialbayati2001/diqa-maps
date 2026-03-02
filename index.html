@@ -379,9 +379,7 @@
         <div class="att-row">
           <button class="secondary" id="btn-checkin">تسجيل دخول</button>
           <button class="secondary" id="btn-checkout">تسجيل خروج</button>
-                    <button class="secondary prio-btn" id="btn-webauthn-enroll-driver">تفعيل (Face/بصمة/نمط)</button>
-          <span class="badge" id="webauthn-driver-status">تحقق: غير مفعل</span>
-<span class="badge" id="att-status">—</span>
+          <span class="badge" id="att-status">—</span>
           <span class="badge" id="att-worked">مدة اليوم: —</span>
         </div>
         <p class="small" id="att-msg" style="margin:6px 0 0; color:#fca5a5;"></p>
@@ -459,9 +457,7 @@
     <div class="att-row">
       <button class="secondary" id="emp-btn-checkin">تسجيل دخول</button>
       <button class="secondary" id="emp-btn-checkout">تسجيل خروج</button>
-            <button class="secondary prio-btn" id="btn-webauthn-enroll-emp">تفعيل (Face/بصمة/نمط)</button>
-      <span class="badge" id="webauthn-emp-status">تحقق: غير مفعل</span>
-<span class="badge" id="emp-att-status">—</span>
+      <span class="badge" id="emp-att-status">—</span>
       <span class="badge" id="emp-att-worked">مدة اليوم: —</span>
     </div>
     <p class="small" id="emp-att-msg" style="margin:6px 0 0; color:#fca5a5;"></p>
@@ -820,8 +816,6 @@ nextDrivers[key] = {
     const empAttStatusEl = document.getElementById("emp-att-status");
     const empAttWorkedEl = document.getElementById("emp-att-worked");
     const empAttMsgEl = document.getElementById("emp-att-msg");
-    const btnWebAuthnEnrollEmp = document.getElementById("btn-webauthn-enroll-emp");
-    const webauthnEmpStatus = document.getElementById("webauthn-emp-status");
 
 
     const driversListDiv = document.getElementById("drivers-list");
@@ -866,8 +860,6 @@ nextDrivers[key] = {
     const managerAttendanceList = document.getElementById("manager-attendance-list");
     const btnCheckIn = document.getElementById("btn-checkin");
     const btnCheckOut = document.getElementById("btn-checkout");
-    const btnWebAuthnEnrollDriver = document.getElementById("btn-webauthn-enroll-driver");
-    const webauthnDriverStatus = document.getElementById("webauthn-driver-status");
     const attStatusEl = document.getElementById("att-status");
     const attWorkedEl = document.getElementById("att-worked");
     const attMsgEl = document.getElementById("att-msg");
@@ -878,12 +870,8 @@ nextDrivers[key] = {
     let employeeMarkers = {};
     let clientMarkers = {};
     let currentDriverId = null;
-    
-  updateWebAuthnStatusBadges();
-let currentEmployeeId = null;
-    
-  updateWebAuthnStatusBadges();
-let watchId = null;
+    let currentEmployeeId = null;
+    let watchId = null;
 
     let driversMetaCache = {};
     let employeesMetaCache = {};
@@ -1128,210 +1116,6 @@ function openInGoogleMaps(lat, lng) {
     function isPin4(pin) {
       return /^\d{4}$/.test(String(pin ?? "").trim());
     }
-    // =========================
-    // ✅ WebAuthn (Face ID / Fingerprint / Pattern) - Frontend only
-    // ملاحظة مهمة:
-    // - الويب لا يقرأ البصمة نفسها. WebAuthn يطلب "تحقق المستخدم" من نظام الجهاز.
-    // - الجهاز يختار تلقائياً: Face/بصمة/نمط(PIN/Pattern/Password) حسب المتوفر.
-    // - يحتاج Backend (مثلاً Firebase Cloud Functions) لعمل Challenge والتحقق من التواقيع.
-    // =========================
-
-    // ✅ إذا عندك Functions/Backend، خليه نفس الدومين (المفضل)
-    // مثال: "" يعني نفس الموقع:  https://yourdomain.com/webauthn/...
-    // أو:  "https://YOUR_FUNCTIONS_DOMAIN"  (بدون / في النهاية)
-    const WEBAUTHN_BASE_URL = ""; // اتركه فارغ = نفس الدومين
-
-    function webauthnUrl(path){
-      const base = String(WEBAUTHN_BASE_URL || "").replace(/\/+$/, "");
-      if (!base) return path; // same-origin
-      return base + path;
-    }
-
-    function webauthnSupported(){
-      return !!(window.PublicKeyCredential && navigator.credentials);
-    }
-
-    function base64urlToArrayBuffer(base64url) {
-      const s = String(base64url || "");
-      const pad = "=".repeat((4 - (s.length % 4)) % 4);
-      const base64 = (s + pad).replace(/-/g, "+").replace(/_/g, "/");
-      const str = atob(base64);
-      const bytes = new Uint8Array(str.length);
-      for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i);
-      return bytes.buffer;
-    }
-
-    function arrayBufferToBase64url(buffer) {
-      const bytes = new Uint8Array(buffer);
-      let str = "";
-      for (let i = 0; i < bytes.byteLength; i++) str += String.fromCharCode(bytes[i]);
-      const base64 = btoa(str);
-      return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-    }
-
-    function storageKeyForEnroll(kind, id){
-      return `webauthn_enrolled_${kind}_${id}`;
-    }
-
-    function setEnrolledLocal(kind, id, v){
-      try{ localStorage.setItem(storageKeyForEnroll(kind,id), v ? "1" : "0"); }catch(e){}
-    }
-    function isEnrolledLocal(kind, id){
-      try{ return localStorage.getItem(storageKeyForEnroll(kind,id)) === "1"; }catch(e){ return false; }
-    }
-
-    function updateWebAuthnStatusBadges(){
-      try{
-        // Driver
-        const dId = currentDriverId;
-        const dBadge = document.getElementById("webauthn-driver-status");
-        if (dBadge){
-          if (!dId) dBadge.textContent = "تحقق: —";
-          else dBadge.textContent = isEnrolledLocal("driver", dId) ? "تحقق: مفعل" : "تحقق: غير مفعل";
-        }
-        // Employee
-        const eId = currentEmployeeId;
-        const eBadge = document.getElementById("webauthn-emp-status");
-        if (eBadge){
-          if (!eId) eBadge.textContent = "تحقق: —";
-          else eBadge.textContent = isEnrolledLocal("emp", eId) ? "تحقق: مفعل" : "تحقق: غير مفعل";
-        }
-      }catch(e){}
-    }
-
-    async function webauthnRegister(kind, userId, userName){
-      if (!webauthnSupported()) throw new Error("unsupported");
-      // 1) options from server
-      const r1 = await fetch(webauthnUrl("/webauthn/register/options"), {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ kind, userId, userName })
-      });
-      if (!r1.ok) throw new Error("options_failed");
-      const options = await r1.json();
-
-      // 2) decode binary fields
-      options.challenge = base64urlToArrayBuffer(options.challenge);
-      options.user = options.user || {};
-      if (options.user.id) options.user.id = base64urlToArrayBuffer(options.user.id);
-      if (options.excludeCredentials) {
-        options.excludeCredentials = options.excludeCredentials.map(c => ({
-          ...c,
-          id: base64urlToArrayBuffer(c.id)
-        }));
-      }
-
-      // 3) create credential (system UI: Face/FP/Pattern)
-      const cred = await navigator.credentials.create({ publicKey: options });
-      if (!cred) throw new Error("create_cancelled");
-
-      // 4) send to server to verify & store
-      const payload = {
-        kind,
-        userId,
-        id: cred.id,
-        type: cred.type,
-        rawId: arrayBufferToBase64url(cred.rawId),
-        response: {
-          clientDataJSON: arrayBufferToBase64url(cred.response.clientDataJSON),
-          attestationObject: arrayBufferToBase64url(cred.response.attestationObject),
-        }
-      };
-
-      const r2 = await fetch(webauthnUrl("/webauthn/register/verify"), {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (!r2.ok) throw new Error("verify_failed");
-      const out = await r2.json();
-      if (!out || out.verified !== true) throw new Error("not_verified");
-      return true;
-    }
-
-    async function webauthnAuthenticate(kind, userId){
-      if (!webauthnSupported()) throw new Error("unsupported");
-
-      const r1 = await fetch(webauthnUrl("/webauthn/auth/options"), {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ kind, userId })
-      });
-      if (!r1.ok) throw new Error("options_failed");
-      const options = await r1.json();
-
-      // إذا السيرفر رجّع يحتاج تسجيل
-      if (options && options.needsRegister) {
-        const e = new Error("needs_register");
-        e.code = "needs_register";
-        throw e;
-      }
-
-      options.challenge = base64urlToArrayBuffer(options.challenge);
-      if (options.allowCredentials) {
-        options.allowCredentials = options.allowCredentials.map(c => ({
-          ...c,
-          id: base64urlToArrayBuffer(c.id),
-        }));
-      }
-
-      const cred = await navigator.credentials.get({ publicKey: options });
-      if (!cred) throw new Error("get_cancelled");
-
-      const payload = {
-        kind,
-        userId,
-        id: cred.id,
-        type: cred.type,
-        rawId: arrayBufferToBase64url(cred.rawId),
-        response: {
-          clientDataJSON: arrayBufferToBase64url(cred.response.clientDataJSON),
-          authenticatorData: arrayBufferToBase64url(cred.response.authenticatorData),
-          signature: arrayBufferToBase64url(cred.response.signature),
-          userHandle: cred.response.userHandle ? arrayBufferToBase64url(cred.response.userHandle) : null
-        }
-      };
-
-      const r2 = await fetch(webauthnUrl("/webauthn/auth/verify"), {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (!r2.ok) throw new Error("verify_failed");
-      const out = await r2.json();
-      if (!out || out.verified !== true) throw new Error("not_verified");
-      return true;
-    }
-
-    async function requireWebAuthn(kind, userId, msgEl){
-      if (!userId) return false;
-
-      if (!webauthnSupported()){
-        if (msgEl) msgEl.textContent = "⚠️ جهازك/متصفحك لا يدعم التحقق (Face/بصمة/نمط). جرّب Chrome/Edge أو Safari حديث.";
-        return false;
-      }
-
-      try{
-        // نحاول المصادقة مباشرة
-        await webauthnAuthenticate(kind, userId);
-        return true;
-      }catch(e){
-        const code = e && (e.code || e.message) ? (e.code || e.message) : "";
-        if (code.includes("needs_register") || code.includes("needs_register")){
-          if (msgEl) msgEl.textContent = "⚠️ لازم تسوي (تفعيل Face/بصمة/نمط) أولاً من الزر.";
-          return false;
-        }
-        // إذا المستخدم لغى نافذة التحقق
-        if (String(code).includes("cancel") || String(code).includes("NotAllowedError")){
-          if (msgEl) msgEl.textContent = "⚠️ تم إلغاء التحقق. حاول مرة ثانية.";
-          return false;
-        }
-        if (msgEl) msgEl.textContent = "⚠️ فشل التحقق. تأكد عندك قفل شاشة (نمط/Pin) أو بصمة/Face مفعلة.";
-        return false;
-      }
-    }
-$/.test(String(pin ?? "").trim());
-    }
 
     // ✅ إدخال موقع الزبون عبر لصق رابط Google Maps
     // =========================
@@ -1559,16 +1343,7 @@ $/.test(String(pin ?? "").trim());
       if (!currentDriverId) return;
       if (attMsgEl) attMsgEl.textContent = "";
 
-      
-      
-
-      // ✅ WebAuthn Gate (Face/بصمة/نمط)
-      const authOk = await requireWebAuthn("driver", currentDriverId, attMsgEl);
-      if (!authOk) return;
-// ✅ WebAuthn Gate (Face/بصمة/نمط)
-      const authOk = await requireWebAuthn("driver", currentDriverId, attMsgEl);
-      if (!authOk) return;
-const dateKey = getWorkDateByKey(driverDaySelect.value || "today");
+      const dateKey = getWorkDateByKey(driverDaySelect.value || "today");
       subscribeAttendanceFor(dateKey);
 
       let pos;
@@ -1637,12 +1412,7 @@ const dateKey = getWorkDateByKey(driverDaySelect.value || "today");
       if (!currentDriverId) return;
       if (attMsgEl) attMsgEl.textContent = "";
 
-      
-
-      // ✅ WebAuthn Gate (Face/بصمة/نمط)
-      const authOk = await requireWebAuthn("driver", currentDriverId, attMsgEl);
-      if (!authOk) return;
-const dateKey = getWorkDateByKey(driverDaySelect.value || "today");
+      const dateKey = getWorkDateByKey(driverDaySelect.value || "today");
       subscribeAttendanceFor(dateKey);
 
       const cur = getAttendanceDocFor(currentDriverId);
@@ -1753,12 +1523,7 @@ async function empDoCheckIn(){
   if (!currentEmployeeId) return;
   if (empAttMsgEl) { empAttMsgEl.style.color = "#fca5a5"; empAttMsgEl.textContent = ""; }
 
-  
-
-  // ✅ WebAuthn Gate (Face/بصمة/نمط)
-  const authOk = await requireWebAuthn("emp", currentEmployeeId, empAttMsgEl);
-  if (!authOk) return;
-const dateKey = getWorkDateByKey("today"); // الموظف دائماً "اليوم"
+  const dateKey = getWorkDateByKey("today"); // الموظف دائماً "اليوم"
   subscribeEmpAttendanceFor(dateKey);
 
   let pos;
@@ -1824,12 +1589,7 @@ async function empDoCheckOut(manual=true){
   if (!currentEmployeeId) return;
   if (empAttMsgEl) { empAttMsgEl.style.color = "#fca5a5"; empAttMsgEl.textContent = ""; }
 
-  
-
-  // ✅ WebAuthn Gate (Face/بصمة/نمط)
-  const authOk = await requireWebAuthn("emp", currentEmployeeId, empAttMsgEl);
-  if (!authOk) return;
-const dateKey = getWorkDateByKey("today");
+  const dateKey = getWorkDateByKey("today");
   subscribeEmpAttendanceFor(dateKey);
 
   const cur = getEmpAttendanceDocFor(currentEmployeeId);
@@ -4005,9 +3765,7 @@ function addEmployee(){
       if (pin !== dbPin) { driverLoginError.textContent = "PIN غير صحيح."; return; }
 
       currentDriverId = selectedId;
-      
-      updateWebAuthnStatusBadges();
-currentDriverNameLabel.textContent = meta && meta.name ? meta.name : selectedId;
+      currentDriverNameLabel.textContent = meta && meta.name ? meta.name : selectedId;
 
       // ✅ NEW: تصفير مسار المندوب عند كل دخول
       resetDriverSelfTrack();
@@ -4063,9 +3821,7 @@ employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
   employeeLoginError.textContent = "";
   currentEmployeeId = selectedId;
 
-  
-  updateWebAuthnStatusBadges();
-hide(loginCard);
+  hide(loginCard);
   hide(managerCard);
   hide(driverCard);
   show(employeeCard);
@@ -4079,33 +3835,6 @@ hide(loginCard);
   empBtnCheckIn && (empBtnCheckIn.onclick = ()=>empDoCheckIn());
   empBtnCheckOut && (empBtnCheckOut.onclick = ()=>empDoCheckOut(true));
 
-
-  // ✅ WebAuthn enroll (Employee) - تفعيل Face/بصمة/نمط
-  btnWebAuthnEnrollEmp && (btnWebAuthnEnrollEmp.onclick = async ()=>{
-    if (!currentEmployeeId){
-      if (empAttMsgEl) empAttMsgEl.textContent = "⚠️ سجل دخول كموظف أولاً.";
-      return;
-    }
-    if (empAttMsgEl) { empAttMsgEl.style.color = "#fca5a5"; empAttMsgEl.textContent = ""; }
-
-    if (!webauthnSupported()){
-      if (empAttMsgEl) empAttMsgEl.textContent = "⚠️ متصفحك لا يدعم WebAuthn. جرّب Chrome/Edge/Safari حديث.";
-      return;
-    }
-
-    try{
-      const name = currentEmployeeNameLabel.textContent || employeeNameById(currentEmployeeId);
-      await webauthnRegister("emp", currentEmployeeId, name);
-      setEnrolledLocal("emp", currentEmployeeId, true);
-      updateWebAuthnStatusBadges();
-      if (empAttMsgEl) { empAttMsgEl.style.color="#86efac"; empAttMsgEl.textContent="✅ تم تفعيل التحقق (Face/بصمة/نمط)"; }
-      setTimeout(()=>{ if(empAttMsgEl){ empAttMsgEl.textContent=""; empAttMsgEl.style.color="#fca5a5"; } }, 2500);
-    }catch(e){
-      if (empAttMsgEl) empAttMsgEl.textContent = "⚠️ فشل التفعيل. تأكد عندك قفل شاشة (نمط/Pin) أو بصمة/Face مفعلة، وأن Backend WebAuthn شغال.";
-    }
-  });
-
-  updateWebAuthnStatusBadges();
   renderEmployeeAttendanceBox(true);
 });
 
@@ -4220,33 +3949,6 @@ logoutDriverBtn.onclick = () => {
     if (btnCheckIn) btnCheckIn.addEventListener("click", doCheckIn);
     if (btnCheckOut) btnCheckOut.addEventListener("click", ()=>doCheckOut(true));
 
-
-    // ✅ WebAuthn enroll (Driver) - تفعيل Face/بصمة/نمط
-    if (btnWebAuthnEnrollDriver) btnWebAuthnEnrollDriver.addEventListener("click", async ()=>{
-      if (!currentDriverId){
-        if (attMsgEl) attMsgEl.textContent = "⚠️ سجل دخول كمندوب أولاً.";
-        return;
-      }
-      if (attMsgEl) { attMsgEl.style.color = "#fca5a5"; attMsgEl.textContent = ""; }
-
-      if (!webauthnSupported()){
-        if (attMsgEl) attMsgEl.textContent = "⚠️ متصفحك لا يدعم WebAuthn. جرّب Chrome/Edge/Safari حديث.";
-        return;
-      }
-
-      try{
-        const name = currentDriverNameLabel.textContent || driverNameById(currentDriverId);
-        await webauthnRegister("driver", currentDriverId, name);
-        setEnrolledLocal("driver", currentDriverId, true);
-        updateWebAuthnStatusBadges();
-        if (attMsgEl) { attMsgEl.style.color="#86efac"; attMsgEl.textContent="✅ تم تفعيل التحقق (Face/بصمة/نمط)"; }
-        setTimeout(()=>{ if(attMsgEl){ attMsgEl.textContent=""; attMsgEl.style.color="#fca5a5"; } }, 2500);
-      }catch(e){
-        if (attMsgEl) attMsgEl.textContent = "⚠️ فشل التفعيل. تأكد عندك قفل شاشة (نمط/Pin) أو بصمة/Face مفعلة، وأن Backend WebAuthn شغال.";
-      }
-    });
-
-    updateWebAuthnStatusBadges();
     // preload select list
     subscribeDrivers();
     subscribeEmployees();
