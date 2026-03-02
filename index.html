@@ -974,6 +974,86 @@ nextDrivers[key] = {
       return d.toLocaleTimeString("ar-IQ", { hour12:true, hour:"numeric", minute:"2-digit" });
     }
 
+
+    // =========================
+    // ✅ FIX: إغلاق الجلسات المفتوحة فعلياً (Auto Close 11:30 PM)
+    // - لا يغيّر شكل عرض الوقت (يبقى 12 ساعة)
+    // - يغلق أي سجل مفتوح داخل Firebase حتى لو الصفحة كانت "تعرض" خروج تلقائي فقط
+    // =========================
+    const AUTO_CLOSE_GUARD = {
+      drivers: {},   // {dateKey: lastRunMs}
+      employees: {}  // {dateKey: lastRunMs}
+    };
+
+    function dateKeyToLocalDate(dateKey){
+      // dateKey: YYYY-MM-DD
+      if (!dateKey) return null;
+      const m = String(dateKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return null;
+      const y = Number(m[1]), mo = Number(m[2]) - 1, d = Number(m[3]);
+      return new Date(y, mo, d, 0, 0, 0, 0);
+    }
+
+    function cutoffMsForDateKey(dateKey){
+      const base = dateKeyToLocalDate(dateKey);
+      if (!base) return 0;
+      base.setHours(AUTO_CHECKOUT_HOUR, AUTO_CHECKOUT_MIN, 0, 0); // 11:30 PM
+      return base.getTime();
+    }
+
+    function isTodayDateKey(dateKey){
+      return String(dateKey) === toISODateLocal(new Date());
+    }
+
+    function shouldAutoCloseForDate(dateKey){
+      // نغلق إذا:
+      // - يوم سابق دائماً
+      // - أو اليوم الحالي بعد 11:30 PM
+      if (!dateKey) return false;
+      if (!isTodayDateKey(dateKey)) return true;
+      const now = new Date();
+      const passed = (now.getHours() > AUTO_CHECKOUT_HOUR) || (now.getHours() === AUTO_CHECKOUT_HOUR && now.getMinutes() >= AUTO_CHECKOUT_MIN);
+      return passed;
+    }
+
+    async function forceCloseOpenSessions(dateKey, cacheObj, basePath, guardBucket){
+      try{
+        if (!dateKey || !cacheObj) return;
+        if (!shouldAutoCloseForDate(dateKey)) return;
+
+        // Guard: لا نعيد نفس العملية كل مرة ينزل فيها snapshot
+        const nowMs = Date.now();
+        const last = guardBucket[dateKey] || 0;
+        if (nowMs - last < 60_000) return; // مرة كل دقيقة كحد أقصى
+        guardBucket[dateKey] = nowMs;
+
+        const cutoffMs = cutoffMsForDateKey(dateKey);
+        if (!cutoffMs) return;
+
+        const entries = Object.entries(cacheObj || {});
+
+        for (const [id, doc] of entries){
+          if (!doc) continue;
+          if (!doc.checkInAt) continue;
+          if (doc.checkOutAt) continue; // already closed
+
+          // إذا checkIn بعد cutoff لا نغلق (حالة نادرة)
+          const inMs = tsToMs(doc.checkInAt);
+          if (inMs && inMs > cutoffMs) continue;
+
+          // إغلاق فعلي على 11:30 PM لنفس التاريخ
+          await db.ref(`${basePath}/${dateKey}/${id}`).update({
+            checkOutAt: cutoffMs,          // رقم ثابت (ms) حتى يكون 11:30 بالضبط
+            autoCheckOut: true,
+            autoClosed: true,
+            updatedAt: SERVER_TS
+          });
+        }
+      }catch(e){
+        console.error("forceCloseOpenSessions error:", e);
+      }
+    }
+
     function normalizeNumberText(s) {
       return String(s || "").trim().replace(/،/g, ".").replace(/,/g, ".");
     }
@@ -1195,6 +1275,8 @@ function openInGoogleMaps(lat, lng) {
 
       ref.on("value", snap => {
         attendanceCache = snap.val() || {};
+        // ✅ FIX: اغلاق الجلسات المفتوحة فعلياً (drivers attendance)
+        forceCloseOpenSessions(attendanceDateKey, attendanceCache, "attendance", AUTO_CLOSE_GUARD.drivers);
         renderManagerAttendanceList();
         renderDriverAttendanceBox();
       });
@@ -1395,6 +1477,8 @@ const subscribeEmpAttendanceFor = window.subscribeEmpAttendanceFor = function su
 
   ref.on("value", snap => {
     empAttendanceCache = snap.val() || {};
+    // ✅ FIX: اغلاق الجلسات المفتوحة فعلياً (employees attendance)
+    forceCloseOpenSessions(empAttendanceDateKey, empAttendanceCache, "attendanceEmployees", AUTO_CLOSE_GUARD.employees);
     renderEmployeeAttendanceBox();
     renderManagerEmployeesAttendanceList();
   });
