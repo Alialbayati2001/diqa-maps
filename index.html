@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <title>اعمال - شركة الدقّة</title>
+  <title>اعمال شركة الدقة</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- Leaflet CSS -->
@@ -108,7 +108,10 @@
   <div class="app">
     <!-- LOGIN -->
     <div class="card" id="login-card">
-      <h1>نظام تتبع المندوبين - شركة الدقّة</h1>
+      <div class="top-row" style="display:flex;align-items:center;gap:10px;font-size:22px;font-weight:800;margin:0 0 8px;">
+        <img src="https://i.imgur.com/QAAwcnx.png" alt="Logo" style="width:40px;height:40px;object-fit:contain">
+        <span>اعمال شركة الدقة</span>
+      </div>
       <p class="small">اختر نوع الدخول:</p>
 
       <p id="app-status" class="small" style="color:#fca5a5;"></p>
@@ -309,12 +312,12 @@
           <hr style="border-color:#111827;margin:10px 0;" />
           <h3>الحضور (دوام الشركة)</h3>
           <div class="hint">
-            ✅ يعرض دخول/خروج المندوبين داخل نطاق الشركة (15m).<br/>
+            ✅ يعرض دخول/خروج المندوبين داخل نطاق الشركة (20m).<br/>
             ✅ NEW: يظهر مدة حضور اليوم لكل مندوب، وإذا بعده ما سجل خروج يظهر "مستمر".
           </div>
           <div class="att-box">
             <div class="att-row">
-              <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 15m</span>
+              <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 20m</span>
               <span class="badge">خروج تلقائي: <b>11:30 PM</b></span>
             </div>
             <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
@@ -322,7 +325,7 @@
 <hr style="border-color:#111827;margin:10px 0;" />
 <h3>حضور الموظفين (دوام الشركة)</h3>
 <div class="hint">
-  ✅ يعرض دخول/خروج الموظفين داخل نطاق الشركة (15m).<br/>
+  ✅ يعرض دخول/خروج الموظفين داخل نطاق الشركة (20m).<br/>
   ✅ يظهر مدة حضور اليوم لكل موظف.
 </div>
 <div class="att-box">
@@ -368,7 +371,7 @@
       <hr style="border-color:#111827;margin:10px 0;" />
       <h3>الحضور (داخل الشركة)</h3>
       <div class="hint">
-        ✅ تقدر تسجّل دخول/خروج فقط إذا كنت داخل نطاق الشركة (15m).<br/>
+        ✅ تقدر تسجّل دخول/خروج فقط إذا كنت داخل نطاق الشركة (20m).<br/>
         ✅ إذا تعدّت الساعة 11:30 مساءً يسجل خروج تلقائي (إذا الصفحة شغالة).<br/>
         ✅ وقت حضورك اليوم يظهر هنا وأيضاً عند الأدمن.
       </div>
@@ -939,7 +942,7 @@ nextDrivers[key] = {
     // =========================
     // ✅ Attendance State (RTDB)
     // =========================
-    const OFFICE = { lat: 33.251945, lng: 44.362572, radius: 15 };
+    const OFFICE = { lat: 33.251945, lng: 44.362572, radius: 20 };
     const AUTO_CHECKOUT_HOUR = 23;
     const AUTO_CHECKOUT_MIN  = 30;
     let attendanceCache = {};     // { driverId: {checkInAt, checkOutAt, ...} }
@@ -1885,17 +1888,22 @@ function renderDriverAttendanceBox(tickOnly=false){
         className: "",
         html: `
           <div style="
-            width:22px;
-            height:22px;
-            border-radius:50%;
-            background:#22c55e;
-            border:3px solid rgba(255,255,255,.95);
-            box-shadow:0 10px 25px rgba(0,0,0,.45);
-          "></div>
+            width:30px;
+            height:30px;
+            border-radius:10px;
+            background:rgba(2,6,23,.92);
+            border:2px solid rgba(255,255,255,.92);
+            box-shadow:0 12px 28px rgba(0,0,0,.55);
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            font-size:18px;
+            line-height:1;
+          ">🏢</div>
         `,
-        iconSize: [22, 22],
-        iconAnchor: [11, 11],
-        popupAnchor: [0, -10]
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+        popupAnchor: [0, -12]
       });
 
       L.marker([OFFICE.lat, OFFICE.lng], { icon: officeIcon })
@@ -1926,17 +1934,22 @@ function renderDriverAttendanceBox(tickOnly=false){
         className: "",
         html: `
           <div style="
-            width:22px;
-            height:22px;
-            border-radius:50%;
-            background:#22c55e;
-            border:3px solid rgba(255,255,255,.95);
-            box-shadow:0 10px 25px rgba(0,0,0,.45);
-          "></div>
+            width:30px;
+            height:30px;
+            border-radius:10px;
+            background:rgba(2,6,23,.92);
+            border:2px solid rgba(255,255,255,.92);
+            box-shadow:0 12px 28px rgba(0,0,0,.55);
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            font-size:18px;
+            line-height:1;
+          ">🏢</div>
         `,
-        iconSize: [22, 22],
-        iconAnchor: [11, 11],
-        popupAnchor: [0, -10]
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+        popupAnchor: [0, -12]
       });
 
       L.marker([OFFICE.lat, OFFICE.lng], { icon: officeIcon })
