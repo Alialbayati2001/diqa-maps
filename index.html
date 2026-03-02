@@ -1126,7 +1126,8 @@ function openInGoogleMaps(lat, lng) {
     }
 
     function isPin4(pin) {
-      return /^\d{4}
+      return /^\d{4}$/.test(String(pin ?? "").trim());
+    }
     // =========================
     // ✅ WebAuthn (Face ID / Fingerprint / Pattern) - Frontend only
     // ملاحظة مهمة:
