@@ -4513,22 +4513,39 @@ async function adminEditAttendanceRecord(kind, dateKey, personId, displayName){
   const inInput = prompt(`وقت الدخول الجديد لـ: ${who}\n\nمسموح: HH:MM أو YYYY-MM-DD HH:MM أو 18:30 03-03-2026`, defIn ? formatHHMM(defIn) : "");
   if (inInput === null) return;
 
-  const outInput = prompt(`وقت الخروج الجديد لـ: ${who}\n\nمسموح: HH:MM أو YYYY-MM-DD HH:MM أو 18:30 03-03-2026`, defOut ? formatHHMM(defOut) : "");
+  const outInput = prompt(`وقت الخروج الجديد لـ: ${who}
+
+مسموح: HH:MM أو YYYY-MM-DD HH:MM أو 18:30 03-03-2026
+(اتركه فارغ أو اكتب 0 إذا ماكو خروج بعد / مستمر)`, defOut ? formatHHMM(defOut) : "");
   if (outInput === null) return;
 
   const inMs  = _parseAdminEditTime(dateKey, inInput);
-  const outMs = _parseAdminEditTime(dateKey, outInput);
 
-  if (!inMs || !outMs){
-    alert("⚠️ صيغة الوقت غير صحيحة. أمثلة: 10:00 أو 2026-03-03 18:30 أو 18:30 03-03-2026");
+  // ✅ NEW: السماح بترك وقت الخروج فارغ/0 = (مستمر) بدون خروج
+  const outStr = String(outInput ?? "").trim();
+  const isOpen = (outStr === "" || /^[0٠]+$/.test(outStr));
+
+  const outMs = isOpen ? null : _parseAdminEditTime(dateKey, outStr);
+
+  // تحقق من وقت الدخول دائماً
+  if (!inMs){
+    alert("⚠️ صيغة وقت الدخول غير صحيحة. أمثلة: 10:00 أو 2026-03-03 18:30 أو 18:30 03-03-2026");
     return;
   }
-  if (outMs < inMs){
+
+  // تحقق من وقت الخروج فقط إذا مو مستمر
+  if (!isOpen && !outMs){
+    alert("⚠️ صيغة وقت الخروج غير صحيحة. أمثلة: 10:00 أو 2026-03-03 18:30 أو 18:30 03-03-2026
+
+(اتركه فارغ أو اكتب 0 إذا ماكو خروج بعد / مستمر)");
+    return;
+  }
+
+  if (!isOpen && outMs < inMs){
     alert("⚠️ وقت الخروج لازم يكون بعد وقت الدخول.");
     return;
   }
-
-  try{
+try{
     const ref = db.ref(dbPath);
     await new Promise((resolve, reject)=>{
       ref.transaction(curr=>{
