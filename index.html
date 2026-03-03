@@ -301,8 +301,13 @@
           <div class="list" id="manager-orders-list"></div>
 
           <div class="sum-box" id="manager-sum-box">
-            <div class="small" id="manager-sum-label">مجموع المبالغ غير المستلمة</div>
+            <div class="small" id="manager-sum-label">ملخص التحصيل (حسب اليوم المختار)</div>
+
+            <div class="small" style="margin-top:6px">مجموع المبالغ غير المستلمة</div>
             <div class="big" id="manager-uncollected-sum">0.000</div>
+
+            <div class="small" style="margin-top:10px">مجموع المبالغ المستلمة</div>
+            <div class="big" id="manager-collected-sum">0.000</div>
           </div>
 
           <!-- ✅ قائمة كاملة للطلبات الراجعة لكل المندوبين -->
@@ -418,6 +423,9 @@
           <div class="sum-box">
             <div class="small">مجموع مبالغ التسليم (حسب اليوم المختار)</div>
             <div class="big" id="driver-delivered-sum">0.000</div>
+
+            <div class="small" style="margin-top:10px">مجموع المبالغ غير المسلَّمة للأدمن</div>
+            <div class="big" id="driver-uncollected-sum">0.000</div>
           </div>
 
           <!-- ✅ زر سريع لتسجيل راجع سابق -->
@@ -919,6 +927,7 @@ nextDrivers[key] = {
     const managerOrdersTabs = document.getElementById("manager-orders-tabs");
     const managerOrdersList = document.getElementById("manager-orders-list");
     const managerUncollectedSumEl = document.getElementById("manager-uncollected-sum");
+    const managerCollectedSumEl   = document.getElementById("manager-collected-sum");
     const managerSumLabel = document.getElementById("manager-sum-label");
 
     const managerReturnedAllList = document.getElementById("manager-returned-all-list");
@@ -927,6 +936,7 @@ nextDrivers[key] = {
     const driverOrdersList = document.getElementById("driver-orders-list");
     const driverDeliveredList = document.getElementById("driver-delivered-list");
     const driverDeliveredSumEl = document.getElementById("driver-delivered-sum");
+    const driverUncollectedSumEl = document.getElementById("driver-uncollected-sum");
     const orderSearchDriver = document.getElementById("order-search-driver");
 
     // ✅ زر راجع سابق
@@ -3122,17 +3132,27 @@ function subscribeEmployees(){
         });
       }
 
-      let sum = 0;
-      if (tab === "uncollected") {
-        list.forEach(x=>{
-          const v = Number(x.deliveredCash);
-          if (Number.isFinite(v)) sum += v;
-        });
-        if (managerSumLabel) managerSumLabel.textContent = "مجموع المبالغ غير المستلمة";
-      } else {
-        if (managerSumLabel) managerSumLabel.textContent = "المجموع";
-      }
-      managerUncollectedSumEl.textContent = formatIQD(sum);
+      // ✅ Totals (always show both)
+      let sumUncollected = 0;
+      let sumCollected = 0;
+
+      // احسب المبالغ فقط للطلبات (تم التسليم)
+      (entries || []).forEach(([id, o])=>{
+        if (!o) return;
+        // طبق فلتر المندوب إذا موجود
+        if (filterDriver && o.assignedDriverId !== filterDriver) return;
+        if (o.status !== "delivered") return;
+
+        const v = Number(o.deliveredCash);
+        if (!Number.isFinite(v)) return;
+
+        if (o.cashCollected === true) sumCollected += v;
+        else sumUncollected += v; // الافتراضي غير مستلم إذا false/undefined
+      });
+
+      if (managerSumLabel) managerSumLabel.textContent = "ملخص التحصيل (حسب اليوم المختار)";
+      if (managerUncollectedSumEl) managerUncollectedSumEl.textContent = formatIQD(sumUncollected);
+      if (managerCollectedSumEl) managerCollectedSumEl.textContent = formatIQD(sumCollected);
 
       managerOrdersList.innerHTML = "";
       if (!list.length) {
@@ -3387,6 +3407,7 @@ function subscribeEmployees(){
       // delivered list + sum
       driverDeliveredList.innerHTML = "";
       let sum = 0;
+      let pendingSum = 0;
 
       if (!deliveredFiltered.length && !returned.length) {
         driverDeliveredList.innerHTML = `<div class="small">لا توجد بيانات.</div>`;
@@ -3405,7 +3426,10 @@ function subscribeEmployees(){
           const meta = document.createElement("div");
           meta.className = "small";
           const v = Number(x.deliveredCash);
-          if (Number.isFinite(v)) sum += v;
+          if (Number.isFinite(v)) {
+            sum += v;
+            if (x.cashCollected !== true) pendingSum += v;
+          }
 
           meta.textContent = `مبلغ: ${formatIQD(x.deliveredCash)} | ${x.cashCollected ? "✅ تم الاستلام" : "💰 غير مستلم"}`;
 
@@ -3468,6 +3492,7 @@ function subscribeEmployees(){
       }
 
       driverDeliveredSumEl.textContent = formatIQD(sum);
+      if (driverUncollectedSumEl) driverUncollectedSumEl.textContent = formatIQD(pendingSum);
     }
 
     function updateManagerAlertAndNotify() {
