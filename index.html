@@ -290,6 +290,15 @@
           <p class="small" id="order-add-msg"></p>
 
           <h4>متابعة التحصيل / الراجع</h4>
+          <!-- ✅ NEW: فلترة طلبات زبون (حسب اليوم المختار) -->
+          <hr style="border-color:#111827;margin:10px 0;" />
+          <h4>طلبات زبون (حسب اليوم المختار)</h4>
+          <label for="manager-client-pick">اختر اسم الزبون</label>
+          <input id="manager-client-pick" list="clients-datalist" type="text" placeholder="اكتب اسم الزبون واختر من الاقتراحات..." />
+          <p class="small">يعرض كل طلبات هذا الزبون في يوم: <span class="mono" id="manager-client-orders-date">—</span></p>
+          <div class="list" id="manager-client-orders-today-list"></div>
+          <!-- ========================= -->
+
           <div class="tabs" id="manager-orders-tabs">
             <div class="tab active" data-tab="uncollected">غير مستلمة</div>
             <div class="tab" data-tab="collected">تم استلامها</div>
@@ -475,6 +484,14 @@
     <p class="small" id="emp-att-msg" style="margin:6px 0 0; color:#fca5a5;"></p>
   </div>
 </div>
+  <!-- ✅ NEW: كل الطلبات الراجعة (خاص للموظف عمار رعد) -->
+  <div id="employee-ammar-returns-section" class="hidden">
+    <hr style="border-color:#111827;margin:10px 0;" />
+    <h3>كل الطلبات الراجعة (اليوم)</h3>
+    <div class="hint">✅ تظهر فقط للموظف <b>عمار رعد</b>.</div>
+    <div class="list" id="employee-returned-all-list"></div>
+  </div>
+
 
   </div>
 
@@ -931,6 +948,15 @@ nextDrivers[key] = {
     const managerSumLabel = document.getElementById("manager-sum-label");
 
     const managerReturnedAllList = document.getElementById("manager-returned-all-list");
+    // ✅ NEW: Manager client filter (today orders by client)
+    const managerClientPick = document.getElementById("manager-client-pick");
+    const managerClientOrdersDate = document.getElementById("manager-client-orders-date");
+    const managerClientOrdersTodayList = document.getElementById("manager-client-orders-today-list");
+
+    // ✅ NEW: Employee Ammar returns list
+    const employeeAmmarReturnsSection = document.getElementById("employee-ammar-returns-section");
+    const employeeReturnedAllList = document.getElementById("employee-returned-all-list");
+
 
     const driverMapDiv = document.getElementById("driver-map");
     const driverOrdersList = document.getElementById("driver-orders-list");
@@ -1760,6 +1786,7 @@ const subscribeEmpAttendanceFor = window.subscribeEmpAttendanceFor = function su
     forceCloseOpenSessions(empAttendanceDateKey, empAttendanceCache, "attendanceEmployees", AUTO_CLOSE_GUARD.employees);
     renderEmployeeAttendanceBox();
     renderManagerEmployeesAttendanceList();
+    renderEmployeeReturnedAllIfAllowed();
   });
 
   if (empAttendanceTickTimer) clearInterval(empAttendanceTickTimer);
@@ -2635,6 +2662,8 @@ function subscribeEmployees(){
       renderManagerOrdersList();
       renderManagerReturnedAll();
       renderDriverOrdersLists();
+      renderManagerClientOrdersByClient();
+      renderEmployeeReturnedAllIfAllowed();
     }
 
     // =========================
@@ -3331,6 +3360,146 @@ function subscribeEmployees(){
         managerReturnedAllList.appendChild(item);
       });
     }
+
+    // ✅ NEW: طلبات زبون حسب اليوم المختار (لوحة المدير)
+    function renderManagerClientOrdersByClient(){
+      if (!managerClientOrdersTodayList) return;
+
+      const workDate = ordersWorkDate || getActiveWorkDate();
+      if (managerClientOrdersDate) managerClientOrdersDate.textContent = workDate || "—";
+
+      const pickVal = managerClientPick ? managerClientPick.value : "";
+      const parsed = parseClientPickValue(pickVal);
+      const cid = parsed.clientId;
+      const cname = parsed.clientName;
+
+      managerClientOrdersTodayList.innerHTML = "";
+
+      if (!cid && !cname){
+        managerClientOrdersTodayList.innerHTML = `<div class="small">اختر زبون حتى تظهر طلباته.</div>`;
+        return;
+      }
+
+      const list = Object.entries(ordersCache || {})
+        .map(([id,o])=>({id, ...(o||{}) }))
+        .filter(x=>{
+          if (cid && x.clientId) return String(x.clientId) === String(cid);
+          if (cname && x.clientName) return String(x.clientName).trim() === String(cname).trim();
+          return false;
+        })
+        .sort((a,b)=>{
+          const ta = tsToMs(a.deliveredAt || a.returnedAt || a.nearbyAt || a.createdAt || 0);
+          const tb = tsToMs(b.deliveredAt || b.returnedAt || b.nearbyAt || b.createdAt || 0);
+          return tb - ta;
+        });
+
+      if (!list.length){
+        managerClientOrdersTodayList.innerHTML = `<div class="small">لا يوجد طلبات لهذا الزبون ضمن هذا اليوم.</div>`;
+        return;
+      }
+
+      list.forEach(x=>{
+        const item = document.createElement("div");
+        item.className = "list-item";
+
+        const left = document.createElement("div");
+        const right = document.createElement("div");
+
+        const title = document.createElement("strong");
+        title.textContent = x.clientName || cname || "زبون";
+
+        const meta = document.createElement("div");
+        meta.className = "small";
+
+        const drv = x.assignedDriverName || driverNameById(x.assignedDriverId);
+        let stTxt = "";
+        if (x.status === "delivered"){
+          stTxt = `تم التسليم ✅ | المبلغ: ${formatIQD(x.deliveredCash || 0)} | ${formatTime(x.deliveredAt)}`;
+        } else if (x.status === "returned"){
+          const reason = x.returnReason ? x.returnReason : "-";
+          stTxt = `راجع 🔴 | يم: ${drv} | سبب: ${reason} | ${formatTime(x.returnedAt)}`;
+        } else {
+          stTxt = `يم المندوب: ${drv} | الحالة: ${statusLabel(x.status)} | ${formatTime(x.nearbyAt || x.createdAt)}`;
+        }
+
+        meta.textContent = stTxt;
+
+        left.appendChild(title);
+        left.appendChild(meta);
+
+        if (typeof x.lat === "number" && typeof x.lng === "number") {
+          const go = document.createElement("button");
+          go.textContent = "اتجاه";
+          go.className = "secondary";
+          go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
+          right.appendChild(go);
+        }
+
+        item.appendChild(left);
+        item.appendChild(right);
+        managerClientOrdersTodayList.appendChild(item);
+      });
+    }
+
+    // ✅ NEW: كل الطلبات الراجعة في صفحة الموظف (فقط عمار رعد)
+    function renderEmployeeReturnedAllIfAllowed(){
+      if (!employeeReturnedAllList || !employeeAmmarReturnsSection) return;
+
+      const empName = (currentEmployeeId && employeesMetaCache[currentEmployeeId] && employeesMetaCache[currentEmployeeId].name)
+        ? String(employeesMetaCache[currentEmployeeId].name).trim()
+        : "";
+
+      const allowed = (empName === "عمار رعد" || empName.includes("عمار رعد"));
+      employeeAmmarReturnsSection.classList.toggle("hidden", !allowed);
+
+      if (!allowed) return;
+
+      const list = Object.entries(ordersCache || {})
+        .map(([id,o])=>({id, ...(o||{}) }))
+        .filter(x => x.status === "returned")
+        .sort((a,b)=>tsToMs(b.returnedAt||0)-tsToMs(a.returnedAt||0));
+
+      employeeReturnedAllList.innerHTML = "";
+      if (!list.length){
+        employeeReturnedAllList.innerHTML = `<div class="small">لا يوجد طلبات راجعة اليوم.</div>`;
+        return;
+      }
+
+      list.forEach(x=>{
+        const item = document.createElement("div");
+        item.className = "list-item";
+
+        const left = document.createElement("div");
+        const right = document.createElement("div");
+
+        const title = document.createElement("strong");
+        title.textContent = x.clientName || "زبون";
+
+        const meta = document.createElement("div");
+        meta.className = "small";
+
+        const drv = x.assignedDriverName || driverNameById(x.assignedDriverId);
+        const reason = x.returnReason ? x.returnReason : "-";
+        const tag = (x.type === "legacy_return") ? " | (راجع سابق)" : "";
+        meta.textContent = `مندوب: ${drv} | سبب: ${reason} | ${formatTime(x.returnedAt)}${tag}`;
+
+        left.appendChild(title);
+        left.appendChild(meta);
+
+        if (typeof x.lat === "number" && typeof x.lng === "number") {
+          const go = document.createElement("button");
+          go.textContent = "اتجاه";
+          go.className = "secondary";
+          go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
+          right.appendChild(go);
+        }
+
+        item.appendChild(left);
+        item.appendChild(right);
+        employeeReturnedAllList.appendChild(item);
+      });
+    }
+
 
     // =========================
     // ✅ Driver orders list render
@@ -4259,6 +4428,10 @@ employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
   // Subscribe attendance (today)
   subscribeEmpAttendanceFor(getWorkDateByKey("today"));
 
+  // ✅ NEW: Subscribe orders (today) لتظهر الرواجع لعمار
+  subscribeOrdersFor(getWorkDateByKey("today"));
+  renderEmployeeReturnedAllIfAllowed();
+
   // Buttons
   empBtnCheckIn && (empBtnCheckIn.onclick = ()=>empDoCheckIn());
   empBtnCheckOut && (empBtnCheckOut.onclick = ()=>empDoCheckOut(true));
@@ -4348,6 +4521,11 @@ logoutDriverBtn.onclick = () => {
       renderManagerReturnedAll();
       renderManagerAttendanceList();
     });
+
+    if (managerClientPick) managerClientPick.addEventListener("input", ()=>{
+      renderManagerClientOrdersByClient();
+    });
+
 
     managerOrdersTabs.addEventListener("click", (e)=>{
       const tab = e.target && e.target.dataset ? e.target.dataset.tab : "";
