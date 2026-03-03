@@ -243,6 +243,10 @@
           <input id="client-lat" type="text" placeholder="33.3152" />
           <label for="client-lng">Longitude</label>
           <input id="client-lng" type="text" placeholder="44.3661" />
+<button type="button" id="pick-client-on-map" class="btn">
+  📍 حدد موقع الزبون من الخريطة
+</button>
+<small id="pick-hint" style="display:block;opacity:.8;margin-top:6px"></small>
           <button id="add-client-btn">إضافة زبون</button>
           <p class="small" id="client-add-msg"></p>
 
@@ -841,6 +845,9 @@ nextDrivers[key] = {
     const clientLngInput = document.getElementById("client-lng");
     const addClientBtn = document.getElementById("add-client-btn");
     const clientAddMsg = document.getElementById("client-add-msg");
+    const pickClientOnMapBtn = document.getElementById("pick-client-on-map");
+    const pickClientHint = document.getElementById("pick-hint");
+
 
     const clientsListDiv = document.getElementById("clients-list");
     const driverClientsListDiv = document.getElementById("driver-clients-list");
@@ -869,6 +876,9 @@ nextDrivers[key] = {
     let driverMarkers = {};
     let employeeMarkers = {};
     let clientMarkers = {};
+    let pickingClientLocation = false;
+    let clientPickMarker = null;
+
     let currentDriverId = null;
     let currentEmployeeId = null;
     let watchId = null;
@@ -1988,7 +1998,65 @@ function renderDriverAttendanceBox(tickOnly=false){
       alert(msg);
     }
 
-    function initMap() {
+    
+// =========================
+// ✅ Admin: Pick client location from map (manual)
+// =========================
+function setClientLatLng(lat, lng) {
+  if (!clientLatInput || !clientLngInput) return;
+  clientLatInput.value = Number(lat).toFixed(6);
+  clientLngInput.value = Number(lng).toFixed(6);
+}
+
+function ensureClientPickMarker(lat, lng) {
+  if (!map) return;
+  if (!clientPickMarker) {
+    clientPickMarker = L.marker([lat, lng], { draggable: true }).addTo(map);
+    clientPickMarker.on("dragend", () => {
+      const p = clientPickMarker.getLatLng();
+      setClientLatLng(p.lat, p.lng);
+    });
+  } else {
+    clientPickMarker.setLatLng([lat, lng]);
+  }
+}
+
+function startPickClientLocation() {
+  pickingClientLocation = true;
+  if (pickClientHint) pickClientHint.textContent = "اضغط على الخريطة لتحديد موقع الزبون (تقدر تسحب المؤشر للتعديل).";
+  if (pickClientOnMapBtn) pickClientOnMapBtn.textContent = "✅ جاري التحديد... اضغط على الخريطة";
+}
+
+function stopPickClientLocation() {
+  pickingClientLocation = false;
+  if (pickClientHint) pickClientHint.textContent = "";
+  if (pickClientOnMapBtn) pickClientOnMapBtn.textContent = "📍 حدد موقع الزبون من الخريطة";
+}
+
+function bindClientPickOnMap() {
+  if (!map) return;
+
+  if (pickClientOnMapBtn) {
+    pickClientOnMapBtn.addEventListener("click", () => {
+      // يعمل فقط إذا الأدمن داخل
+      if (managerCard && managerCard.classList.contains("hidden")) return;
+      startPickClientLocation();
+    });
+  }
+
+  map.on("click", (e) => {
+    if (!pickingClientLocation) return;
+
+    const { lat, lng } = e.latlng;
+    setClientLatLng(lat, lng);
+    ensureClientPickMarker(lat, lng);
+
+    // نوقف وضع التحديد بعد أول ضغطة (والسحب يبقى شغال)
+    stopPickClientLocation();
+  });
+}
+
+function initMap() {
       if (map) return;
       map = L.map("map").setView([33.3152, 44.3661], 11);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -2032,6 +2100,9 @@ function renderDriverAttendanceBox(tickOnly=false){
         fillOpacity: 0.15,
         weight: 2
       }).addTo(map);
+
+      // ✅ تفعيل اختيار موقع الزبون من الخريطة للأدمن
+      bindClientPickOnMap();
     }
 
     function initDriverMap(){
