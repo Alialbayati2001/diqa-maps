@@ -982,10 +982,13 @@ nextDrivers[key] = {
     }
 
     // ✅ تعديل العرض إلى 12 ساعة (1:00 م) بدون تغيير الداتا المخزونة
+    // ✅ تعديل العرض إلى 12 ساعة (1:00 م) بدون تغيير الداتا المخزونة
     function formatTime(ts) {
       if (!ts) return "";
       const d = new Date(tsToMs(ts));
-      return d.toLocaleTimeString("ar-IQ", { hour12:true, hour:"numeric", minute:"2-digit" }
+      return d.toLocaleTimeString("ar-IQ", { hour12:true, hour:"numeric", minute:"2-digit" });
+    }
+
     // ✅ NEW: format to 24h HH:MM (for admin edit prompt defaults)
     function formatHHMM(ts){
       if (!ts) return "";
@@ -994,9 +997,6 @@ nextDrivers[key] = {
       const mm = String(d.getMinutes()).padStart(2,"0");
       return `${hh}:${mm}`;
     }
-);
-    }
-// =========================
 // ✅ NEW: Parse flexible time input
 // - Accepts: "HH:MM" (today) OR "YYYY-MM-DD HH:MM"
 // =========================
