@@ -987,6 +987,41 @@ nextDrivers[key] = {
       const d = new Date(tsToMs(ts));
       return d.toLocaleTimeString("ar-IQ", { hour12:true, hour:"numeric", minute:"2-digit" });
     }
+// =========================
+// ✅ NEW: Parse flexible time input
+// - Accepts: "HH:MM" (today) OR "YYYY-MM-DD HH:MM"
+// =========================
+function parseFlexibleDateTime(input){
+  const s = String(input || "").trim();
+  if (!s) return NaN;
+
+  // HH:MM -> today local
+  const m1 = s.match(/^(\d{1,2})\s*:\s*(\d{2})$/);
+  if (m1){
+    const h = Math.max(0, Math.min(23, Number(m1[1])));
+    const mi = Math.max(0, Math.min(59, Number(m1[2])));
+    const d = new Date();
+    d.setSeconds(0,0);
+    d.setHours(h, mi, 0, 0);
+    return d.getTime();
+  }
+
+  // YYYY-MM-DD HH:MM or YYYY-MM-DDTHH:MM
+  const s2 = s.replace("T", " ");
+  const m2 = s2.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})$/);
+  if (m2){
+    const parts = m2[1].split("-").map(Number);
+    const h = Number(m2[2]);
+    const mi = Number(m2[3]);
+    const d = new Date(parts[0], parts[1]-1, parts[2], h, mi, 0, 0);
+    return d.getTime();
+  }
+
+  // fallback: Date.parse
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : NaN;
+}
+
 
 
     // =========================
@@ -4464,6 +4499,71 @@ function bindAttendanceButtons(){
 }
 
 setTimeout(bindAttendanceButtons, 100);
-  </script>
+  
+
+function requestEmployeeAttendanceEdit(empId, dateKey){
+const pass = prompt("ادخل باسوورد التعديل (2001):");
+if (pass !== ATTENDANCE_EDIT_PASSWORD) {
+  alert("❌ باسوورد غير صحيح");
+  return;
+}
+
+// ✅ وقت الدخول مطلوب
+const newInRaw = prompt("وقت دخول الموظف الجديد (مثال: 10:00 أو 2026-03-03 10:00):");
+if (!newInRaw || !String(newInRaw).trim()) {
+  alert("⚠️ يجب إدخال وقت الدخول");
+  return;
+}
+
+// ✅ وقت الخروج اختياري
+const newOutRaw = prompt("وقت خروج الموظف الجديد (اختياري — اتركه فارغ إذا مازال مستمر):");
+
+const inMs = parseFlexibleDateTime(newInRaw);
+const outMs = (newOutRaw && String(newOutRaw).trim()) ? parseFlexibleDateTime(newOutRaw) : null;
+
+if (!Number.isFinite(inMs)) {
+  alert("⚠️ صيغة وقت الدخول غير صحيحة");
+  return;
+}
+if (outMs !== null && !Number.isFinite(outMs)) {
+  alert("⚠️ صيغة وقت الخروج غير صحيحة");
+  return;
+}
+if (outMs !== null && outMs < inMs) {
+  alert("⚠️ وقت الخروج لازم يكون بعد وقت الدخول");
+  return;
+}
+
+const ref = db.ref(`attendanceEmployees/${dateKey}/${empId}`);
+
+const sessions = [{
+  inAt: inMs,
+  outAt: outMs,              // null => مستمر
+  editedByAdmin: true,
+  editedAt: SERVER_TS
+}];
+
+const payload = {
+  sessions,
+  lastInAt: inMs,
+  checkInAt: inMs,
+  lastOutAt: (outMs !== null ? outMs : null),
+  checkOutAt: (outMs !== null ? outMs : null),
+  autoCheckOut: false,
+  autoClosed: false,
+  updatedAt: SERVER_TS,
+  editedByAdmin: true,
+  editedAt: SERVER_TS
+};
+
+ref.update(payload).then(() => {
+  alert(outMs === null ? "✅ تم تعديل وقت الدخول (والحالة الآن: مستمر)" : "✅ تم تعديل الدخول والخروج بنجاح");
+}).catch((e) => {
+  console.error(e);
+  alert("❌ فشل التعديل");
+});
+
+}
+</script>
 </body>
 </html>
