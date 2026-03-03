@@ -1226,7 +1226,18 @@ function parseFlexibleDateTime(input){
       }
     }
 
-    function normalizeNumberString(s) {
+    
+
+    // ✅ FIX: make sure normalizeNumberText exists (was missing and caused add-client failure)
+    function normalizeNumberText(value) {
+      if (value == null) return "";
+      return String(value)
+        .replace(/[٠-٩]/g, d => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
+        .replace(/[^\d.,-]/g, "")
+        .trim();
+    }
+
+function normalizeNumberString(s) {
       return String(s || "").trim().replace(/،/g, ".").replace(/,/g, ".");
     }
 
