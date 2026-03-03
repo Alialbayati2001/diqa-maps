@@ -789,7 +789,11 @@ nextDrivers[key] = {
 
     const MANAGER_PASSWORD = "Adgj1357";
 
-    // UI
+    
+
+    // ✅ Password for admin attendance edits
+    const ATTENDANCE_EDIT_PASSWORD = "2001";
+// UI
     const loginCard = document.getElementById("login-card");
     const managerCard = document.getElementById("manager-card");
     const driverCard = document.getElementById("driver-card");
@@ -1931,6 +1935,14 @@ const renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttend
     left.appendChild(title);
     left.appendChild(meta);
 
+        // ✅ Admin edit button (protected)
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "✏️ تعديل";
+        editBtn.className = "secondary";
+        editBtn.onclick = ()=>adminEditAttendanceRecord("employees", dateKey, x.id, (title && title.textContent) ? title.textContent : x.id);
+        right.appendChild(editBtn);
+
+
     const pill = document.createElement("span");
     pill.className = "pill";
     if (!doc || (!sessions.length && !doc.checkInAt)) pill.innerHTML = `— <b>لا يوجد</b>`;
@@ -2062,6 +2074,14 @@ function renderDriverAttendanceBox(tickOnly=false){
 
         left.appendChild(title);
         left.appendChild(meta);
+
+        // ✅ Admin edit button (protected)
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "✏️ تعديل";
+        editBtn.className = "secondary";
+        editBtn.onclick = ()=>adminEditAttendanceRecord("drivers", dateKey, x.id, (title && title.textContent) ? title.textContent : x.id);
+        right.appendChild(editBtn);
+
 
         const pill = document.createElement("span");
         pill.className = "pill";
@@ -4265,6 +4285,134 @@ function showErr(where, err){
   }
   try{ alert(msg); }catch(_){}
 }
+
+
+// =========================
+// ✅ Admin edit attendance (password protected)
+// =========================
+function _parseAdminEditTime(dateKey, input){
+  const s = String(input ?? "").trim();
+  if (!s) return null;
+
+  // Accept: "YYYY-MM-DD HH:MM" | "YYYY-MM-DDTHH:MM" | "HH:MM"
+  let dtStr = s;
+  if (/^\d{1,2}:\d{2}$/.test(s)){
+    dtStr = `${dateKey}T${s}:00`;
+  } else {
+    dtStr = dtStr.replace(" ", "T");
+    // If missing seconds, add :00
+    if (/^\d{4}-\d{2}-\d{2}T\d{1,2}:\d{2}$/.test(dtStr)) dtStr += ":00";
+  }
+
+  const ms = Date.parse(dtStr);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+async function adminEditAttendanceRecord(kind, dateKey, personId, displayName){
+  // kind: "drivers" | "employees"
+  const pass = prompt("ادخل باسوورد التعديل:");
+  if (pass !== ATTENDANCE_EDIT_PASSWORD){
+    alert("❌ باسوورد غير صحيح");
+    return;
+  }
+
+  const dbPath = (kind === "employees")
+    ? `attendanceEmployees/${dateKey}/${personId}`
+    : `attendance/${dateKey}/${personId}`;
+
+  let currDoc = null;
+  try{
+    const snap = await db.ref(dbPath).once("value");
+    currDoc = snap.val() || null;
+  }catch(e){
+    console.error("read attendance failed", e);
+  }
+
+  const sessions0 = normalizeSessions(currDoc || {});
+  const last0 = sessions0.length ? (sessions0[sessions0.length-1] || {}) : {};
+  const defIn = last0.inAt || (currDoc && currDoc.checkInAt) || null;
+  const defOut = last0.outAt || (currDoc && currDoc.checkOutAt) || null;
+
+  const who = displayName || personId;
+
+  const inInput = prompt(`وقت الدخول الجديد لـ: ${who}\n\nمسموح: HH:MM أو YYYY-MM-DD HH:MM`, defIn ? formatTime(defIn) : "");
+  if (inInput === null) return;
+
+  const outInput = prompt(`وقت الخروج الجديد لـ: ${who}\n\nمسموح: HH:MM أو YYYY-MM-DD HH:MM`, defOut ? formatTime(defOut) : "");
+  if (outInput === null) return;
+
+  const inMs  = _parseAdminEditTime(dateKey, inInput);
+  const outMs = _parseAdminEditTime(dateKey, outInput);
+
+  if (!inMs || !outMs){
+    alert("⚠️ صيغة الوقت غير صحيحة. مثال: 10:00 أو 2026-03-03 18:30");
+    return;
+  }
+  if (outMs < inMs){
+    alert("⚠️ وقت الخروج لازم يكون بعد وقت الدخول.");
+    return;
+  }
+
+  try{
+    const ref = db.ref(dbPath);
+    await new Promise((resolve, reject)=>{
+      ref.transaction(curr=>{
+        curr = curr || {};
+        const sessions = normalizeSessions(curr);
+        const idx = sessions.length ? (sessions.length-1) : -1;
+
+        const base = (idx >= 0) ? (sessions[idx] || {}) : {};
+        const next = Object.assign({}, base, {
+          inAt: inMs,
+          outAt: outMs,
+          editedByAdmin: true,
+          editedAt: SERVER_TS
+        });
+
+        if (idx >= 0) sessions[idx] = next;
+        else sessions.push(next);
+
+        // ✅ مزامنة الحقول القديمة/الجديدة حتى يظهر بكل مكان
+        curr.sessions = sessions;
+        curr.checkInAt = inMs;
+        curr.checkOutAt = outMs;
+        curr.lastInAt = inMs;
+        curr.lastOutAt = outMs;
+        curr.updatedAt = SERVER_TS;
+
+        // تنظيف أعلام auto للآخر (اختياري)
+        try{
+          if (idx >= 0 && curr.sessions && curr.sessions[idx]){
+            delete curr.sessions[idx].autoOut;
+            delete curr.sessions[idx].autoClosed;
+          }
+        }catch(_){}
+
+        return curr;
+      }, (err, committed)=>{
+        if (err) return reject(err);
+        if (!committed) return reject(new Error("not committed"));
+        resolve(true);
+      });
+    });
+
+    alert("✅ تم تعديل الحضور بنجاح");
+
+    // إعادة رسم
+    if (kind === "employees"){
+      try{ renderManagerEmployeesAttendanceList(true); }catch(_){}
+      try{ renderEmployeeAttendanceBox(true); }catch(_){}
+    } else {
+      try{ renderManagerAttendanceList(true); }catch(_){}
+      try{ renderDriverAttendanceBox(true); }catch(_){}
+    }
+
+  }catch(e){
+    console.error("edit attendance failed", e);
+    alert("❌ فشل التعديل");
+  }
+}
+
 
 window.addEventListener("error", (e)=>{
   showErr("JS Error", e.error || e.message);
