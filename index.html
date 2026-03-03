@@ -1044,16 +1044,43 @@ nextDrivers[key] = {
 
         for (const [id, doc] of entries){
           if (!doc) continue;
-          if (!doc.checkInAt) continue;
-          if (doc.checkOutAt) continue; // already closed
 
-          // إذا checkIn بعد cutoff لا نغلق (حالة نادرة)
-          const inMs = tsToMs(doc.checkInAt);
+          // ✅ NEW: جلسات متعددة
+          const sessions = normalizeSessions(doc);
+          const openIdx = getOpenSessionIndex(sessions);
+
+          // إذا ماكو جلسة مفتوحة، وبيانات قديمة مسدودة، نتجاوز
+          if (openIdx === -1){
+            // دعم قديم: checkInAt بدون sessions
+            if (!doc.checkInAt) continue;
+            if (doc.checkOutAt) continue;
+            const inMsLegacy = tsToMs(doc.checkInAt);
+            if (inMsLegacy && inMsLegacy > cutoffMs) continue;
+
+            await db.ref(`${basePath}/${dateKey}/${id}`).update({
+              checkOutAt: cutoffMs,
+              autoCheckOut: true,
+              autoClosed: true,
+              updatedAt: SERVER_TS
+            });
+            continue;
+          }
+
+          // إذا in بعد cutoff لا نغلق
+          const inMs = tsToMs((sessions[openIdx]||{}).inAt);
           if (inMs && inMs > cutoffMs) continue;
 
-          // إغلاق فعلي على 11:30 PM لنفس التاريخ
+          sessions[openIdx] = Object.assign({}, sessions[openIdx]||{}, {
+            outAt: cutoffMs,          // رقم ثابت (ms) حتى يكون 11:30 بالضبط
+            autoOut: true,
+            autoClosed: true
+          });
+
           await db.ref(`${basePath}/${dateKey}/${id}`).update({
-            checkOutAt: cutoffMs,          // رقم ثابت (ms) حتى يكون 11:30 بالضبط
+            sessions,
+            lastOutAt: cutoffMs,
+            // نبقي checkOutAt أيضاً للتوافق مع النسخ القديمة
+            checkOutAt: cutoffMs,
             autoCheckOut: true,
             autoClosed: true,
             updatedAt: SERVER_TS
@@ -1064,7 +1091,7 @@ nextDrivers[key] = {
       }
     }
 
-    function normalizeNumberText(s) {
+(s) {
       return String(s || "").trim().replace(/،/g, ".").replace(/,/g, ".");
     }
 
@@ -1226,6 +1253,66 @@ function openInGoogleMaps(lat, lng) {
     }
 
     // =========================
+    // ✅ NEW: Multi-sessions attendance helpers (استمرار داخل نفس اليوم)
+    // =========================
+    function normalizeSessions(doc){
+      try{
+        if (doc && Array.isArray(doc.sessions) && doc.sessions.length){
+          // ننسخ حتى لا نعدّل الأصل مباشرة
+          return doc.sessions.map(s=>Object.assign({}, s||{}));
+        }
+        // ✅ دعم البيانات القديمة (checkInAt/checkOutAt)
+        if (doc && doc.checkInAt){
+          return [{
+            inAt: doc.checkInAt || null,
+            outAt: doc.checkOutAt || null,
+            inLat: doc.checkInLat ?? null,
+            inLng: doc.checkInLng ?? null,
+            inAcc: doc.checkInAcc ?? null,
+            inDistance: doc.checkInDistance ?? null,
+            outLat: doc.checkOutLat ?? null,
+            outLng: doc.checkOutLng ?? null,
+            outAcc: doc.checkOutAcc ?? null,
+            outDistance: doc.checkOutDistance ?? null,
+            autoOut: !!doc.autoCheckOut
+          }];
+        }
+      }catch(e){}
+      return [];
+    }
+    function getOpenSessionIndex(sessions){
+      if (!Array.isArray(sessions) || !sessions.length) return -1;
+      for (let i=sessions.length-1;i>=0;i--){
+        const s = sessions[i] || {};
+        if (s.inAt && !s.outAt) return i;
+      }
+      return -1;
+    }
+    function calcWorkedMsFromSessions(sessions){
+      if (!Array.isArray(sessions) || !sessions.length) return 0;
+      let sum = 0;
+      for (const s of sessions){
+        if (!s || !s.inAt) continue;
+        const inMs = tsToMs(s.inAt);
+        if (!inMs) continue;
+        const outMs = s.outAt ? tsToMs(s.outAt) : Date.now();
+        const d = outMs - inMs;
+        if (Number.isFinite(d) && d > 0) sum += d;
+      }
+      return sum;
+    }
+    function getDocWorkedMs(doc){
+      const sessions = normalizeSessions(doc);
+      if (sessions.length) return calcWorkedMsFromSessions(sessions);
+      return calcWorkedMs(doc && doc.checkInAt, doc && doc.checkOutAt);
+    }
+    function isDocCheckedInNow(doc){
+      const sessions = normalizeSessions(doc);
+      return getOpenSessionIndex(sessions) !== -1;
+    }
+
+
+    // =========================
     // ✅ Geolocation helper for Attendance
     // =========================
     async function getCurrentPos(){
@@ -1319,7 +1406,9 @@ function openInGoogleMaps(lat, lng) {
         const dateKey = getWorkDateByKey(driverDaySelect.value || "today");
         if (attendanceDateKey !== dateKey) return;
         const doc = getAttendanceDocFor(currentDriverId);
-        if (!doc || !doc.checkInAt || doc.checkOutAt) return;
+
+        // ✅ NEW: يعتمد على جلسة مفتوحة (مو فقط checkIn/checkOut)
+        if (!doc || !isDocCheckedInNow(doc)) return;
 
         const now = new Date();
         const h = now.getHours();
@@ -1335,20 +1424,41 @@ function openInGoogleMaps(lat, lng) {
             lat = pos.lat; lng = pos.lng; acc = pos.acc;
             dist = inOfficeRadius(lat, lng).d;
           }
-          await db.ref(`attendance/${dateKey}/${currentDriverId}`).update({
-            checkOutAt: SERVER_TS,
-            checkOutLat: (lat!=null?lat:null),
-            checkOutLng: (lng!=null?lng:null),
-            checkOutAcc: (acc!=null?Math.round(acc):null),
-            checkOutDistance: (dist!=null?Math.round(dist):null),
-            autoCheckOut: true,
-            updatedAt: SERVER_TS
+
+          const ref = db.ref(`attendance/${dateKey}/${currentDriverId}`);
+          await new Promise((resolve, reject)=>{
+            ref.transaction(curr=>{
+              curr = curr || {};
+              const sessions = normalizeSessions(curr);
+              const openIdx = getOpenSessionIndex(sessions);
+              if (openIdx === -1) return; // abort (already closed)
+              sessions[openIdx] = Object.assign({}, sessions[openIdx]||{}, {
+                outAt: SERVER_TS,
+                outLat: (lat!=null?lat:null),
+                outLng: (lng!=null?lng:null),
+                outAcc: (acc!=null?Math.round(acc):null),
+                outDistance: (dist!=null?Math.round(dist):null),
+                autoOut: true,
+                autoClosed: true
+              });
+              return Object.assign({}, curr, {
+                sessions,
+                lastOutAt: SERVER_TS,
+                checkOutAt: SERVER_TS,
+                autoCheckOut: true,
+                autoClosed: true,
+                updatedAt: SERVER_TS
+              });
+            }, (err, committed)=>{
+              if (err) return reject(err);
+              resolve({committed});
+            }, false);
           });
         } catch(e){}
       }, 30000);
     }
 
-    // ✅ Driver attendance actions
+
     async function doCheckIn(){
       if (!currentDriverId) return;
       if (attMsgEl) attMsgEl.textContent = "";
@@ -1371,28 +1481,39 @@ function openInGoogleMaps(lat, lng) {
       }
 
       const drvName = currentDriverNameLabel.textContent || driverNameById(currentDriverId);
-      const patch = {
-        driverId: currentDriverId,
-        driverName: drvName,
-        checkInAt: SERVER_TS,
-        checkInLat: OFFICE.lat,
-    checkInLng: OFFICE.lng,
-        checkInAcc: pos.acc != null ? Math.round(pos.acc) : null,
-        checkInDistance: Math.round(gate.d),
-        autoCheckOut: false,
-        updatedAt: SERVER_TS
-      };
+
+      // ✅ NEW: دخول متعدد (جلسات) — إذا كان مسجّل دخول حالياً نمنع
       try {
         const ref = db.ref(`attendance/${dateKey}/${currentDriverId}`);
 
-        // ✅ FIX نهائي: يمنع تسجيل دخول فوق دخول حتى لو الكاش ما محدّث
-        // (يعالج حالة: الصبح دخل، وبالليل ضغط "تسجيل دخول" بالغلط)
         const txRes = await new Promise((resolve, reject) => {
           ref.transaction(
             (curr) => {
-              // إذا أكو دوام مفتوح (بدون خروج) نمنع إنشاء/تعديل دخول جديد
-              if (curr && curr.checkInAt && !curr.checkOutAt) return; // abort
-              return Object.assign({}, curr || {}, patch);
+              curr = curr || {};
+              const sessions = normalizeSessions(curr);
+              const openIdx = getOpenSessionIndex(sessions);
+              if (openIdx !== -1) return; // abort: عنده دخول مفتوح
+
+              sessions.push({
+                inAt: SERVER_TS,
+                inLat: OFFICE.lat,
+                inLng: OFFICE.lng,
+                inAcc: pos.acc != null ? Math.round(pos.acc) : null,
+                inDistance: Math.round(gate.d),
+                inSource: pos.source || null
+              });
+
+              return Object.assign({}, curr, {
+                driverId: currentDriverId,
+                driverName: drvName,
+                sessions,
+                lastInAt: SERVER_TS,
+                // للتوافق مع النسخ القديمة
+                checkInAt: SERVER_TS,
+                checkOutAt: null,
+                autoCheckOut: false,
+                updatedAt: SERVER_TS
+              });
             },
             (err, committed, snap) => {
               if (err) return reject(err);
@@ -1426,11 +1547,14 @@ function openInGoogleMaps(lat, lng) {
       subscribeAttendanceFor(dateKey);
 
       const cur = getAttendanceDocFor(currentDriverId);
-      if (!cur || !cur.checkInAt){
+      if (!cur){
         if (attMsgEl) attMsgEl.textContent = "⚠️ ما مسجّل دخول حتى تسجّل خروج.";
         return;
       }
-      if (cur.checkOutAt){
+
+      const curSessions = normalizeSessions(cur);
+      const openIdx = getOpenSessionIndex(curSessions);
+      if (openIdx === -1){
         if (attMsgEl) attMsgEl.textContent = "ℹ️ أنت مسجّل خروج مسبقاً.";
         return;
       }
@@ -1438,8 +1562,8 @@ function openInGoogleMaps(lat, lng) {
       let pos = null;
       try { pos = await getBestLatLngForAttendance(); } catch(e){}
 
-      // نحاول نتحقق من النطاق (حسب طلبك)
-      if (pos){
+      // نحاول نتحقق من النطاق (حسب طلبك) — فقط بالخروج اليدوي
+      if (manual && pos){
         const gate = inOfficeRadius(pos.lat, pos.lng);
         if (!gate.ok){
           if (attMsgEl) attMsgEl.textContent = `⚠️ تسجيل الخروج يحتاج تكون داخل الشركة. المسافة: ${Math.round(gate.d)}m`;
@@ -1453,29 +1577,49 @@ function openInGoogleMaps(lat, lng) {
         const acc = pos && pos.acc != null ? Math.round(pos.acc) : null;
         const dist = (pos ? Math.round(inOfficeRadius(pos.lat, pos.lng).d) : null);
 
-        await db.ref(`attendance/${dateKey}/${currentDriverId}`).update({
-          checkOutAt: SERVER_TS,
-          checkOutLat: OFFICE.lat,
-      checkOutLng: OFFICE.lng,
-          checkOutAcc: acc,
-          checkOutDistance: dist,
-          autoCheckOut: !manual,
-          updatedAt: SERVER_TS
+        const ref = db.ref(`attendance/${dateKey}/${currentDriverId}`);
+
+        await new Promise((resolve, reject)=>{
+          ref.transaction(curr=>{
+            curr = curr || {};
+            const sessions = normalizeSessions(curr);
+            const idx = getOpenSessionIndex(sessions);
+            if (idx === -1) return; // abort
+            sessions[idx] = Object.assign({}, sessions[idx]||{}, {
+              outAt: SERVER_TS,
+              outLat: OFFICE.lat,
+              outLng: OFFICE.lng,
+              outAcc: acc,
+              outDistance: dist,
+              outSource: pos ? (pos.source || null) : null,
+              autoOut: !manual
+            });
+
+            return Object.assign({}, curr, {
+              sessions,
+              lastOutAt: SERVER_TS,
+              // للتوافق
+              checkOutAt: SERVER_TS,
+              autoCheckOut: !manual,
+              updatedAt: SERVER_TS
+            });
+          }, (err, committed)=>{
+            if (err) return reject(err);
+            resolve({committed});
+          }, false);
         });
 
         if (attMsgEl) {
           attMsgEl.style.color = "#86efac";
           attMsgEl.textContent = "✅ تم تسجيل الخروج";
-          
-
-setTimeout(()=>{ if(attMsgEl){ attMsgEl.textContent=""; attMsgEl.style.color="#fca5a5"; } }, 2500);
+          setTimeout(()=>{ if(attMsgEl){ attMsgEl.textContent=""; attMsgEl.style.color="#fca5a5"; } }, 2500);
         }
       }catch(e){
         if (attMsgEl) attMsgEl.textContent = "⚠️ فشل تسجيل الخروج (Rules).";
       }
     }
 
-    
+
 
 // =========================
 // ✅ Employee Attendance (RTDB)
@@ -1550,26 +1694,37 @@ async function empDoCheckIn(){
   }
 
   const empName = (currentEmployeeNameLabel && currentEmployeeNameLabel.textContent) ? currentEmployeeNameLabel.textContent : employeeNameById(currentEmployeeId);
-  const patch = {
-    employeeId: currentEmployeeId,
-    employeeName: empName,
-    checkInAt: SERVER_TS,
-    checkInLat: OFFICE.lat,
-    checkInLng: OFFICE.lng,
-    checkInAcc: pos.acc != null ? Math.round(pos.acc) : null,
-    checkInDistance: Math.round(gate.d),
-    autoCheckOut: false,
-    updatedAt: SERVER_TS
-  };
-  try {
+
+  try{
     const ref = db.ref(`attendanceEmployees/${dateKey}/${currentEmployeeId}`);
 
-    // ✅ FIX نهائي: يمنع تسجيل دخول فوق دخول (حتى لو الكاش ما محدّث)
     const txRes = await new Promise((resolve, reject) => {
       ref.transaction(
         (curr) => {
-          if (curr && curr.checkInAt && !curr.checkOutAt) return; // abort
-          return Object.assign({}, curr || {}, patch);
+          curr = curr || {};
+          const sessions = normalizeSessions(curr);
+          const openIdx = getOpenSessionIndex(sessions);
+          if (openIdx !== -1) return; // abort
+
+          sessions.push({
+            inAt: SERVER_TS,
+            inLat: OFFICE.lat,
+            inLng: OFFICE.lng,
+            inAcc: pos.acc != null ? Math.round(pos.acc) : null,
+            inDistance: Math.round(gate.d),
+            inSource: pos.source || null
+          });
+
+          return Object.assign({}, curr, {
+            employeeId: currentEmployeeId,
+            employeeName: empName,
+            sessions,
+            lastInAt: SERVER_TS,
+            // توافق قديم
+            checkInAt: SERVER_TS,
+            checkOutAt: null,
+            updatedAt: SERVER_TS
+          });
         },
         (err, committed, snap) => {
           if (err) return reject(err);
@@ -1579,23 +1734,22 @@ async function empDoCheckIn(){
       );
     });
 
-    if (!txRes.committed) {
+    if (!txRes.committed){
       if (empAttMsgEl) empAttMsgEl.textContent = "ℹ️ أنت مسجّل دخول مسبقاً اليوم. اضغط تسجيل خروج.";
       return;
     }
 
     if (empAttMsgEl){
       empAttMsgEl.style.color = "#86efac";
-      empAttMsgEl.textContent = "✅ تم تسجيل الدخول داخل الشركة";
+      empAttMsgEl.textContent = "✅ تم تسجيل الدخول";
       setTimeout(()=>{ if(empAttMsgEl){ empAttMsgEl.textContent=""; empAttMsgEl.style.color="#fca5a5"; } }, 2500);
     }
-  } catch(e){
+  }catch(e){
     if (empAttMsgEl) empAttMsgEl.textContent = "⚠️ فشل تسجيل الدخول (Rules).";
   }
-
 }
 
-async function empDoCheckOut(manual=true){
+async function empDoCheckOut(){
   if (!currentEmployeeId) return;
   if (empAttMsgEl) { empAttMsgEl.style.color = "#fca5a5"; empAttMsgEl.textContent = ""; }
 
@@ -1603,11 +1757,14 @@ async function empDoCheckOut(manual=true){
   subscribeEmpAttendanceFor(dateKey);
 
   const cur = getEmpAttendanceDocFor(currentEmployeeId);
-  if (!cur || !cur.checkInAt){
+  if (!cur){
     if (empAttMsgEl) empAttMsgEl.textContent = "⚠️ ما مسجّل دخول حتى تسجّل خروج.";
     return;
   }
-  if (cur.checkOutAt){
+
+  const curSessions = normalizeSessions(cur);
+  const openIdx = getOpenSessionIndex(curSessions);
+  if (openIdx === -1){
     if (empAttMsgEl) empAttMsgEl.textContent = "ℹ️ أنت مسجّل خروج مسبقاً.";
     return;
   }
@@ -1615,6 +1772,7 @@ async function empDoCheckOut(manual=true){
   let pos = null;
   try { pos = await getBestLatLngForEmployeeAttendance(); } catch(e){}
 
+  // خروج الموظف: لازم داخل الشركة إذا قدرنا نجيب موقع
   if (pos){
     const gate = inOfficeRadius(pos.lat, pos.lng);
     if (!gate.ok){
@@ -1624,19 +1782,37 @@ async function empDoCheckOut(manual=true){
   }
 
   try{
-    const lat = pos ? pos.lat : null;
-    const lng = pos ? pos.lng : null;
     const acc = pos && pos.acc != null ? Math.round(pos.acc) : null;
     const dist = (pos ? Math.round(inOfficeRadius(pos.lat, pos.lng).d) : null);
 
-    await db.ref(`attendanceEmployees/${dateKey}/${currentEmployeeId}`).update({
-      checkOutAt: SERVER_TS,
-      checkOutLat: OFFICE.lat,
-      checkOutLng: OFFICE.lng,
-      checkOutAcc: acc,
-      checkOutDistance: dist,
-      autoCheckOut: !manual,
-      updatedAt: SERVER_TS
+    const ref = db.ref(`attendanceEmployees/${dateKey}/${currentEmployeeId}`);
+
+    await new Promise((resolve, reject)=>{
+      ref.transaction(curr=>{
+        curr = curr || {};
+        const sessions = normalizeSessions(curr);
+        const idx = getOpenSessionIndex(sessions);
+        if (idx === -1) return; // abort
+        sessions[idx] = Object.assign({}, sessions[idx]||{}, {
+          outAt: SERVER_TS,
+          outLat: OFFICE.lat,
+          outLng: OFFICE.lng,
+          outAcc: acc,
+          outDistance: dist,
+          outSource: pos ? (pos.source || null) : null
+        });
+
+        return Object.assign({}, curr, {
+          sessions,
+          lastOutAt: SERVER_TS,
+          // توافق
+          checkOutAt: SERVER_TS,
+          updatedAt: SERVER_TS
+        });
+      }, (err, committed)=>{
+        if (err) return reject(err);
+        resolve({committed});
+      }, false);
     });
 
     if (empAttMsgEl){
@@ -1644,10 +1820,14 @@ async function empDoCheckOut(manual=true){
       empAttMsgEl.textContent = "✅ تم تسجيل الخروج";
       setTimeout(()=>{ if(empAttMsgEl){ empAttMsgEl.textContent=""; empAttMsgEl.style.color="#fca5a5"; } }, 2500);
     }
-  } catch(e){
+  }catch(e){
     if (empAttMsgEl) empAttMsgEl.textContent = "⚠️ فشل تسجيل الخروج (Rules).";
   }
 }
+
+
+
+
 
 const renderEmployeeAttendanceBox = window.renderEmployeeAttendanceBox = function renderEmployeeAttendanceBox(tickOnly=false){
   if (!empAttStatusEl || !empAttWorkedEl) return;
@@ -1660,15 +1840,25 @@ const renderEmployeeAttendanceBox = window.renderEmployeeAttendanceBox = functio
   if (empAttendanceDateKey !== dateKey && !tickOnly){
     setTimeout(()=>subscribeEmpAttendanceFor(dateKey), 0);
   }
+
   const doc = getEmpAttendanceDocFor(currentEmployeeId);
-  if (!doc || !doc.checkInAt){
+  const sessions = normalizeSessions(doc || {});
+  if (!doc || (!sessions.length && !doc.checkInAt)){
     empAttStatusEl.textContent = "الحالة: غير حاضر";
     empAttWorkedEl.textContent = "مدة اليوم: 0س 0د";
     return;
   }
-  const worked = formatDuration(calcWorkedMs(doc.checkInAt, doc.checkOutAt));
-  const st = doc.checkOutAt ? "منتهي" : "مستمر";
-  empAttStatusEl.textContent = `الحالة: ${st} | دخول: ${formatTime(doc.checkInAt)}${doc.checkOutAt ? ` | خروج: ${formatTime(doc.checkOutAt)}` : ""}`;
+
+  const worked = formatDuration(getDocWorkedMs(doc));
+  const openIdx = getOpenSessionIndex(sessions);
+  const st = (openIdx !== -1) ? "مستمر" : "منتهي";
+
+  const last = sessions.length ? (sessions[sessions.length-1]||{}) : {};
+  const lastIn = last.inAt || doc.checkInAt;
+  const lastOut = last.outAt || doc.checkOutAt;
+  const segInfo = sessions.length > 1 ? ` | جلسات: ${sessions.length}` : "";
+
+  empAttStatusEl.textContent = `الحالة: ${st}${segInfo} | آخر دخول: ${formatTime(lastIn)}${lastOut ? ` | آخر خروج: ${formatTime(lastOut)}` : ""}`;
   empAttWorkedEl.textContent = `مدة اليوم: ${worked}`;
 }
 
@@ -1679,8 +1869,7 @@ const renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttend
     setTimeout(()=>subscribeEmpAttendanceFor(dateKey), 0);
   }
 
-  const entries = Object.entries(empAttendanceCache || {}).map(([id, a]) => ({ id, ...a }));
-
+  const entries = Object.entries(empAttendanceCache || {}).map(([id, a]) => ({ id, ...(a||{}) }));
   const allEmps = Object.entries(employeesMetaCache || {}).map(([id, meta]) => ({
     id,
     employeeName: (meta && meta.name) ? meta.name : id
@@ -1690,22 +1879,23 @@ const renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttend
   entries.forEach(x => { mapById[x.id] = x; });
 
   const merged = allEmps.map(e => {
-    const a = mapById[e.id] || {};
-    return {
-      id: e.id,
-      employeeName: a.employeeName || e.employeeName,
-      checkInAt: a.checkInAt || null,
-      checkOutAt: a.checkOutAt || null,
-      autoCheckOut: !!a.autoCheckOut,
-      checkInDistance: a.checkInDistance ?? null
-    };
+    const a = mapById[e.id] || null;
+    return { id: e.id, employeeName: (a && a.employeeName) ? a.employeeName : e.employeeName, doc: a };
   });
 
-  merged.sort((a,b)=> tsToMs(b.checkInAt||0) - tsToMs(a.checkInAt||0));
+  merged.sort((a,b)=>{
+    const aDoc = a.doc || {};
+    const bDoc = b.doc || {};
+    const aSessions = normalizeSessions(aDoc);
+    const bSessions = normalizeSessions(bDoc);
+    const aIn = tsToMs((aSessions[0]||{}).inAt || aDoc.checkInAt || 0);
+    const bIn = tsToMs((bSessions[0]||{}).inAt || bDoc.checkInAt || 0);
+    return bIn - aIn;
+  });
 
   managerEmpAttendanceList.innerHTML = "";
   if (!merged.length){
-    managerEmpAttendanceList.innerHTML = `<div class="small">لا يوجد بيانات حضور للموظفين.</div>`;
+    managerEmpAttendanceList.innerHTML = `<div class="small">لا يوجد بيانات حضور.</div>`;
     return;
   }
 
@@ -1722,14 +1912,20 @@ const renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttend
     const meta = document.createElement("div");
     meta.className = "small";
 
-    if (!x.checkInAt){
+    const doc = x.doc;
+    const sessions = normalizeSessions(doc || {});
+    if (!doc || (!sessions.length && !doc.checkInAt)){
       meta.textContent = "غير حاضر اليوم";
     } else {
-      const worked = formatDuration(calcWorkedMs(x.checkInAt, x.checkOutAt));
-      const st = x.checkOutAt ? "منتهي" : "مستمر";
-      const auto = x.autoCheckOut ? " | 🕦 خروج تلقائي" : "";
-      const dist = (x.checkInDistance != null) ? ` | داخل الشركة (${x.checkInDistance}m)` : "";
-      meta.textContent = `دخول: ${formatTime(x.checkInAt)}${x.checkOutAt ? ` | خروج: ${formatTime(x.checkOutAt)}` : ""} | ${st} | مدة: ${worked}${auto}${dist}`;
+      const worked = formatDuration(getDocWorkedMs(doc));
+      const openIdx = getOpenSessionIndex(sessions);
+      const st = (openIdx !== -1) ? "مستمر" : "منتهي";
+      const last = sessions.length ? (sessions[sessions.length-1]||{}) : {};
+      const lastIn = last.inAt || doc.checkInAt;
+      const lastOut = last.outAt || doc.checkOutAt;
+      const dist = (last && last.inDistance != null) ? ` | داخل الشركة (${last.inDistance}m)` : ((doc.checkInDistance!=null)?` | داخل الشركة (${doc.checkInDistance}m)`:"");
+      const seg = sessions.length > 1 ? ` | جلسات: ${sessions.length}` : "";
+      meta.textContent = `آخر دخول: ${formatTime(lastIn)}${lastOut ? ` | آخر خروج: ${formatTime(lastOut)}` : ""} | ${st}${seg} | مدة: ${worked}${dist}`;
     }
 
     left.appendChild(title);
@@ -1737,7 +1933,8 @@ const renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttend
 
     const pill = document.createElement("span");
     pill.className = "pill";
-    pill.innerHTML = x.checkInAt ? (x.checkOutAt ? `✅ <b>مكتمل</b>` : `🟡 <b>مستمر</b>`) : `— <b>لا يوجد</b>`;
+    if (!doc || (!sessions.length && !doc.checkInAt)) pill.innerHTML = `— <b>لا يوجد</b>`;
+    else pill.innerHTML = (getOpenSessionIndex(sessions)!==-1) ? `🟡 <b>مستمر</b>` : `✅ <b>مكتمل</b>`;
     right.appendChild(pill);
 
     item.appendChild(left);
@@ -1745,6 +1942,7 @@ const renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttend
     managerEmpAttendanceList.appendChild(item);
   });
 }
+
 // expose for global calls
 window.renderManagerEmployeesAttendanceList = renderManagerEmployeesAttendanceList;
 
@@ -1760,15 +1958,26 @@ function renderDriverAttendanceBox(tickOnly=false){
         // ✅ FIX: لا تنادي subscribe مباشرة داخل render حتى ما يصير Loop
         if (!attendanceSubInProgress) setTimeout(()=>subscribeAttendanceFor(dateKey), 0);
       }
+
       const doc = getAttendanceDocFor(currentDriverId);
-      if (!doc || !doc.checkInAt){
+      const sessions = normalizeSessions(doc || {});
+      if (!doc || (!sessions.length && !doc.checkInAt)){
         attStatusEl.textContent = "الحالة: غير حاضر";
         attWorkedEl.textContent = "مدة اليوم: 0س 0د";
         return;
       }
-      const worked = formatDuration(calcWorkedMs(doc.checkInAt, doc.checkOutAt));
-      const st = doc.checkOutAt ? "منتهي" : "مستمر";
-      attStatusEl.textContent = `الحالة: ${st} | دخول: ${formatTime(doc.checkInAt)}${doc.checkOutAt ? ` | خروج: ${formatTime(doc.checkOutAt)}` : ""}`;
+
+      const worked = formatDuration(getDocWorkedMs(doc));
+      const openIdx = getOpenSessionIndex(sessions);
+      const st = (openIdx !== -1) ? "مستمر" : "منتهي";
+
+      // آخر دخول/خروج حسب آخر جلسة
+      const last = sessions.length ? (sessions[sessions.length-1]||{}) : {};
+      const lastIn = last.inAt || doc.checkInAt;
+      const lastOut = last.outAt || doc.checkOutAt;
+
+      const segInfo = sessions.length > 1 ? ` | جلسات: ${sessions.length}` : "";
+      attStatusEl.textContent = `الحالة: ${st}${segInfo} | آخر دخول: ${formatTime(lastIn)}${lastOut ? ` | آخر خروج: ${formatTime(lastOut)}` : ""}`;
       attWorkedEl.textContent = `مدة اليوم: ${worked}`;
     }
 
@@ -1782,7 +1991,7 @@ function renderDriverAttendanceBox(tickOnly=false){
 
       const filterDriver = managerDriverFilter.value || "";
       const entries = Object.entries(attendanceCache || {})
-        .map(([id, a]) => ({ id, ...a }))
+        .map(([id, a]) => ({ id, ...(a||{}) }))
         .filter(x => !filterDriver || x.id === filterDriver);
 
       // ضيف حتى اللي ما عنده سجل حضور: نعرضهم صفر
@@ -1797,20 +2006,21 @@ function renderDriverAttendanceBox(tickOnly=false){
       const merged = allDrivers
         .filter(x => !filterDriver || x.id === filterDriver)
         .map(d => {
-          const a = mapById[d.id] || {};
+          const a = mapById[d.id] || null;
           return {
             id: d.id,
-            driverName: a.driverName || d.driverName,
-            checkInAt: a.checkInAt || null,
-            checkOutAt: a.checkOutAt || null,
-            autoCheckOut: !!a.autoCheckOut,
-            checkInDistance: a.checkInDistance ?? null
+            driverName: (a && a.driverName) ? a.driverName : d.driverName,
+            doc: a
           };
         });
 
       merged.sort((a,b)=>{
-        const aIn = tsToMs(a.checkInAt||0);
-        const bIn = tsToMs(b.checkInAt||0);
+        const aDoc = a.doc || {};
+        const bDoc = b.doc || {};
+        const aSessions = normalizeSessions(aDoc);
+        const bSessions = normalizeSessions(bDoc);
+        const aIn = tsToMs((aSessions[0]||{}).inAt || aDoc.checkInAt || 0);
+        const bIn = tsToMs((bSessions[0]||{}).inAt || bDoc.checkInAt || 0);
         return bIn - aIn;
       });
 
@@ -1833,23 +2043,30 @@ function renderDriverAttendanceBox(tickOnly=false){
         const meta = document.createElement("div");
         meta.className = "small";
 
-        if (!x.checkInAt){
+        const doc = x.doc;
+        const sessions = normalizeSessions(doc || {});
+        if (!doc || (!sessions.length && !doc.checkInAt)){
           meta.textContent = "غير حاضر اليوم";
         } else {
-          const worked = formatDuration(calcWorkedMs(x.checkInAt, x.checkOutAt));
-          const st = x.checkOutAt ? "منتهي" : "مستمر";
-          const auto = x.autoCheckOut ? " | 🕦 خروج تلقائي" : "";
-          const dist = (x.checkInDistance != null) ? ` | داخل الشركة (${x.checkInDistance}m)` : "";
-          meta.textContent = `دخول: ${formatTime(x.checkInAt)}${x.checkOutAt ? ` | خروج: ${formatTime(x.checkOutAt)}` : ""} | ${st} | مدة: ${worked}${auto}${dist}`;
+          const worked = formatDuration(getDocWorkedMs(doc));
+          const openIdx = getOpenSessionIndex(sessions);
+          const st = (openIdx !== -1) ? "مستمر" : "منتهي";
+          const last = sessions.length ? (sessions[sessions.length-1]||{}) : {};
+          const lastIn = last.inAt || doc.checkInAt;
+          const lastOut = last.outAt || doc.checkOutAt;
+          const auto = (doc.autoCheckOut || (last && last.autoOut)) ? " | 🕦 خروج تلقائي" : "";
+          const dist = (last && last.inDistance != null) ? ` | داخل الشركة (${last.inDistance}m)` : ((doc.checkInDistance!=null)?` | داخل الشركة (${doc.checkInDistance}m)`:"");
+          const seg = sessions.length > 1 ? ` | جلسات: ${sessions.length}` : "";
+          meta.textContent = `آخر دخول: ${formatTime(lastIn)}${lastOut ? ` | آخر خروج: ${formatTime(lastOut)}` : ""} | ${st}${seg} | مدة: ${worked}${auto}${dist}`;
         }
 
         left.appendChild(title);
         left.appendChild(meta);
 
-        // زر سريع: (لو تريد يدوي من الأدمن لاحقاً ممكن)
         const pill = document.createElement("span");
         pill.className = "pill";
-        pill.innerHTML = x.checkInAt ? (x.checkOutAt ? `✅ <b>مكتمل</b>` : `🟡 <b>مستمر</b>`) : `— <b>لا يوجد</b>`;
+        if (!doc || (!sessions.length && !doc.checkInAt)) pill.innerHTML = `— <b>لا يوجد</b>`;
+        else pill.innerHTML = (getOpenSessionIndex(sessions)!==-1) ? `🟡 <b>مستمر</b>` : `✅ <b>مكتمل</b>`;
         right.appendChild(pill);
 
         item.appendChild(left);
