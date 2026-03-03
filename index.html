@@ -992,35 +992,86 @@ nextDrivers[key] = {
 // - Accepts: "HH:MM" (today) OR "YYYY-MM-DD HH:MM"
 // =========================
 function parseFlexibleDateTime(input){
-  const s = String(input || "").trim();
-  if (!s) return NaN;
+  // يقبل صيغ متعددة:
+  // 1) HH:MM
+  // 2) YYYY-MM-DD HH:MM أو YYYY/MM/DD HH:MM
+  // 3) DD-MM-YYYY HH:MM أو DD/MM/YYYY HH:MM
+  // 4) HH:MM YYYY-MM-DD  /  HH:MM DD-MM-YYYY  (الوقت قبل التاريخ)
+  const raw = String(input || "").trim();
+  if (!raw) return NaN;
 
-  // HH:MM -> today local
-  const m1 = s.match(/^(\d{1,2})\s*:\s*(\d{2})$/);
-  if (m1){
-    const h = Math.max(0, Math.min(23, Number(m1[1])));
-    const mi = Math.max(0, Math.min(59, Number(m1[2])));
+  // ✅ تحويل الأرقام العربية إلى إنجليزية
+  const arabicToLatin = (s)=> String(s).replace(/[٠-٩]/g, d => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+  let s = arabicToLatin(raw);
+
+  // ✅ تنظيف: توحيد الفواصل والمسافات
+  s = s.replace(/[‐‑–—]/g, "-");     // أنواع شرطة
+  s = s.replace(/\s+/g, " ").trim();
+  s = s.replace("T", " ");
+
+  // ===== 1) HH:MM (اليوم)
+  let m = s.match(/^(\d{1,2})\s*:\s*(\d{2})(?:\s*:\s*(\d{2}))?$/);
+  if (m){
+    const h  = Math.max(0, Math.min(23, Number(m[1])));
+    const mi = Math.max(0, Math.min(59, Number(m[2])));
+    const sec = m[3] ? Math.max(0, Math.min(59, Number(m[3]))) : 0;
     const d = new Date();
     d.setSeconds(0,0);
-    d.setHours(h, mi, 0, 0);
+    d.setHours(h, mi, sec, 0);
     return d.getTime();
   }
 
-  // YYYY-MM-DD HH:MM or YYYY-MM-DDTHH:MM
-  const s2 = s.replace("T", " ");
-  const m2 = s2.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})$/);
-  if (m2){
-    const parts = m2[1].split("-").map(Number);
-    const h = Number(m2[2]);
-    const mi = Number(m2[3]);
-    const d = new Date(parts[0], parts[1]-1, parts[2], h, mi, 0, 0);
+  // Helpers
+  const clampHM = (h, mi, sec=0)=>({
+    h: Math.max(0, Math.min(23, Number(h))),
+    mi: Math.max(0, Math.min(59, Number(mi))),
+    sec: Math.max(0, Math.min(59, Number(sec||0)))
+  });
+
+  const makeLocalDateMs = (y, mo, day, h, mi, sec=0)=>{
+    const yy = Number(y), mm = Number(mo), dd = Number(day);
+    if (!Number.isFinite(yy) || !Number.isFinite(mm) || !Number.isFinite(dd)) return NaN;
+    // شهر 1-12
+    const d = new Date(yy, mm-1, dd, Number(h)||0, Number(mi)||0, Number(sec)||0, 0);
+    // ✅ تحقق حتى ما يصير overflow (مثلاً 31/02)
+    if (d.getFullYear() !== yy || (d.getMonth()+1) !== mm || d.getDate() !== dd) return NaN;
     return d.getTime();
+  };
+
+  // ===== 2) YYYY-MM-DD HH:MM أو YYYY/MM/DD HH:MM
+  m = s.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})\s+(\d{1,2}):(\d{2})(?:\s*:\s*(\d{2}))?$/);
+  if (m){
+    const t = clampHM(m[4], m[5], m[6]);
+    return makeLocalDateMs(m[1], m[2], m[3], t.h, t.mi, t.sec);
   }
 
-  // fallback: Date.parse
+  // ===== 3) DD-MM-YYYY HH:MM أو DD/MM/YYYY HH:MM
+  m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\s+(\d{1,2}):(\d{2})(?:\s*:\s*(\d{2}))?$/);
+  if (m){
+    const t = clampHM(m[4], m[5], m[6]);
+    return makeLocalDateMs(m[3], m[2], m[1], t.h, t.mi, t.sec);
+  }
+
+  // ===== 4) الوقت قبل التاريخ: HH:MM DD-MM-YYYY أو HH:MM YYYY-MM-DD
+  // 4a) HH:MM YYYY-MM-DD (أو /)
+  m = s.match(/^(\d{1,2}):(\d{2})(?:\s*:\s*(\d{2}))?\s+(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+  if (m){
+    const t = clampHM(m[1], m[2], m[3]);
+    return makeLocalDateMs(m[4], m[5], m[6], t.h, t.mi, t.sec);
+  }
+
+  // 4b) HH:MM DD-MM-YYYY (أو /)
+  m = s.match(/^(\d{1,2}):(\d{2})(?:\s*:\s*(\d{2}))?\s+(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (m){
+    const t = clampHM(m[1], m[2], m[3]);
+    return makeLocalDateMs(m[6], m[5], m[4], t.h, t.mi, t.sec);
+  }
+
+  // ===== fallback: Date.parse (قد ينجح لبعض الصيغ)
   const t = Date.parse(s);
   return Number.isFinite(t) ? t : NaN;
 }
+
 
 
 
