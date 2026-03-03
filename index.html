@@ -1091,7 +1091,7 @@ nextDrivers[key] = {
       }
     }
 
-(s) {
+    function normalizeNumberString(s) {
       return String(s || "").trim().replace(/،/g, ".").replace(/,/g, ".");
     }
 
