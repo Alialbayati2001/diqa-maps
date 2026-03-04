@@ -433,16 +433,31 @@
       </div>
       <div id="driver-map"></div>
 
+      
       <div class="row" style="margin-top:12px;">
         <div class="col">
-          <h3>طلبات اليوم</h3>
-          <label for="order-search-driver">بحث باسم الزبون (طلبات)</label>
+          <h3>طلباتك</h3>
+          <label for="order-search-driver">بحث باسم الزبون (كل الحالات)</label>
           <input id="order-search-driver" type="text" placeholder="اكتب اسم الزبون..." />
-          <div class="list" id="driver-orders-list"></div>
+
+          <!-- ✅ NEW: Tabs for driver orders -->
+          <div class="tabs" id="driver-orders-tabs">
+            <div class="tab active" data-tab="registered">المسجّلة</div>
+            <div class="tab" data-tab="uncollected">غير مستلمة</div>
+            <div class="tab" data-tab="collected">تم استلامها</div>
+            <div class="tab" data-tab="returned">الراجعة</div>
+          </div>
+
+          <!-- Lists -->
+          <div class="list" id="driver-registered-list"></div>
+          <div class="list hidden" id="driver-uncollected-list"></div>
+          <div class="list hidden" id="driver-collected-list"></div>
+          <div class="list hidden" id="driver-returned-list"></div>
         </div>
+
         <div class="col">
-          <h3>تم التسليم</h3>
-          <div class="list" id="driver-delivered-list"></div>
+          <h3>ملخص</h3>
+
           <div class="sum-box">
             <div class="small">مجموع مبالغ التسليم (حسب اليوم المختار)</div>
             <div class="big" id="driver-delivered-sum">0.000</div>
@@ -460,54 +475,6 @@
         </div>
       </div>
 
-      <hr style="border-color:#111827;margin:10px 0;" />
-
-      <h3>الزبائن</h3>
-      <label for="client-search-driver">بحث باسم الزبون</label>
-      <input id="client-search-driver" type="text" placeholder="اكتب اسم الزبون..." />
-      <div class="list" id="driver-clients-list"></div>
-    </div>
-
-<!-- EMPLOYEE -->
-<div class="card hidden" id="employee-card">
-  <div class="row" style="align-items:center; margin-bottom:10px;">
-    <div class="col">
-      <h2>صفحة الموظف</h2>
-      <span class="badge">حضور / انصراف فقط</span>
-      <div class="hint" style="margin-top:6px">
-        ✅ تسجّل دخول وخروج داخل نطاق الشركة فقط.<br/>
-        ✅ نحسب مدة وجودك اليوم تلقائيًا.
-      </div>
-    </div>
-    <div class="col" style="text-align:left;">
-      <button class="secondary" id="logout-employee">تسجيل الخروج</button>
-    </div>
-  </div>
-
-  <p>الموظف: <strong id="current-employee-name"></strong></p>
-
-  <hr style="border-color:#111827;margin:10px 0;" />
-  <h3>الحضور (داخل الشركة)</h3>
-  <div class="att-box">
-    <div class="att-row">
-      <button class="secondary" id="emp-btn-checkin">تسجيل دخول</button>
-      <button class="secondary" id="emp-btn-checkout">تسجيل خروج</button>
-      <span class="badge" id="emp-att-status">—</span>
-      <span class="badge" id="emp-att-worked">مدة اليوم: —</span>
-    </div>
-    <p class="small" id="emp-att-msg" style="margin:6px 0 0; color:#fca5a5;"></p>
-  </div>
-</div>
-  <!-- ✅ NEW: كل الطلبات الراجعة (خاص للموظف عمار رعد) -->
-  <div id="employee-ammar-returns-section" class="hidden">
-    <hr style="border-color:#111827;margin:10px 0;" />
-    <h3>كل الطلبات الراجعة (اليوم)</h3>
-    <div class="hint">✅ تظهر فقط للموظف <b>عمار رعد</b>.</div>
-    <div class="list" id="employee-returned-all-list"></div>
-  </div>
-
-
-  </div>
 
   <!-- Leaflet JS -->
   <script
@@ -976,8 +943,15 @@ nextDrivers[key] = {
 
 
     const driverMapDiv = document.getElementById("driver-map");
-    const driverOrdersList = document.getElementById("driver-orders-list");
-    const driverDeliveredList = document.getElementById("driver-delivered-list");
+    const driverOrdersTabs = document.getElementById("driver-orders-tabs");
+    const driverRegisteredList = document.getElementById("driver-registered-list");
+    const driverUncollectedList = document.getElementById("driver-uncollected-list");
+    const driverCollectedList = document.getElementById("driver-collected-list");
+    const driverReturnedList = document.getElementById("driver-returned-list");
+
+    // (alias) keep old variable names to avoid breaking old code elsewhere
+    const driverOrdersList = driverRegisteredList;
+    const driverDeliveredList = driverUncollectedList;
     const driverDeliveredSumEl = document.getElementById("driver-delivered-sum");
     const driverUncollectedSumEl = document.getElementById("driver-uncollected-sum");
     const orderSearchDriver = document.getElementById("order-search-driver");
@@ -987,6 +961,7 @@ nextDrivers[key] = {
     const legacyReturnMsg = document.getElementById("legacy-return-msg");
 
     let managerOrdersTab = "uncollected";
+    let driverOrdersTab = "registered";
     let ordersCache = {};          // { orderId: order }
     let ordersWorkDate = "";       // active workDate for subscription
     let ordersUnsubRef = null;
@@ -3678,33 +3653,33 @@ function subscribeEmployees(){
     let driverOrderSearchText = "";
     function renderDriverOrdersLists(){
       if (!currentDriverId) return;
-      if (!driverOrdersList || !driverDeliveredList) return;
+      if (!driverRegisteredList || !driverUncollectedList || !driverCollectedList || !driverReturnedList) return;
 
       const q = (driverOrderSearchText || "").toLowerCase();
 
       const list = Object.entries(ordersCache || {})
         .map(([id,o])=>({id, ...o}))
-        .filter(x=>x.assignedDriverId === currentDriverId);
+        .filter(x=>x.assignedDriverId === currentDriverId)
+        .filter(x=>!q || (x.clientName||"").toLowerCase().includes(q));
 
-      const active = list.filter(x => x.status !== "delivered" && x.status !== "returned");
-      const delivered = list.filter(x => x.status === "delivered");
-      const returned = list.filter(x => x.status === "returned");
+      const registered = list.filter(x => x.status === "registered" || x.status === "nearby");
+      const uncollected = list.filter(x => x.status === "delivered" && x.cashCollected !== true);
+      const collected   = list.filter(x => x.status === "delivered" && x.cashCollected === true);
+      const returned    = list.filter(x => x.status === "returned");
 
-      const activeFiltered = active.filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
-      const deliveredFiltered = delivered.filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
-
-      // ✅ active list sorted by priority then createdAt
-      driverOrdersList.innerHTML = "";
-      if (!activeFiltered.length) {
-        driverOrdersList.innerHTML = `<div class="small">لا توجد طلبات نشطة.</div>`;
+      // ✅ registered (priority then createdAt)
+      driverRegisteredList.innerHTML = "";
+      if (!registered.length) {
+        driverRegisteredList.innerHTML = `<div class="small">لا توجد طلبات مسجّلة.</div>`;
       } else {
-        activeFiltered.sort((a,b)=>{
+        registered.sort((a,b)=>{
           const pa = normalizePriority(a.priority) || 999999;
           const pb = normalizePriority(b.priority) || 999999;
           if (pa !== pb) return pa - pb;
           return tsToMs(a.createdAt||0) - tsToMs(b.createdAt||0);
         });
-        activeFiltered.forEach(x=>{
+
+        registered.forEach(x=>{
           const item = document.createElement("div");
           item.className = "list-item";
 
@@ -3717,7 +3692,9 @@ function subscribeEmployees(){
 
           const meta = document.createElement("div");
           meta.className = "small";
-          meta.textContent = `الحالة: ${statusLabel(x.status)}` + (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
+          meta.textContent =
+            `الحالة: ${statusLabel(x.status)}` +
+            (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
 
           left.appendChild(title);
           left.appendChild(meta);
@@ -3730,6 +3707,7 @@ function subscribeEmployees(){
             right.appendChild(go);
           }
 
+          // actions only when nearby
           if (x.status === "nearby") {
             const act = document.createElement("button");
             act.textContent = "تحديث";
@@ -3740,20 +3718,31 @@ function subscribeEmployees(){
 
           item.appendChild(left);
           item.appendChild(right);
-          driverOrdersList.appendChild(item);
+          driverRegisteredList.appendChild(item);
         });
       }
 
-      // delivered list + sum
-      driverDeliveredList.innerHTML = "";
-      let sum = 0;
+      // ✅ delivered sums (all delivered)
+      let deliveredSum = 0;
       let pendingSum = 0;
+      list.forEach(x=>{
+        if (x.status !== "delivered") return;
+        const v = Number(x.deliveredCash);
+        if (!Number.isFinite(v)) return;
+        deliveredSum += v;
+        if (x.cashCollected !== true) pendingSum += v;
+      });
+      if (driverDeliveredSumEl) driverDeliveredSumEl.textContent = formatIQD(deliveredSum);
+      if (driverUncollectedSumEl) driverUncollectedSumEl.textContent = formatIQD(pendingSum);
 
-      if (!deliveredFiltered.length && !returned.length) {
-        driverDeliveredList.innerHTML = `<div class="small">لا توجد بيانات.</div>`;
-      } else {
-        deliveredFiltered.sort((a,b)=>tsToMs(b.deliveredAt||0)-tsToMs(a.deliveredAt||0));
-        deliveredFiltered.forEach(x=>{
+      function renderDeliveredList(targetEl, arr, collectedFlag){
+        targetEl.innerHTML = "";
+        if (!arr.length){
+          targetEl.innerHTML = `<div class="small">لا توجد بيانات.</div>`;
+          return;
+        }
+        arr.sort((a,b)=>tsToMs(b.deliveredAt||0)-tsToMs(a.deliveredAt||0));
+        arr.forEach(x=>{
           const item = document.createElement("div");
           item.className = "list-item";
 
@@ -3765,13 +3754,7 @@ function subscribeEmployees(){
 
           const meta = document.createElement("div");
           meta.className = "small";
-          const v = Number(x.deliveredCash);
-          if (Number.isFinite(v)) {
-            sum += v;
-            if (x.cashCollected !== true) pendingSum += v;
-          }
-
-          meta.textContent = `مبلغ: ${formatIQD(x.deliveredCash)} | ${x.cashCollected ? "✅ تم الاستلام" : "💰 غير مستلم"}`;
+          meta.textContent = `مبلغ: ${formatIQD(x.deliveredCash)} | ${collectedFlag ? "✅ تم الاستلام" : "💰 غير مستلم"}`;
 
           left.appendChild(title);
           left.appendChild(meta);
@@ -3786,53 +3769,56 @@ function subscribeEmployees(){
 
           item.appendChild(left);
           item.appendChild(right);
-          driverDeliveredList.appendChild(item);
+          targetEl.appendChild(item);
         });
-
-        // returned section appended
-        if (returned.length) {
-          const sep = document.createElement("div");
-          sep.className = "small";
-          sep.style.margin = "8px 0";
-          sep.textContent = "الطلبات الراجعة:";
-          driverDeliveredList.appendChild(sep);
-
-          returned.sort((a,b)=>tsToMs(b.returnedAt||0)-tsToMs(a.returnedAt||0));
-          returned.forEach(x=>{
-            const item = document.createElement("div");
-            item.className = "list-item";
-
-            const left = document.createElement("div");
-            const right = document.createElement("div");
-
-            const title = document.createElement("strong");
-            title.textContent = x.clientName || "زبون";
-
-            const meta = document.createElement("div");
-            meta.className = "small";
-            const tag = (x.type === "legacy_return") ? " | (راجع سابق)" : "";
-            meta.textContent = `راجع | سبب: ${x.returnReason ? x.returnReason : "-"}${tag}`;
-
-            left.appendChild(title);
-            left.appendChild(meta);
-
-            if (typeof x.lat === "number" && typeof x.lng === "number") {
-              const go = document.createElement("button");
-              go.textContent = "اتجاه";
-              go.className = "secondary";
-              go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
-              right.appendChild(go);
-            }
-
-            item.appendChild(left);
-            item.appendChild(right);
-            driverDeliveredList.appendChild(item);
-          });
-        }
       }
 
-      driverDeliveredSumEl.textContent = formatIQD(sum);
-      if (driverUncollectedSumEl) driverUncollectedSumEl.textContent = formatIQD(pendingSum);
+      renderDeliveredList(driverUncollectedList, uncollected, false);
+      renderDeliveredList(driverCollectedList, collected, true);
+
+      // ✅ returned
+      driverReturnedList.innerHTML = "";
+      if (!returned.length) {
+        driverReturnedList.innerHTML = `<div class="small">لا توجد طلبات راجعة.</div>`;
+      } else {
+        returned.sort((a,b)=>tsToMs(b.returnedAt||0)-tsToMs(a.returnedAt||0));
+        returned.forEach(x=>{
+          const item = document.createElement("div");
+          item.className = "list-item";
+
+          const left = document.createElement("div");
+          const right = document.createElement("div");
+
+          const title = document.createElement("strong");
+          title.textContent = x.clientName || "زبون";
+
+          const meta = document.createElement("div");
+          meta.className = "small";
+          const tag = (x.type === "legacy_return") ? " | (راجع سابق)" : "";
+          meta.textContent = `راجع | سبب: ${x.returnReason ? x.returnReason : "-"} | ${formatTime(x.returnedAt)}${tag}`;
+
+          left.appendChild(title);
+          left.appendChild(meta);
+
+          if (typeof x.lat === "number" && typeof x.lng === "number") {
+            const go = document.createElement("button");
+            go.textContent = "اتجاه";
+            go.className = "secondary";
+            go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
+            right.appendChild(go);
+          }
+
+          item.appendChild(left);
+          item.appendChild(right);
+          driverReturnedList.appendChild(item);
+        });
+      }
+
+      // ✅ ensure correct visible tab on first render
+      if (driverRegisteredList) driverRegisteredList.classList.toggle("hidden", driverOrdersTab !== "registered");
+      if (driverUncollectedList) driverUncollectedList.classList.toggle("hidden", driverOrdersTab !== "uncollected");
+      if (driverCollectedList) driverCollectedList.classList.toggle("hidden", driverOrdersTab !== "collected");
+      if (driverReturnedList) driverReturnedList.classList.toggle("hidden", driverOrdersTab !== "returned");
     }
 
     function updateManagerAlertAndNotify() {
@@ -4717,6 +4703,28 @@ logoutDriverBtn.onclick = () => {
       Array.from(managerOrdersTabs.querySelectorAll(".tab")).forEach(x=>{
         x.classList.toggle("active", x.dataset.tab === tab);
       });
+
+    // ✅ Driver orders tabs
+    if (driverOrdersTabs){
+      driverOrdersTabs.addEventListener("click",(e)=>{
+        const tab = e.target && e.target.dataset ? e.target.dataset.tab : "";
+        if (!tab) return;
+        driverOrdersTab = tab;
+
+        Array.from(driverOrdersTabs.querySelectorAll(".tab")).forEach(x=>{
+          x.classList.toggle("active", x.dataset.tab === tab);
+        });
+
+        // show/hide lists
+        if (driverRegisteredList) driverRegisteredList.classList.toggle("hidden", tab !== "registered");
+        if (driverUncollectedList) driverUncollectedList.classList.toggle("hidden", tab !== "uncollected");
+        if (driverCollectedList) driverCollectedList.classList.toggle("hidden", tab !== "collected");
+        if (driverReturnedList) driverReturnedList.classList.toggle("hidden", tab !== "returned");
+
+        renderDriverOrdersLists();
+      });
+    }
+
 
       renderManagerOrdersList();
     });
