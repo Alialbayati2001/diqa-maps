@@ -325,7 +325,15 @@
             <div class="big" id="manager-collected-sum">0.000</div>
           </div>
 
-          <!-- ✅ قائمة كاملة للطلبات الراجعة لكل المندوبين -->
+
+
+          <!-- ✅ NEW: ملخص التحصيل + الفواتير لكل مندوب -->
+          <hr style="border-color:#111827;margin:10px 0;" />
+          <h4>ملخص كل مندوب (تحصيل + فواتير)</h4>
+          <div class="hint">✅ يعزل المبالغ والطلبات لكل مندوب. تقدر تختار مندوب من الفلتر حتى يظهر وحده.</div>
+          <div class="list" id="manager-driver-breakdown"></div>
+
+<!-- ✅ قائمة كاملة للطلبات الراجعة لكل المندوبين -->
           <hr style="border-color:#111827;margin:10px 0;" />
           <h4>كل الطلبات الراجعة (لكل المندوبين)</h4>
           <div class="list" id="manager-returned-all-list"></div>
@@ -953,6 +961,8 @@ nextDrivers[key] = {
     const managerUncollectedSumEl = document.getElementById("manager-uncollected-sum");
     const managerCollectedSumEl   = document.getElementById("manager-collected-sum");
     const managerSumLabel = document.getElementById("manager-sum-label");
+
+    const managerDriverBreakdownList = document.getElementById("manager-driver-breakdown");
 
     const managerReturnedAllList = document.getElementById("manager-returned-all-list");
     // ✅ NEW: Manager client filter (today orders by client)
@@ -2678,6 +2688,7 @@ function subscribeEmployees(){
       updateOrdersOnManagerMap();
       updateOrdersOnDriverMap();
       renderManagerOrdersList();
+      renderManagerDriverBreakdown();
       renderManagerReturnedAll();
       renderDriverOrdersLists();
       renderManagerClientOrdersByClient();
@@ -3153,7 +3164,7 @@ function subscribeEmployees(){
     function renderManagerOrdersList(){
       if (!managerOrdersList) return;
 
-      const filterDriver = managerDriverFilter.value || "";
+      const filterDriver = getManagerSelectedDriverId();
       const tab = managerOrdersTab;
 
       const entries = Object.entries(ordersCache || {});
@@ -3326,6 +3337,134 @@ function subscribeEmployees(){
         managerOrdersList.appendChild(item);
       });
     }
+    // =========================
+    // ✅ NEW: Breakdown per driver (collection + invoices)
+    // =========================
+    function renderManagerDriverBreakdown(){
+      if (!managerDriverBreakdownList) return;
+
+      const filterDriver = getManagerSelectedDriverId();
+
+      // Build list of drivers to show: from driversMetaCache + from orders
+      const driverIds = new Set(Object.keys(driversMetaCache || {}));
+      Object.values(ordersCache || {}).forEach(o=>{
+        if (o && o.assignedDriverId) driverIds.add(String(o.assignedDriverId));
+      });
+
+      const rows = [];
+
+      driverIds.forEach(driverId=>{
+        if (filterDriver && String(driverId) !== String(filterDriver)) return;
+
+        const name = driverNameById(driverId) || (driversMetaCache && driversMetaCache[driverId] && driversMetaCache[driverId].name) || String(driverId);
+
+        let collectedSum = 0, uncollectedSum = 0;
+        let deliveredCount = 0, collectedCount = 0, uncollectedCount = 0;
+
+        let invoicesCount = 0;
+        let invoicesSuggestedSum = 0;
+
+        Object.values(ordersCache || {}).forEach(o=>{
+          if (!o) return;
+          if (String(o.assignedDriverId || "") !== String(driverId)) return;
+
+          const st = o.status || "registered";
+
+          // Delivered cash
+          if (st === "delivered"){
+            deliveredCount++;
+            const v = Number(o.deliveredCash);
+            if (Number.isFinite(v)){
+              if (o.cashCollected === true){
+                collectedSum += v; collectedCount++;
+              } else {
+                uncollectedSum += v; uncollectedCount++;
+              }
+            } else {
+              // إذا مبلغ غير معروف، يبقى صفر بس نحسب العدد
+              if (o.cashCollected === true) collectedCount++;
+              else uncollectedCount++;
+            }
+          }
+
+          // Invoices (registered/nearby) count as "invoices out"
+          if (st === "registered" || st === "nearby"){
+            invoicesCount++;
+            if (o.adminInvoiceAmount != null){
+              const a = Number(o.adminInvoiceAmount);
+              if (Number.isFinite(a)) invoicesSuggestedSum += a;
+            }
+          }
+        });
+
+        rows.push({
+          driverId,
+          name,
+          deliveredCount,
+          collectedCount,
+          uncollectedCount,
+          collectedSum,
+          uncollectedSum,
+          invoicesCount,
+          invoicesSuggestedSum
+        });
+      });
+
+      // Sort: most activity first
+      rows.sort((a,b)=>{
+        const aa = (a.deliveredCount + a.invoicesCount);
+        const bb = (b.deliveredCount + b.invoicesCount);
+        if (bb !== aa) return bb - aa;
+        return String(a.name).localeCompare(String(b.name), "ar");
+      });
+
+      managerDriverBreakdownList.innerHTML = "";
+      if (!rows.length){
+        managerDriverBreakdownList.innerHTML = `<div class="small">لا يوجد بيانات.</div>`;
+        return;
+      }
+
+      rows.forEach(r=>{
+        const item = document.createElement("div");
+        item.className = "list-item";
+
+        const left = document.createElement("div");
+        const right = document.createElement("div");
+
+        const title = document.createElement("strong");
+        title.textContent = r.name;
+
+        const meta = document.createElement("div");
+        meta.className = "small";
+        meta.innerHTML =
+          `فواتير مخرجة: <b>${r.invoicesCount}</b>` +
+          (r.invoicesSuggestedSum ? ` | مبلغ مقترح: <b>${formatIQD(r.invoicesSuggestedSum)}</b>` : "") +
+          `<br/>` +
+          `تم التسليم: <b>${r.deliveredCount}</b> | غير مستلم: <b>${r.uncollectedCount}</b> (${formatIQD(r.uncollectedSum)}) | مستلم: <b>${r.collectedCount}</b> (${formatIQD(r.collectedSum)})`;
+
+        left.appendChild(title);
+        left.appendChild(meta);
+
+        const btn = document.createElement("button");
+        btn.className = "secondary";
+        btn.textContent = "عرض هذا المندوب";
+        btn.onclick = ()=>{
+          if (managerDriverFilterInline) managerDriverFilterInline.value = String(r.driverId);
+          if (managerDriverFilter) managerDriverFilter.value = String(r.driverId);
+          renderManagerOrdersList();
+          renderManagerDriverBreakdown();
+          renderManagerReturnedAll();
+          renderManagerAttendanceList();
+        };
+        right.appendChild(btn);
+
+        item.appendChild(left);
+        item.appendChild(right);
+        managerDriverBreakdownList.appendChild(item);
+      });
+    }
+
+
 
     // ✅ (4) قائمة كاملة للطلبات الراجعة لكل المندوبين: تظهر السبب + اسم المندوب
     function renderManagerReturnedAll(){
@@ -4551,6 +4690,7 @@ logoutDriverBtn.onclick = () => {
     managerDriverFilter.addEventListener("change", ()=>{
       if (managerDriverFilterInline) managerDriverFilterInline.value = managerDriverFilter.value || "";
       renderManagerOrdersList();
+      renderManagerDriverBreakdown();
       renderManagerReturnedAll();
       renderManagerAttendanceList();
     });
@@ -4559,6 +4699,7 @@ logoutDriverBtn.onclick = () => {
       // Sync main filter too
       if (managerDriverFilter) managerDriverFilter.value = managerDriverFilterInline.value || "";
       renderManagerOrdersList();
+      renderManagerDriverBreakdown();
       renderManagerReturnedAll();
       renderManagerAttendanceList();
     });
