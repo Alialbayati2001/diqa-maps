@@ -297,6 +297,12 @@
           <input id="manager-client-pick" list="clients-datalist" type="text" placeholder="اكتب اسم الزبون واختر من الاقتراحات..." />
           <p class="small">يعرض كل طلبات هذا الزبون في يوم: <span class="mono" id="manager-client-orders-date">—</span></p>
           <div class="list" id="manager-client-orders-today-list"></div>
+          <div style="margin-top:10px">
+            <label for="manager-driver-filter-inline">اختر اسم المندوب</label>
+            <select id="manager-driver-filter-inline" style="max-width:240px;">
+              <option value="">كل المندوبين</option>
+            </select>
+          </div>
           <!-- ========================= -->
 
           <div class="tabs" id="manager-orders-tabs">
@@ -927,6 +933,7 @@ nextDrivers[key] = {
     const managerDaySelect = document.getElementById("manager-day-select");
     const driverDaySelect  = document.getElementById("driver-day-select");
     const managerDriverFilter = document.getElementById("manager-driver-filter");
+    const managerDriverFilterInline = document.getElementById("manager-driver-filter-inline");
 
     const orderDriverSelect = document.getElementById("order-driver-select");
 
@@ -2144,7 +2151,7 @@ function renderDriverAttendanceBox(tickOnly=false){
         if (!attendanceSubInProgress) setTimeout(()=>subscribeAttendanceFor(dateKey), 0);
       }
 
-      const filterDriver = managerDriverFilter.value || "";
+      const filterDriver = getManagerSelectedDriverId();
       const entries = Object.entries(attendanceCache || {})
         .map(([id, a]) => ({ id, ...(a||{}) }))
         .filter(x => !filterDriver || x.id === filterDriver);
@@ -3106,16 +3113,22 @@ function subscribeEmployees(){
     }
 
     function renderManagerDriverFilter(){
-      const cur = managerDriverFilter.value;
-      managerDriverFilter.innerHTML = `<option value="">كل المندوبين</option>`;
-      Object.entries(driversMetaCache).forEach(([id, d])=>{
-        const opt = document.createElement("option");
-        opt.value = id;
-        opt.textContent = d && d.name ? d.name : id;
-        managerDriverFilter.appendChild(opt);
-      });
-      managerDriverFilter.value = cur || "";
+      const cur = getManagerSelectedDriverId();
+      const build = (sel)=>{
+        if (!sel) return;
+        sel.innerHTML = `<option value="">كل المندوبين</option>`;
+        Object.entries(driversMetaCache).forEach(([id, d])=>{
+          const opt = document.createElement("option");
+          opt.value = id;
+          opt.textContent = d && d.name ? d.name : id;
+          sel.appendChild(opt);
+        });
+        sel.value = cur || "";
+      };
+      build(managerDriverFilter);
+      build(managerDriverFilterInline);
     }
+
 
     function renderOrderDriverSelect(){
       const cur = orderDriverSelect.value;
@@ -3132,6 +3145,11 @@ function subscribeEmployees(){
     // =========================
     // ✅ Manager orders list render
     // =========================
+    function getManagerSelectedDriverId(){
+      const v = (managerDriverFilterInline && managerDriverFilterInline.value) || (managerDriverFilter && managerDriverFilter.value) || "";
+      return v || "";
+    }
+
     function renderManagerOrdersList(){
       if (!managerOrdersList) return;
 
@@ -3313,9 +3331,12 @@ function subscribeEmployees(){
     function renderManagerReturnedAll(){
       if (!managerReturnedAllList) return;
 
+      const filterDriver = getManagerSelectedDriverId();
+
       const list = Object.entries(ordersCache || {})
         .map(([id,o])=>({id, ...o}))
         .filter(x => x.status === "returned")
+        .filter(x => !filterDriver || x.assignedDriverId === filterDriver)
         .sort((a,b)=>tsToMs(b.returnedAt||0)-tsToMs(a.returnedAt||0));
 
       managerReturnedAllList.innerHTML = "";
@@ -4528,6 +4549,15 @@ logoutDriverBtn.onclick = () => {
     });
 
     managerDriverFilter.addEventListener("change", ()=>{
+      if (managerDriverFilterInline) managerDriverFilterInline.value = managerDriverFilter.value || "";
+      renderManagerOrdersList();
+      renderManagerReturnedAll();
+      renderManagerAttendanceList();
+    });
+
+    if (managerDriverFilterInline) managerDriverFilterInline.addEventListener("change", ()=>{
+      // Sync main filter too
+      if (managerDriverFilter) managerDriverFilter.value = managerDriverFilterInline.value || "";
       renderManagerOrdersList();
       renderManagerReturnedAll();
       renderManagerAttendanceList();
