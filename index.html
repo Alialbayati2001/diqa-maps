@@ -101,7 +101,88 @@
       font-weight:800;
       box-shadow:0 6px 18px rgba(0,0,0,.35);
     }
-</style>
+
+    /* =========================
+       ✅ Driver breakdown table (Manager)
+       ========================= */
+    .driver-report{
+      background:#ffffff;
+      color:#111827;
+      border:2px solid #0b1120;
+      border-radius:12px;
+      padding:10px;
+      margin-top:8px;
+      overflow:hidden;
+    }
+    .driver-report-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-end;
+      gap:12px;
+      flex-wrap:wrap;
+      margin-bottom:10px;
+      padding-bottom:8px;
+      border-bottom:2px solid #111827;
+    }
+    .driver-report-head .driver-report-name,
+    .driver-report-head .driver-report-date{
+      font-weight:900;
+      color:#dc2626;
+    }
+    .driver-report-head .mono{
+      color:#111827;
+      font-weight:800;
+    }
+    .table-wrap{overflow:auto}
+    table.report-table{
+      width:100%;
+      border-collapse:collapse;
+      min-width:720px;
+      background:#fff;
+      color:#111827;
+    }
+    .report-table th,
+    .report-table td{
+      border:2px solid #111827;
+      padding:10px 8px;
+      vertical-align:top;
+      text-align:center;
+      font-weight:800;
+    }
+    .report-table th{
+      background:#ffffff;
+      color:#111827;
+      font-size:20px;
+      line-height:1.2;
+    }
+    .report-table td{
+      font-weight:700;
+      font-size:16px;
+    }
+    .report-table td .small{
+      font-weight:700;
+      font-size:12px;
+      color:#374151;
+      margin-top:4px;
+    }
+    .report-table .btn-cell button{
+      white-space:nowrap;
+    }
+    .driver-report-foot{
+      margin-top:10px;
+      padding-top:8px;
+      border-top:2px solid #111827;
+      font-weight:900;
+      color:#dc2626;
+      text-align:center;
+    }
+    @media (max-width: 900px){
+      table.report-table{min-width:640px}
+      .report-table th{font-size:18px}
+      .report-table td{font-size:15px}
+    }
+
+  </style>
 </head>
 
 <body>
@@ -331,7 +412,21 @@
           <hr style="border-color:#111827;margin:10px 0;" />
           <h4>ملخص كل مندوب (تحصيل + فواتير)</h4>
           <div class="hint">✅ يعزل المبالغ والطلبات لكل مندوب. تقدر تختار مندوب من الفلتر حتى يظهر وحده.</div>
-          <div class="list" id="manager-driver-breakdown"></div>
+          <div id="manager-driver-breakdown" class="driver-report">
+            <div class="driver-report-head">
+              <div class="driver-report-name">اسم المندوب: <span class="mono" id="driver-report-name">—</span></div>
+              <div class="driver-report-date">اليوم/الشهر/السنة: <span class="mono" id="driver-report-date">—</span></div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="report-table" id="manager-driver-breakdown-table">
+                <thead id="manager-driver-breakdown-thead"></thead>
+                <tbody id="manager-driver-breakdown-tbody"></tbody>
+              </table>
+            </div>
+
+            <div class="driver-report-foot small" id="driver-report-footer"></div>
+          </div>
 
 <!-- ✅ قائمة كاملة للطلبات الراجعة لكل المندوبين -->
           <hr style="border-color:#111827;margin:10px 0;" />
@@ -3344,6 +3439,140 @@ function subscribeEmployees(){
       if (!managerDriverBreakdownList) return;
 
       const filterDriver = getManagerSelectedDriverId();
+      const workDate = ordersWorkDate || getActiveWorkDate();
+
+      const headName = document.getElementById("driver-report-name");
+      const headDate = document.getElementById("driver-report-date");
+      const theadEl  = document.getElementById("manager-driver-breakdown-thead");
+      const tbodyEl  = document.getElementById("manager-driver-breakdown-tbody");
+      const footerEl = document.getElementById("driver-report-footer");
+
+      if (headDate) headDate.textContent = workDate || "—";
+
+      // Safety
+      if (!theadEl || !tbodyEl){
+        // fallback: keep old behavior if table skeleton missing
+        managerDriverBreakdownList.innerHTML = `<div class="small">⚠️ table not ready.</div>`;
+        return;
+      }
+
+      // --------------------------------------------------
+      // ✅ (A) إذا مختار مندوب → جدول تفصيلي للطلبات
+      // --------------------------------------------------
+      if (filterDriver){
+        const driverId = String(filterDriver);
+        const driverName = driverNameById(driverId) || driverId;
+
+        if (headName) headName.textContent = driverName;
+
+        // Table head (مثل التصميم اللي أرسلته)
+        theadEl.innerHTML = `
+          <tr>
+            <th>اسم الزبون</th>
+            <th>مبلغ الفاتورة</th>
+            <th>المبلغ المستلم</th>
+            <th>التفاصيل</th>
+          </tr>
+        `;
+
+        const list = Object.entries(ordersCache || {})
+          .map(([id,o])=>({ id, ...(o||{}) }))
+          .filter(x => String(x.assignedDriverId || "") === driverId)
+          .sort((a,b)=>{
+            const ta = tsToMs(a.deliveredAt || a.returnedAt || a.nearbyAt || a.createdAt || 0);
+            const tb = tsToMs(b.deliveredAt || b.returnedAt || b.nearbyAt || b.createdAt || 0);
+            return tb - ta;
+          });
+
+        tbodyEl.innerHTML = "";
+
+        if (!list.length){
+          tbodyEl.innerHTML = `<tr><td colspan="4">لا يوجد بيانات.</td></tr>`;
+          if (footerEl) footerEl.textContent = "";
+          return;
+        }
+
+        let sumUncollected = 0;
+        let sumCollected = 0;
+
+        list.forEach(o=>{
+          const st = String(o.status || "registered");
+          const clientName = o.clientName || "—";
+
+          // Amounts
+          let invoiceTxt = "—";
+          let gotTxt = "—";
+          let details = "";
+
+          if (st === "delivered"){
+            const v = Number(o.deliveredCash);
+            invoiceTxt = Number.isFinite(v) ? formatIQD(v) : "—";
+
+            const isCollected = (o.cashCollected === true);
+            if (Number.isFinite(v)){
+              if (isCollected) sumCollected += v;
+              else sumUncollected += v;
+            }
+
+            gotTxt = (isCollected && Number.isFinite(v)) ? formatIQD(v) : (isCollected ? "✅" : "0");
+            details =
+              (isCollected ? "✅ تم الاستلام" : "💰 غير مستلم") +
+              ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
+          } else if (st === "returned"){
+            details =
+              `❌ راجع` +
+              ` <div class="small">سبب: ${escapeHtml(o.returnReason || "-")}</div>` +
+              ` <div class="small">وقت: ${escapeHtml(formatTime(o.returnedAt || o.updatedAt || o.createdAt || ""))}</div>`;
+          } else if (st === "nearby"){
+            const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
+            invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
+            const pr = normalizePriority(o.priority);
+            details =
+              `📍 قريب` +
+              ` <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+          } else {
+            // registered / any other
+            const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
+            invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
+            const pr = normalizePriority(o.priority);
+            details =
+              `📝 مسجّل` +
+              ` <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+          }
+
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${escapeHtml(clientName)}</td>
+            <td>${escapeHtml(invoiceTxt)}</td>
+            <td>${escapeHtml(gotTxt)}</td>
+            <td style="text-align:right">${details}</td>
+          `;
+          tbodyEl.appendChild(tr);
+        });
+
+        if (footerEl){
+          footerEl.textContent =
+            `مجموع المبالغ غير المستلمة: ${formatIQD(sumUncollected)} | مجموع المبالغ المستلمة: ${formatIQD(sumCollected)}`;
+        }
+        return;
+      }
+
+      // --------------------------------------------------
+      // ✅ (B) ماكو فلتر → جدول ملخص كل المندوبين
+      // --------------------------------------------------
+      if (headName) headName.textContent = "كل المندوبين";
+      if (footerEl) footerEl.textContent = "";
+
+      theadEl.innerHTML = `
+        <tr>
+          <th>اسم المندوب</th>
+          <th>فواتير مخرجة</th>
+          <th>تم التسليم</th>
+          <th>غير مستلم</th>
+          <th>مستلم</th>
+          <th>إجراء</th>
+        </tr>
+      `;
 
       // Build list of drivers to show: from driversMetaCache + from orders
       const driverIds = new Set(Object.keys(driversMetaCache || {}));
@@ -3352,10 +3581,7 @@ function subscribeEmployees(){
       });
 
       const rows = [];
-
       driverIds.forEach(driverId=>{
-        if (filterDriver && String(driverId) !== String(filterDriver)) return;
-
         const name = driverNameById(driverId) || (driversMetaCache && driversMetaCache[driverId] && driversMetaCache[driverId].name) || String(driverId);
 
         let collectedSum = 0, uncollectedSum = 0;
@@ -3370,7 +3596,6 @@ function subscribeEmployees(){
 
           const st = o.status || "registered";
 
-          // Delivered cash
           if (st === "delivered"){
             deliveredCount++;
             const v = Number(o.deliveredCash);
@@ -3381,11 +3606,82 @@ function subscribeEmployees(){
                 uncollectedSum += v; uncollectedCount++;
               }
             } else {
-              // إذا مبلغ غير معروف، يبقى صفر بس نحسب العدد
               if (o.cashCollected === true) collectedCount++;
               else uncollectedCount++;
             }
           }
+
+          if (st === "registered" || st === "nearby"){
+            invoicesCount++;
+            if (o.adminInvoiceAmount != null){
+              const a = Number(o.adminInvoiceAmount);
+              if (Number.isFinite(a)) invoicesSuggestedSum += a;
+            }
+          }
+        });
+
+        const activity = deliveredCount + invoicesCount;
+        if (activity <= 0) return;
+
+        rows.push({
+          driverId,
+          name,
+          deliveredCount,
+          collectedCount,
+          uncollectedCount,
+          collectedSum,
+          uncollectedSum,
+          invoicesCount,
+          invoicesSuggestedSum
+        });
+      });
+
+      rows.sort((a,b)=>{
+        const aa = (a.deliveredCount + a.invoicesCount);
+        const bb = (b.deliveredCount + b.invoicesCount);
+        if (bb !== aa) return bb - aa;
+        return String(a.name).localeCompare(String(b.name), "ar");
+      });
+
+      tbodyEl.innerHTML = "";
+      if (!rows.length){
+        tbodyEl.innerHTML = `<tr><td colspan="6">لا يوجد بيانات.</td></tr>`;
+        return;
+      }
+
+      rows.forEach(r=>{
+        const tr = document.createElement("tr");
+
+        const unTxt = `${r.uncollectedCount} (${formatIQD(r.uncollectedSum)})`;
+        const coTxt = `${r.collectedCount} (${formatIQD(r.collectedSum)})`;
+        const invTxt = r.invoicesSuggestedSum ? `${r.invoicesCount} (${formatIQD(r.invoicesSuggestedSum)})` : String(r.invoicesCount);
+
+        tr.innerHTML = `
+          <td>${escapeHtml(r.name)}</td>
+          <td>${escapeHtml(invTxt)}</td>
+          <td>${escapeHtml(String(r.deliveredCount))}</td>
+          <td>${escapeHtml(unTxt)}</td>
+          <td>${escapeHtml(coTxt)}</td>
+          <td class="btn-cell"></td>
+        `;
+
+        const tdBtn = tr.querySelector(".btn-cell");
+        const btn = document.createElement("button");
+        btn.className = "secondary";
+        btn.textContent = "عرض";
+        btn.onclick = ()=>{
+          if (managerDriverFilterInline) managerDriverFilterInline.value = String(r.driverId);
+          if (managerDriverFilter) managerDriverFilter.value = String(r.driverId);
+          renderManagerOrdersList();
+          renderManagerDriverBreakdown();
+          renderManagerReturnedAll();
+          renderManagerAttendanceList();
+        };
+        tdBtn.appendChild(btn);
+
+        tbodyEl.appendChild(tr);
+      });
+    }
 
           // Invoices (registered/nearby) count as "invoices out"
           if (st === "registered" || st === "nearby"){
