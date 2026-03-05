@@ -101,37 +101,6 @@
       font-weight:800;
       box-shadow:0 6px 18px rgba(0,0,0,.35);
     }
-
-    /* =========================
-       ✅ NEW: Driver output sheet (right side)
-       ========================= */
-    .collect-grid{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-top:8px}
-    .collect-left{flex:1;min-width:320px}
-    .collect-right{width:460px;max-width:100%}
-    .paper{
-      background:#ffffff;color:#000;border-radius:10px;
-      padding:14px;border:2px solid #000;
-      box-shadow:0 12px 28px rgba(0,0,0,.35)
-    }
-    .paper-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-    .paper-head .paper-title{font-weight:900;font-size:20px;color:#d10000}
-    .paper-head .paper-meta{font-weight:800;font-size:14px}
-    .paper-table{width:100%;border-collapse:collapse;table-layout:fixed}
-    .paper-table th,.paper-table td{border:2px solid #000;padding:8px 6px;text-align:center;font-weight:800}
-    .paper-table th{background:#fff}
-    .paper-table td{font-weight:700;font-size:13px}
-    .paper-table .td-details{text-align:right;direction:rtl;font-weight:700}
-    .paper-foot{margin-top:8px;font-weight:900;color:#d10000;text-align:center}
-    @media print{
-      body{background:#fff;color:#000}
-      .app{max-width:none;padding:0}
-      #login-card,#driver-card,#employee-card,#map,.inline-actions,.tabs,.list,.sum-box,button,select,input,textarea,.hint,.badge,.card{display:none!important}
-      #manager-card{display:block!important;border:none;box-shadow:none}
-      .collect-left{display:none!important}
-      .collect-right{width:100%!important}
-      .paper{box-shadow:none}
-    }
-
 </style>
 </head>
 
@@ -336,9 +305,7 @@
           </div>
           <!-- ========================= -->
 
-          <div class="collect-grid">
-            <div class="collect-left">
-<div class="tabs" id="manager-orders-tabs">
+          <div class="tabs" id="manager-orders-tabs">
             <div class="tab active" data-tab="uncollected">غير مستلمة</div>
             <div class="tab" data-tab="collected">تم استلامها</div>
             <div class="tab" data-tab="returned">الراجعة</div>
@@ -808,8 +775,6 @@ nextDrivers[key] = {
         // ✅ NEW: حضور - تحديث حالته اذا عنده موقع
         renderDriverAttendanceBox();
         renderManagerAttendanceList();
-      renderManagerDriverOutSheet();
-      renderManagerDriverOutSheet();
 
       } catch (e) {
         console.error("Traccar fetch error:", e);
@@ -996,14 +961,6 @@ nextDrivers[key] = {
     const managerUncollectedSumEl = document.getElementById("manager-uncollected-sum");
     const managerCollectedSumEl   = document.getElementById("manager-collected-sum");
     const managerSumLabel = document.getElementById("manager-sum-label");
-
-    // ✅ NEW: Driver output sheet UI (right side)
-    const sheetDateEl = document.getElementById("sheet-date");
-    const sheetDriverEl = document.getElementById("sheet-driver");
-    const sheetBodyEl = document.getElementById("sheet-body");
-    const sheetUncollectedEl = document.getElementById("sheet-uncollected-sum");
-    const printSheetBtn = document.getElementById("print-sheet-btn");
-
 
     const managerDriverBreakdownList = document.getElementById("manager-driver-breakdown");
 
@@ -3379,130 +3336,7 @@ function subscribeEmployees(){
         item.appendChild(right);
         managerOrdersList.appendChild(item);
       });
-
-      // ✅ تحديث جدول التخريجات على اليمين
-      renderManagerDriverOutSheet();
     }
-
-    // =========================
-    // ✅ NEW: Right-side sheet (جمع تخريجات المندوب)
-    // =========================
-    function managerStatusForSheet(o){
-      if (!o) return "—";
-      if (o.status === "returned") return "راجع";
-      if (o.status === "delivered") return (o.cashCollected === true) ? "تم استلامها" : "غير مستلمة";
-      if (o.status === "nearby") return "قريب";
-      if (o.status === "registered") return "مسجلة";
-      return statusLabel(o.status || "");
-    }
-
-    function renderManagerDriverOutSheet(){
-      if (!sheetBodyEl || !sheetDateEl || !sheetDriverEl || !sheetUncollectedEl) return;
-
-      const workDate = ordersWorkDate || getActiveWorkDate();
-      sheetDateEl.textContent = workDate || "—";
-
-      const filterDriver = getManagerSelectedDriverId();
-      const drvName = filterDriver ? (driversMetaCache[filterDriver] && driversMetaCache[filterDriver].name ? driversMetaCache[filterDriver].name : filterDriver) : "—";
-      sheetDriverEl.textContent = drvName;
-
-      sheetBodyEl.innerHTML = "";
-
-      if (!filterDriver){
-        const tr = document.createElement("tr");
-        const td = document.createElement("td");
-        td.colSpan = 5;
-        td.style.padding = "14px";
-        td.textContent = "اختر اسم المندوب من الفلتر حتى يظهر جدول التخريجات.";
-        tr.appendChild(td);
-        sheetBodyEl.appendChild(tr);
-        sheetUncollectedEl.textContent = "0 د.ع";
-        return;
-      }
-
-      const list = Object.entries(ordersCache || {})
-        .map(([id,o])=>({ id, ...(o||{}) }))
-        .filter(x => x.assignedDriverId === filterDriver)
-        .sort((a,b)=>{
-          const ta = tsToMs(a.deliveredAt || a.returnedAt || a.nearbyAt || a.createdAt || 0);
-          const tb = tsToMs(b.deliveredAt || b.returnedAt || b.nearbyAt || b.createdAt || 0);
-          return tb - ta;
-        });
-
-      let uncollectedSum = 0;
-
-      if (!list.length){
-        const tr = document.createElement("tr");
-        const td = document.createElement("td");
-        td.colSpan = 5;
-        td.style.padding = "14px";
-        td.textContent = "لا يوجد بيانات.";
-        tr.appendChild(td);
-        sheetBodyEl.appendChild(tr);
-        sheetUncollectedEl.textContent = "0 د.ع";
-        return;
-      }
-
-      list.forEach(o=>{
-        const statusTxt = managerStatusForSheet(o);
-
-        const invoice = (o.adminInvoiceAmount != null && o.adminInvoiceAmount !== "")
-          ? formatIQD(Number(o.adminInvoiceAmount))
-          : "—";
-
-        const delivered = (o.status === "delivered")
-          ? formatIQD(Number(o.deliveredCash || 0))
-          : "—";
-
-        if (o.status === "delivered" && o.cashCollected === false){
-          const v = Number(o.deliveredCash || 0);
-          if (Number.isFinite(v)) uncollectedSum += v;
-        }
-
-        let details = "";
-        if (o.status === "returned") details = o.returnReason ? String(o.returnReason) : "-";
-        else if (o.status === "delivered"){
-          details = (o.cashCollected === true)
-            ? ("تم الاستلام: " + (o.cashCollectedAt ? formatTime(o.cashCollectedAt) : ""))
-            : ("غير مستلمة للأدمن");
-        } else if (o.status === "nearby"){
-          details = "قريب من موقع الزبون";
-        } else if (o.status === "registered"){
-          details = "مسجل";
-        } else {
-          details = "";
-        }
-
-        const tr = document.createElement("tr");
-
-        const tdClient = document.createElement("td");
-        tdClient.textContent = o.clientName || "زبون";
-
-        const tdInv = document.createElement("td");
-        tdInv.textContent = invoice;
-
-        const tdDel = document.createElement("td");
-        tdDel.textContent = delivered;
-
-        const tdSt = document.createElement("td");
-        tdSt.textContent = statusTxt;
-
-        const tdDet = document.createElement("td");
-        tdDet.className = "td-details";
-        tdDet.textContent = details || "—";
-
-        tr.appendChild(tdClient);
-        tr.appendChild(tdInv);
-        tr.appendChild(tdDel);
-        tr.appendChild(tdSt);
-        tr.appendChild(tdDet);
-        sheetBodyEl.appendChild(tr);
-      });
-
-      sheetUncollectedEl.textContent = formatIQD(uncollectedSum);
-    }
-
-
     // =========================
     // ✅ NEW: Breakdown per driver (collection + invoices)
     // =========================
@@ -3618,7 +3452,6 @@ function subscribeEmployees(){
           if (managerDriverFilterInline) managerDriverFilterInline.value = String(r.driverId);
           if (managerDriverFilter) managerDriverFilter.value = String(r.driverId);
           renderManagerOrdersList();
-       renderManagerDriverOutSheet();
           renderManagerDriverBreakdown();
           renderManagerReturnedAll();
           renderManagerAttendanceList();
@@ -4900,13 +4733,7 @@ logoutDriverBtn.onclick = () => {
       });
     }
 
-    
-    // ✅ NEW: Print sheet button
-    if (printSheetBtn) printSheetBtn.addEventListener("click", ()=>{
-      try{ window.print(); }catch(_){}
-    });
-
-// ✅ Attendance buttons
+    // ✅ Attendance buttons
     if (btnCheckIn) btnCheckIn.addEventListener("click", doCheckIn);
     if (btnCheckOut) btnCheckOut.addEventListener("click", ()=>doCheckOut(true));
 
