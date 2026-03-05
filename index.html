@@ -133,12 +133,12 @@
       color:#111827;
       font-weight:800;
     }
-    .table-wrap{overflow:auto}
+    .table-wrap{overflow-x:visible;overflow-y:visible}
     table.report-table{
       width:100%;
+      table-layout:fixed;
       border-collapse:collapse;
-      min-width:720px;
-      background:#fff;
+background:#fff;
       color:#111827;
     }
     .report-table th,
@@ -148,7 +148,11 @@
       vertical-align:top;
       text-align:center;
       font-weight:800;
+    
+      white-space:normal;
+      word-break:break-word;
     }
+
     .report-table th{
       background:#ffffff;
       color:#111827;
@@ -177,7 +181,7 @@
       text-align:center;
     }
     @media (max-width: 900px){
-      table.report-table{min-width:640px}
+      table.report-table{width:100%;table-layout:fixed}
       .report-table th{font-size:18px}
       .report-table td{font-size:15px}
     }
