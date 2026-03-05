@@ -3237,7 +3237,8 @@ function subscribeEmployees(){
         const right = document.createElement("div");
 
         const title = document.createElement("strong");
-        title.textContent = x.clientName || "زبون";
+        const _cName = (x.clientName) || ((x.clientId && clientsCache && clientsCache[x.clientId] && clientsCache[x.clientId].name) ? clientsCache[x.clientId].name : "") || "زبون";
+        title.textContent = _cName;
 
         const meta = document.createElement("div");
         meta.className = "small";
