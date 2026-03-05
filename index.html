@@ -3558,130 +3558,24 @@ function subscribeEmployees(){
       }
 
       // --------------------------------------------------
-      // ✅ (B) ماكو فلتر → جدول ملخص كل المندوبين
+      // ✅ (B) ماكو فلتر → لازم تختار مندوب
       // --------------------------------------------------
-      if (headName) headName.textContent = "كل المندوبين";
+      if (headName) headName.textContent = "—";
       if (footerEl) footerEl.textContent = "";
 
+      // نفس أعمدة الجدول التفصيلي
       theadEl.innerHTML = `
         <tr>
-          <th>اسم المندوب</th>
-          <th>فواتير مخرجة</th>
-          <th>تم التسليم</th>
-          <th>غير مستلم</th>
-          <th>مستلم</th>
-          <th>إجراء</th>
+          <th>اسم الزبون</th>
+          <th>مبلغ الفاتورة</th>
+          <th>المبلغ المستلم</th>
+          <th>التفاصيل</th>
         </tr>
       `;
 
-      // Build list of drivers to show: from driversMetaCache + from orders
-      const driverIds = new Set(Object.keys(driversMetaCache || {}));
-      Object.values(ordersCache || {}).forEach(o=>{
-        if (o && o.assignedDriverId) driverIds.add(String(o.assignedDriverId));
-      });
-
-      const rows = [];
-      driverIds.forEach(driverId=>{
-        const name = driverNameById(driverId) || (driversMetaCache && driversMetaCache[driverId] && driversMetaCache[driverId].name) || String(driverId);
-
-        let collectedSum = 0, uncollectedSum = 0;
-        let deliveredCount = 0, collectedCount = 0, uncollectedCount = 0;
-
-        let invoicesCount = 0;
-        let invoicesSuggestedSum = 0;
-
-        Object.values(ordersCache || {}).forEach(o=>{
-          if (!o) return;
-          if (String(o.assignedDriverId || "") !== String(driverId)) return;
-
-          const st = o.status || "registered";
-
-          if (st === "delivered"){
-            deliveredCount++;
-            const v = Number(o.deliveredCash);
-            if (Number.isFinite(v)){
-              if (o.cashCollected === true){
-                collectedSum += v; collectedCount++;
-              } else {
-                uncollectedSum += v; uncollectedCount++;
-              }
-            } else {
-              if (o.cashCollected === true) collectedCount++;
-              else uncollectedCount++;
-            }
-          }
-
-          if (st === "registered" || st === "nearby"){
-            invoicesCount++;
-            if (o.adminInvoiceAmount != null){
-              const a = Number(o.adminInvoiceAmount);
-              if (Number.isFinite(a)) invoicesSuggestedSum += a;
-            }
-          }
-        });
-
-        const activity = deliveredCount + invoicesCount;
-        if (activity <= 0) return;
-
-        rows.push({
-          driverId,
-          name,
-          deliveredCount,
-          collectedCount,
-          uncollectedCount,
-          collectedSum,
-          uncollectedSum,
-          invoicesCount,
-          invoicesSuggestedSum
-        });
-      });
-
-      rows.sort((a,b)=>{
-        const aa = (a.deliveredCount + a.invoicesCount);
-        const bb = (b.deliveredCount + b.invoicesCount);
-        if (bb !== aa) return bb - aa;
-        return String(a.name).localeCompare(String(b.name), "ar");
-      });
-
-      tbodyEl.innerHTML = "";
-      if (!rows.length){
-        tbodyEl.innerHTML = `<tr><td colspan="6">لا يوجد بيانات.</td></tr>`;
-        return;
-      }
-
-      rows.forEach(r=>{
-        const tr = document.createElement("tr");
-
-        const unTxt = `${r.uncollectedCount} (${formatIQD(r.uncollectedSum)})`;
-        const coTxt = `${r.collectedCount} (${formatIQD(r.collectedSum)})`;
-        const invTxt = r.invoicesSuggestedSum ? `${r.invoicesCount} (${formatIQD(r.invoicesSuggestedSum)})` : String(r.invoicesCount);
-
-        tr.innerHTML = `
-          <td>${escapeHtml(r.name)}</td>
-          <td>${escapeHtml(invTxt)}</td>
-          <td>${escapeHtml(String(r.deliveredCount))}</td>
-          <td>${escapeHtml(unTxt)}</td>
-          <td>${escapeHtml(coTxt)}</td>
-          <td class="btn-cell"></td>
-        `;
-
-        const tdBtn = tr.querySelector(".btn-cell");
-        const btn = document.createElement("button");
-        btn.className = "secondary";
-        btn.textContent = "عرض";
-        btn.onclick = ()=>{
-          if (managerDriverFilterInline) managerDriverFilterInline.value = String(r.driverId);
-          if (managerDriverFilter) managerDriverFilter.value = String(r.driverId);
-          renderManagerOrdersList();
-          renderManagerDriverBreakdown();
-          renderManagerReturnedAll();
-          renderManagerAttendanceList();
-        };
-        tdBtn.appendChild(btn);
-
-        tbodyEl.appendChild(tr);
-      });
-    }
+      tbodyEl.innerHTML = `<tr><td colspan="4">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
+      return;
+}
 
 
 
