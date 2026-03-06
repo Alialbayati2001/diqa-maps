@@ -420,6 +420,7 @@ background:#fff;
           <div class="hint">✅ يعزل المبالغ والطلبات لكل مندوب. تقدر تختار مندوب من الفلتر حتى يظهر وحده.</div>
           <div class="inline-actions" id="driver-report-actions">
             <button id="print-driver-report-btn" class="secondary">🖨️ طباعة هذا المندوب A4</button>
+            <button id="direct-print-driver-report-btn" class="secondary">🖨️ طباعة مباشرة للطابعة الافتراضية</button>
             <button id="download-driver-report-image-btn" class="secondary">🖼️ تحميل صورة الملخص</button>
             <button id="print-all-drivers-reports-btn">🖨️ طباعة جميع المندوبين A4</button>
           </div>
@@ -1077,6 +1078,7 @@ nextDrivers[key] = {
 
     const managerDriverBreakdownList = document.getElementById("manager-driver-breakdown");
     const printDriverReportBtn = document.getElementById("print-driver-report-btn");
+    const directPrintDriverReportBtn = document.getElementById("direct-print-driver-report-btn");
     const downloadDriverReportImageBtn = document.getElementById("download-driver-report-image-btn");
     const printAllDriversReportsBtn = document.getElementById("print-all-drivers-reports-btn");
 
@@ -3768,7 +3770,7 @@ function subscribeEmployees(){
             <th>مبلغ الفاتورة</th>
             <th>المبلغ المستلم</th>
             <th>التفاصيل</th>
-            <th>مستلم البيانات</th>
+            <th>مدخل البيانات</th>
           </tr>
         `;
 
@@ -3869,7 +3871,7 @@ function subscribeEmployees(){
           <th>مبلغ الفاتورة</th>
           <th>المبلغ المستلم</th>
           <th>التفاصيل</th>
-          <th>مستلم البيانات</th>
+          <th>مدخل البيانات</th>
         </tr>
       `;
 
@@ -4064,6 +4066,61 @@ function subscribeEmployees(){
       openDriverReportsPrintWindow([buildDriverReportHtml(driverId)], 'طباعة ملخص المندوب');
     }
 
+    function directPrintDriverReport(){
+      const driverId = getManagerSelectedDriverId();
+      if (!driverId){
+        alert('اختر مندوب من الفلتر أولاً حتى يطبع ملخصه فقط.');
+        return;
+      }
+
+      const reportHtml = buildDriverReportHtml(driverId);
+      const w = window.open('', '_blank', 'width=1100,height=900');
+      if (!w){
+        alert('المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة وجرب مرة ثانية.');
+        return;
+      }
+
+      w.document.open();
+      w.document.write(`
+        <!DOCTYPE html>
+        <html lang="ar" dir="rtl">
+        <head>
+          <meta charset="UTF-8">
+          <title>${escapeHtml('طباعة مباشرة - ملخص المندوب')}</title>
+          <style>
+            *{box-sizing:border-box}
+            body{font-family:Arial,"Tahoma",sans-serif;background:#ffffff;color:#111827;margin:0;padding:0;direction:rtl}
+            .print-wrap{padding:10mm}
+            .driver-report{background:#ffffff;color:#111827;border:2px solid #0b1120;border-radius:12px;padding:10px;overflow:hidden;page-break-inside:avoid}
+            .driver-report-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid #111827}
+            .driver-report-head .driver-report-name,.driver-report-head .driver-report-date{font-weight:900;color:#dc2626}
+            .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;color:#111827;font-weight:800}
+            .table-wrap{overflow:visible}
+            table.report-table{width:100%;table-layout:fixed;border-collapse:collapse;background:#fff;color:#111827}
+            .report-table th,.report-table td{border:2px solid #111827;padding:10px 8px;vertical-align:top;text-align:center;font-weight:800;white-space:normal;word-break:break-word}
+            .report-table th{background:#ffffff;color:#111827;font-size:18px;line-height:1.2}
+            .report-table td{font-weight:700;font-size:14px}
+            .report-table td .small{font-weight:700;font-size:11px;color:#374151;margin-top:4px}
+            .driver-report-foot{margin-top:10px;padding-top:8px;border-top:2px solid #111827;font-weight:900;color:#dc2626;text-align:center}
+            @page{size:A4 portrait;margin:10mm}
+          </style>
+        </head>
+        <body>
+          <div class="print-wrap">${reportHtml}</div>
+          <script>
+            window.onload=function(){
+              setTimeout(function(){
+                window.print();
+                setTimeout(function(){ window.close(); }, 250);
+              },150);
+            };
+          <\/script>
+        </body>
+        </html>
+      `);
+      w.document.close();
+    }
+
     async function downloadDriverReportImage(){
       const driverId = getManagerSelectedDriverId();
       if (!driverId){
@@ -4120,6 +4177,7 @@ function subscribeEmployees(){
     }
 
     if (printDriverReportBtn) printDriverReportBtn.addEventListener('click', printDriverReport);
+    if (directPrintDriverReportBtn) directPrintDriverReportBtn.addEventListener('click', directPrintDriverReport);
     if (downloadDriverReportImageBtn) downloadDriverReportImageBtn.addEventListener('click', downloadDriverReportImage);
     if (printAllDriversReportsBtn) printAllDriversReportsBtn.addEventListener('click', printAllDriversReports);
 
