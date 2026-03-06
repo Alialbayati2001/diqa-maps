@@ -301,6 +301,7 @@ background:#fff;
           <button id="add-driver-btn">إضافة مندوب</button>
           <p class="small" id="driver-add-msg"></p>
           <div class="list" id="drivers-list"></div>
+<div id="employees-management-section">
 <hr style="border-color:#111827;margin:10px 0;" />
 
 <h3>إدارة الموظفين</h3>
@@ -313,6 +314,7 @@ background:#fff;
 <button id="add-employee-btn">إضافة موظف</button>
 <p class="small" id="employee-add-msg"></p>
 <div class="list" id="employees-list"></div>
+</div>
 
           <hr style="border-color:#111827;margin:10px 0;" />
 
@@ -458,6 +460,7 @@ background:#fff;
             </div>
             <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
           </div>
+<div id="manager-employees-attendance-section">
 <hr style="border-color:#111827;margin:10px 0;" />
 <h3>حضور الموظفين (دوام الشركة)</h3>
 <div class="hint">
@@ -470,6 +473,7 @@ background:#fff;
     <span class="badge">خروج تلقائي: <b>11:30 PM</b></span>
   </div>
   <div style="margin-top:8px" class="list" id="manager-emp-attendance-list"></div>
+</div>
 </div>
 
           <!-- ========================= -->
@@ -983,8 +987,10 @@ nextDrivers[key] = {
     const newEmployeePinInput = document.getElementById("new-employee-pin");
     const addEmployeeBtn = document.getElementById("add-employee-btn");
     const employeeAddMsg = document.getElementById("employee-add-msg");
+    const employeesManagementSection = document.getElementById("employees-management-section");
 
     const managerEmpAttendanceList = document.getElementById("manager-emp-attendance-list");
+    const managerEmployeesAttendanceSection = document.getElementById("manager-employees-attendance-section");
 
 
     const clientNameInput = document.getElementById("client-name");
@@ -1030,6 +1036,7 @@ nextDrivers[key] = {
 
     let currentDriverId = null;
     let currentEmployeeId = null;
+    let currentSessionRole = null; // manager | limited_manager | driver | employee
     let watchId = null;
 
     let driversMetaCache = {};
@@ -1141,6 +1148,35 @@ nextDrivers[key] = {
 
     function slugify(name) {
       return name.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_أ-ي]/g, "");
+    }
+
+    function isSpecialLimitedManagerEmployeeById(employeeId) {
+      if (!employeeId) return false;
+      const meta = (employeesMetaCache && employeesMetaCache[employeeId]) ? employeesMetaCache[employeeId] : null;
+      const name = meta && meta.name ? String(meta.name).trim() : "";
+      const slug = slugify(name || employeeId);
+      return slug === "محمد_نجم";
+    }
+
+    function isLimitedManagerSession() {
+      return currentSessionRole === "limited_manager" && isSpecialLimitedManagerEmployeeById(currentEmployeeId);
+    }
+
+    function canManageEmployeesSection() {
+      return currentSessionRole === "manager";
+    }
+
+    function canSeeEmployeesAttendanceSection() {
+      return currentSessionRole === "manager";
+    }
+
+    function applyManagerLikePermissions() {
+      if (employeesManagementSection) {
+        employeesManagementSection.classList.toggle("hidden", !canManageEmployeesSection());
+      }
+      if (managerEmployeesAttendanceSection) {
+        managerEmployeesAttendanceSection.classList.toggle("hidden", !canSeeEmployeesAttendanceSection());
+      }
     }
 
     // ✅ تعديل العرض إلى 12 ساعة (1:00 م) بدون تغيير الداتا المخزونة
@@ -4426,6 +4462,7 @@ function renderEmployeesList(){
 }
 
 function changeEmployeeName(id){
+  if (!canManageEmployeesSection()) { alert("ليس لديك صلاحية لتعديل الموظفين."); return; }
   const oldName = employeeNameById(id) || id;
   const newName = prompt("اكتب الاسم الجديد للموظف:", oldName);
   if (!newName) return;
@@ -4436,6 +4473,7 @@ function changeEmployeeName(id){
 }
 
 function changeEmployeePin(id){
+  if (!canManageEmployeesSection()) { alert("ليس لديك صلاحية لتعديل الموظفين."); return; }
   const newPin = prompt("اكتب PIN الجديد (4 أرقام):", "");
   if (newPin == null) return;
   const clean = String(newPin).trim();
@@ -4445,6 +4483,7 @@ function changeEmployeePin(id){
 }
 
 function deleteEmployee(id){
+  if (!canManageEmployeesSection()) { alert("ليس لديك صلاحية لحذف الموظفين."); return; }
   if (!confirm("تأكيد حذف الموظف؟")) return;
   db.ref(`employeesMeta/${id}`).remove();
 }
@@ -4809,6 +4848,7 @@ function updateClientMarkers() {
     }
 
 function addEmployee(){
+  if (!canManageEmployeesSection()) { alert("ليس لديك صلاحية لإضافة الموظفين."); return; }
   const name = (newEmployeeNameInput && newEmployeeNameInput.value ? newEmployeeNameInput.value : "").trim();
   const pin  = String(newEmployeePinInput && newEmployeePinInput.value ? newEmployeePinInput.value : "").trim();
 
@@ -4955,6 +4995,8 @@ function addEmployee(){
     }
 
     managerLoginBtn.onclick = () => {
+      currentSessionRole = "manager";
+      currentEmployeeId = null;
       if (managerPasswordInput.value !== MANAGER_PASSWORD) {
         managerLoginError.textContent = "كلمة المرور غير صحيحة.";
         return;
@@ -4964,6 +5006,7 @@ function addEmployee(){
       hide(driverCard);
       hide(employeeCard);
       show(managerCard);
+      applyManagerLikePermissions();
       initMap();
       subscribeDrivers();
       subscribeClients();
@@ -4973,7 +5016,11 @@ function addEmployee(){
 
       // ✅ Attendance subscribe for manager
       subscribeAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
-      subscribeEmpAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+      if (canSeeEmployeesAttendanceSection()) {
+        subscribeEmpAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+      } else {
+        unsubscribeEmpAttendance(true);
+      }
 
       if (USE_TRACCAR) {
         appStatus.textContent = "";
@@ -4982,6 +5029,8 @@ function addEmployee(){
     };
 
     logoutManagerBtn.onclick = () => {
+      currentSessionRole = null;
+      currentEmployeeId = null;
       stopTraccarPolling();
       unsubscribeOrders();
       unsubscribeAttendance();
@@ -5008,6 +5057,8 @@ function addEmployee(){
       if (!dbPin) { driverLoginError.textContent = "هذا المندوب ما عنده PIN."; return; }
       if (pin !== dbPin) { driverLoginError.textContent = "PIN غير صحيح."; return; }
 
+      currentSessionRole = "driver";
+      currentEmployeeId = null;
       currentDriverId = selectedId;
       currentDriverNameLabel.textContent = meta && meta.name ? meta.name : selectedId;
 
@@ -5064,13 +5115,38 @@ employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
 
   employeeLoginError.textContent = "";
   currentEmployeeId = selectedId;
+  currentDriverId = null;
+
+  const isLimitedManager = isSpecialLimitedManagerEmployeeById(selectedId);
 
   hide(loginCard);
   hide(managerCard);
   hide(driverCard);
-  show(employeeCard);
+  hide(employeeCard);
 
   currentEmployeeNameLabel.textContent = meta.name || selectedId;
+
+  if (isLimitedManager) {
+    currentSessionRole = "limited_manager";
+    show(managerCard);
+    applyManagerLikePermissions();
+    initMap();
+    subscribeDrivers();
+    subscribeClients();
+    subscribeEmployees();
+    subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
+    subscribeAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+    unsubscribeEmpAttendance(true);
+
+    if (USE_TRACCAR) {
+      appStatus.textContent = "";
+      managerAlert.textContent = "ℹ️ تم الدخول بصلاحية محمد نجم الخاصة.";
+    }
+    return;
+  }
+
+  currentSessionRole = "employee";
+  show(employeeCard);
 
   // Subscribe attendance (today)
   subscribeEmpAttendanceFor(getWorkDateByKey("today"));
@@ -5087,6 +5163,7 @@ employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
 });
 
 logoutEmployeeBtn && (logoutEmployeeBtn.onclick = () => {
+  currentSessionRole = null;
   currentEmployeeId = null;
   employeeSelect.value = "";
   employeePinInput.value = "";
@@ -5097,6 +5174,7 @@ logoutEmployeeBtn && (logoutEmployeeBtn.onclick = () => {
 });
 
 logoutDriverBtn.onclick = () => {
+      currentSessionRole = null;
       stopTrackingOnLogout();
       currentDriverId = null;
       driverSelfLatLng = null;
@@ -5155,7 +5233,11 @@ logoutDriverBtn.onclick = () => {
     managerDaySelect.addEventListener("change", ()=>{
       subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
       subscribeAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
-      subscribeEmpAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+      if (canSeeEmployeesAttendanceSection()) {
+        subscribeEmpAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+      } else {
+        unsubscribeEmpAttendance(true);
+      }
     });
     driverDaySelect.addEventListener("change", ()=>{
       subscribeOrdersFor(getWorkDateByKey(driverDaySelect.value || "today"));
