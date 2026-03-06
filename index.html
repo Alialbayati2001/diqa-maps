@@ -1179,6 +1179,110 @@ nextDrivers[key] = {
       }
     }
 
+
+    function getCurrentActorInfo(){
+      if (currentSessionRole === "manager") {
+        return {
+          actorId: "manager",
+          actorName: "الأدمن",
+          actorRole: "manager",
+          actorRoleLabel: "الأدمن",
+          actorPage: "صفحة الأدمن"
+        };
+      }
+
+      if (currentSessionRole === "limited_manager") {
+        const meta = (currentEmployeeId && employeesMetaCache[currentEmployeeId]) ? employeesMetaCache[currentEmployeeId] : null;
+        const name = (meta && meta.name) ? meta.name : "محمد نجم";
+        return {
+          actorId: currentEmployeeId || "limited_manager",
+          actorName: name,
+          actorRole: "limited_manager",
+          actorRoleLabel: "صلاحية خاصة",
+          actorPage: `صفحة ${name}`
+        };
+      }
+
+      if (currentSessionRole === "driver") {
+        const name = currentDriverNameLabel && currentDriverNameLabel.textContent
+          ? currentDriverNameLabel.textContent
+          : (driverNameById(currentDriverId) || "المندوب");
+        return {
+          actorId: currentDriverId || "driver",
+          actorName: name,
+          actorRole: "driver",
+          actorRoleLabel: "مندوب",
+          actorPage: "صفحة المندوب"
+        };
+      }
+
+      if (currentSessionRole === "employee") {
+        const meta = (currentEmployeeId && employeesMetaCache[currentEmployeeId]) ? employeesMetaCache[currentEmployeeId] : null;
+        const name = (meta && meta.name) ? meta.name : (currentEmployeeNameLabel && currentEmployeeNameLabel.textContent ? currentEmployeeNameLabel.textContent : "الموظف");
+        return {
+          actorId: currentEmployeeId || "employee",
+          actorName: name,
+          actorRole: "employee",
+          actorRoleLabel: "موظف",
+          actorPage: "صفحة الموظف"
+        };
+      }
+
+      return {
+        actorId: "system",
+        actorName: "غير معروف",
+        actorRole: "system",
+        actorRoleLabel: "غير معروف",
+        actorPage: "غير معروف"
+      };
+    }
+
+    function buildAuditFields(prefix){
+      const p = String(prefix || "actor");
+      const actor = getCurrentActorInfo();
+      const out = {};
+      out[`${p}Id`] = actor.actorId;
+      out[`${p}Name`] = actor.actorName;
+      out[`${p}Role`] = actor.actorRole;
+      out[`${p}RoleLabel`] = actor.actorRoleLabel;
+      out[`${p}Page`] = actor.actorPage;
+      return out;
+    }
+
+    function describeOrderDataActor(order){
+      const o = order || {};
+
+      const formatActorLine = (label, name, page, roleLabel) => {
+        const actorName = String(name || "").trim();
+        const actorPage = String(page || "").trim();
+        const actorRole = String(roleLabel || "").trim();
+        if (!actorName && !actorPage && !actorRole) return "";
+        let line = `${label}: ${escapeHtml(actorName || "غير معروف")}`;
+        const parts = [];
+        if (actorPage) parts.push(actorPage);
+        if (actorRole) parts.push(actorRole);
+        if (parts.length) line += ` <div class="small">${escapeHtml(parts.join(" | "))}</div>`;
+        return line;
+      };
+
+      const parts = [];
+
+      const createdLine = formatActorLine("إدخال الطلب", o.createdByName, o.createdByPage, o.createdByRoleLabel);
+      if (createdLine) parts.push(createdLine);
+
+      if (o.cashCollected === true) {
+        const collectLine = formatActorLine("استلام المبلغ", o.cashCollectedByName || o.lastEditedByName, o.cashCollectedFromPage || o.lastEditedFromPage, o.cashCollectedByRoleLabel || o.lastEditedByRoleLabel);
+        if (collectLine) parts.push(collectLine);
+      }
+
+      const editLine = formatActorLine("آخر تعديل", o.lastEditedByName, o.lastEditedFromPage, o.lastEditedByRoleLabel);
+      if (editLine && (!o.cashCollected || (o.lastEditedByName !== o.cashCollectedByName || o.lastEditedFromPage !== o.cashCollectedFromPage))) {
+        parts.push(editLine);
+      }
+
+      return parts.length ? parts.join('<hr style="border:none;border-top:1px solid #d1d5db;margin:6px 0;">') : "—";
+    }
+
     // ✅ تعديل العرض إلى 12 ساعة (1:00 م) بدون تغيير الداتا المخزونة
     // ✅ تعديل العرض إلى 12 ساعة (1:00 م) بدون تغيير الداتا المخزونة
     function formatTime(ts) {
@@ -3078,7 +3182,9 @@ function subscribeEmployees(){
         returnReason: (reason || "").trim() || null,
         returnedAt: SERVER_TS,
         cashCollected: false,
-        createdAt: SERVER_TS
+        createdAt: SERVER_TS,
+        ...buildAuditFields("createdBy"),
+        ...buildAuditFields("lastEditedBy")
       };
 
       try {
@@ -3122,7 +3228,13 @@ function subscribeEmployees(){
           status: "delivered",
           deliveredCash: amount,
           deliveredAt: SERVER_TS,
-          cashCollected: false
+          cashCollected: false,
+          cashCollectedById: null,
+          cashCollectedByName: null,
+          cashCollectedByRole: null,
+          cashCollectedByRoleLabel: null,
+          cashCollectedFromPage: null,
+          ...buildAuditFields("lastEditedBy")
         });
 
         // ✅ بعد التسليم: إذا عنده راجع سابق يسجله
@@ -3137,6 +3249,12 @@ function subscribeEmployees(){
           returnedAt: SERVER_TS,
           returnReason: (reason || "").trim() || null,
           cashCollected: false,
+          cashCollectedById: null,
+          cashCollectedByName: null,
+          cashCollectedByRole: null,
+          cashCollectedByRoleLabel: null,
+          cashCollectedFromPage: null,
+          ...buildAuditFields("lastEditedBy"),
           // ✅ (4) خزن اسم المندوب داخل الطلب أيضاً
           assignedDriverName: currentDriverNameLabel.textContent || driverNameById(currentDriverId)
         });
@@ -3154,7 +3272,9 @@ function subscribeEmployees(){
       if (!confirm("تأكيد: تم استلام المبلغ لهذا الطلب؟")) return;
       await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
         cashCollected: true,
-        cashCollectedAt: SERVER_TS
+        cashCollectedAt: SERVER_TS,
+        ...buildAuditFields("cashCollectedBy"),
+        ...buildAuditFields("lastEditedBy")
       });
     }
 
@@ -3210,7 +3330,8 @@ function subscribeEmployees(){
       const patch = {
         clientName: newClientName.trim(),
         lat,
-        lng
+        lng,
+        ...buildAuditFields("lastEditedBy")
       };
 
       const newDriverIdTrim = String(newDriverId || "").trim();
@@ -3282,6 +3403,15 @@ function subscribeEmployees(){
         const isCollected = ["1","yes","y","true","نعم","تم","مستلم"].includes(collectedVal);
         patch.cashCollected = isCollected;
         patch.cashCollectedAt = isCollected ? SERVER_TS : null;
+        if (isCollected) {
+          Object.assign(patch, buildAuditFields("cashCollectedBy"));
+        } else {
+          patch.cashCollectedById = null;
+          patch.cashCollectedByName = null;
+          patch.cashCollectedByRole = null;
+          patch.cashCollectedByRoleLabel = null;
+          patch.cashCollectedFromPage = null;
+        }
 
         patch.returnReason = null;
         patch.returnedAt = null;
@@ -3293,12 +3423,22 @@ function subscribeEmployees(){
         if (!o.returnedAt || currentStatus !== "returned") patch.returnedAt = SERVER_TS;
         patch.cashCollected = false;
         patch.cashCollectedAt = null;
+        patch.cashCollectedById = null;
+        patch.cashCollectedByName = null;
+        patch.cashCollectedByRole = null;
+        patch.cashCollectedByRoleLabel = null;
+        patch.cashCollectedFromPage = null;
         patch.deliveredCash = null;
         patch.deliveredAt = null;
       } else {
         // Registered / Nearby
         patch.cashCollected = false;
         patch.cashCollectedAt = null;
+        patch.cashCollectedById = null;
+        patch.cashCollectedByName = null;
+        patch.cashCollectedByRole = null;
+        patch.cashCollectedByRoleLabel = null;
+        patch.cashCollectedFromPage = null;
         patch.deliveredCash = null;
         patch.deliveredAt = null;
         patch.returnReason = null;
@@ -3355,7 +3495,9 @@ function subscribeEmployees(){
         status: "registered",
         cashCollected: false,
         priority: nextP,           // ✅ NEW
-        createdAt: SERVER_TS
+        createdAt: SERVER_TS,
+        ...buildAuditFields("createdBy"),
+        ...buildAuditFields("lastEditedBy")
       };
 
       try {
@@ -3626,6 +3768,7 @@ function subscribeEmployees(){
             <th>مبلغ الفاتورة</th>
             <th>المبلغ المستلم</th>
             <th>التفاصيل</th>
+            <th>مدخل البيانات</th>
           </tr>
         `;
 
@@ -3641,7 +3784,7 @@ function subscribeEmployees(){
         tbodyEl.innerHTML = "";
 
         if (!list.length){
-          tbodyEl.innerHTML = `<tr><td colspan="4">لا يوجد بيانات.</td></tr>`;
+          tbodyEl.innerHTML = `<tr><td colspan="5">لا يوجد بيانات.</td></tr>`;
           if (footerEl) footerEl.textContent = "";
           return;
         }
@@ -3694,12 +3837,14 @@ function subscribeEmployees(){
               ` <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
           }
 
+          const actorHtml = describeOrderDataActor(o);
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td>${escapeHtml(clientName)}</td>
             <td>${escapeHtml(invoiceTxt)}</td>
             <td>${escapeHtml(gotTxt)}</td>
             <td style="text-align:right">${details}</td>
+            <td style="text-align:right">${actorHtml}</td>
           `;
           tbodyEl.appendChild(tr);
         });
@@ -3724,10 +3869,11 @@ function subscribeEmployees(){
           <th>مبلغ الفاتورة</th>
           <th>المبلغ المستلم</th>
           <th>التفاصيل</th>
+          <th>مدخل البيانات</th>
         </tr>
       `;
 
-      tbodyEl.innerHTML = `<tr><td colspan="4">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
+      tbodyEl.innerHTML = `<tr><td colspan="5">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
       return;
 }
 
@@ -3796,7 +3942,8 @@ function subscribeEmployees(){
           clientName: o.clientName || "—",
           invoiceTxt,
           gotTxt,
-          detailsHtml
+          detailsHtml,
+          actorHtml: describeOrderDataActor(o)
         };
       });
 
@@ -3819,9 +3966,10 @@ function subscribeEmployees(){
               <td>${escapeHtml(r.invoiceTxt)}</td>
               <td>${escapeHtml(r.gotTxt)}</td>
               <td style="text-align:right">${r.detailsHtml}</td>
+              <td style="text-align:right">${r.actorHtml}</td>
             </tr>
           `).join("")
-        : `<tr><td colspan="4">لا يوجد بيانات.</td></tr>`;
+        : `<tr><td colspan="5">لا يوجد بيانات.</td></tr>`;
 
       const footerText = data.rows.length
         ? `مجموع المبالغ غير المستلمة: ${formatIQD(data.sumUncollected)} | مجموع المبالغ المستلمة: ${formatIQD(data.sumCollected)}`
