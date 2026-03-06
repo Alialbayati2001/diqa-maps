@@ -3213,12 +3213,7 @@ function subscribeEmployees(){
       }
 
       const statusInput = prompt(
-        "حالة الطلب:
-1) مسجل
-2) قريب
-3) تم التسليم
-4) راجع
-اكتب الرقم أو اسم الحالة:",
+        "حالة الطلب:\n1) مسجل\n2) قريب\n3) تم التسليم\n4) راجع\nاكتب الرقم أو اسم الحالة:",
         currentStatus
       );
       if (statusInput == null) return;
@@ -3242,8 +3237,7 @@ function subscribeEmployees(){
 
         const collectedDefault = (o.cashCollected === true ? "1" : "0");
         const collectedInput = prompt(
-          "هل استلم الأدمن هذا المبلغ؟
-اكتب 1 = نعم / 0 = لا",
+          "هل استلم الأدمن هذا المبلغ؟\nاكتب 1 = نعم / 0 = لا",
           collectedDefault
         );
         if (collectedInput == null) return;
