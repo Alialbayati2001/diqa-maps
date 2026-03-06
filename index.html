@@ -186,30 +186,6 @@ background:#fff;
       .report-table td{font-size:15px}
     }
 
-    /* ✅ NEW: نقطة اسم الزبون على خريطة المندوب */
-    .order-client-pin-wrap{display:flex;align-items:center;gap:6px;pointer-events:none}
-    .order-client-pin-dot{
-      width:12px;height:12px;border-radius:999px;
-      border:2px solid rgba(255,255,255,.9);
-      box-shadow:0 8px 20px rgba(0,0,0,.45);
-      background:#3b82f6;
-      flex:0 0 12px;
-    }
-    .order-client-pin-label{
-      background:rgba(2,6,23,.92);
-      color:#e5e7eb;
-      border:1px solid rgba(255,255,255,.12);
-      border-radius:999px;
-      padding:4px 8px;
-      font-size:12px;
-      font-weight:800;
-      white-space:nowrap;
-      max-width:220px;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      box-shadow:0 8px 20px rgba(0,0,0,.35);
-    }
-
   </style>
 </head>
 
@@ -561,7 +537,7 @@ background:#fff;
         <br/>
         ✅ NEW: تظهر نقطة موقعك + مسار حركتك (لنفسك فقط).
         <br/>
-        ✅ NEW: الطلبات مرتبة حسب أولوية الأدمن (1/2/3...).
+        ✅ NEW: افتراضياً الترتيب حسب الأقرب، وإذا الأدمن عدّل أولوية طلب معيّن فتصير أولوية الأدمن هي المعتمدة.
       </div>
       <div class="inline-actions" style="margin-top:10px;">
         <button id="driver-build-route-btn" class="secondary">🛣️ إنشاء مسار كل الطلبات</button>
@@ -1122,10 +1098,6 @@ nextDrivers[key] = {
 
 
     const driverMapDiv = document.getElementById("driver-map");
-    const driverBuildRouteBtn = document.getElementById("driver-build-route-btn");
-    const driverOpenAllGoogleBtn = document.getElementById("driver-open-all-google-btn");
-    const driverClearRouteBtn = document.getElementById("driver-clear-route-btn");
-    const driverRouteMsg = document.getElementById("driver-route-msg");
     const driverOrdersList = document.getElementById("driver-orders-list");
     const driverDeliveredList = document.getElementById("driver-delivered-list");
     const driverDeliveredSumEl = document.getElementById("driver-delivered-sum");
@@ -1135,6 +1107,10 @@ nextDrivers[key] = {
     // ✅ زر راجع سابق
     const legacyReturnBtn = document.getElementById("legacy-return-btn");
     const legacyReturnMsg = document.getElementById("legacy-return-msg");
+    const driverBuildRouteBtn = document.getElementById("driver-build-route-btn");
+    const driverOpenAllGoogleBtn = document.getElementById("driver-open-all-google-btn");
+    const driverClearRouteBtn = document.getElementById("driver-clear-route-btn");
+    const driverRouteMsg = document.getElementById("driver-route-msg");
 
     let managerOrdersTab = "uncollected";
     let ordersCache = {};          // { orderId: order }
@@ -1598,124 +1574,175 @@ function openInGoogleMaps(lat, lng) {
       window.open(`https://waze.com/ul?ll=${lat},${lng}&navigate=yes`, "_blank");
     }
 
-    function getDriverActiveOrdersSorted(){
-      if (!currentDriverId) return [];
-      return Object.entries(ordersCache || {})
-        .map(([id,o])=>({id, ...o}))
-        .filter(x => x.assignedDriverId === currentDriverId && x.status !== "delivered" && x.status !== "returned" && typeof x.lat === "number" && typeof x.lng === "number")
-        .sort((a,b)=>{
-          const pa = normalizePriority(a.priority) || 999999;
-          const pb = normalizePriority(b.priority) || 999999;
-          if (pa !== pb) return pa - pb;
-          return tsToMs(a.createdAt||0) - tsToMs(b.createdAt||0);
-        });
+    function hasManualPriority(order){
+      if (!order) return false;
+      if (order.priorityManual === true) return true;
+      if (order.priorityManual === false) return false;
+      return !!order.priorityUpdatedAt;
     }
 
-    function makeDriverOrderNameIcon(order){
-      const color = orderColorByStatus(order);
-      const name = escapeHtml(order && order.clientName ? order.clientName : "زبون");
-      return L.divIcon({
-        className: "",
-        html: `<div class="order-client-pin-wrap"><div class="order-client-pin-dot" style="background:${color}"></div><div class="order-client-pin-label">${name}</div></div>`,
-        iconSize: [170, 28],
-        iconAnchor: [10, 14],
-        popupAnchor: [0, -14]
+    function getDriverActiveOrdersSorted(){
+      if (!currentDriverId) return [];
+      const active = Object.entries(ordersCache || {})
+        .map(([id,o])=>({id, ...(o || {})}))
+        .filter(x =>
+          x.assignedDriverId === currentDriverId &&
+          x.status !== "delivered" &&
+          x.status !== "returned" &&
+          typeof x.lat === "number" &&
+          typeof x.lng === "number"
+        );
+
+      const manual = [];
+      const auto = [];
+      active.forEach(x => (hasManualPriority(x) ? manual : auto).push(x));
+
+      manual.sort((a,b)=>{
+        const pa = normalizePriority(a.priority) || 999999;
+        const pb = normalizePriority(b.priority) || 999999;
+        if (pa !== pb) return pa - pb;
+        const ta = tsToMs(a.priorityUpdatedAt || a.createdAt || 0);
+        const tb = tsToMs(b.priorityUpdatedAt || b.createdAt || 0);
+        return ta - tb;
+      });
+
+      if (driverSelfLatLng && Number.isFinite(driverSelfLatLng.lat) && Number.isFinite(driverSelfLatLng.lng)) {
+        const pool = auto.slice();
+        const ordered = [];
+        let cur = { lat: Number(driverSelfLatLng.lat), lng: Number(driverSelfLatLng.lng) };
+        while (pool.length) {
+          let bestIdx = 0;
+          let bestDist = Infinity;
+          for (let i=0;i<pool.length;i++){
+            const cand = pool[i];
+            const dist = haversineMeters(cur.lat, cur.lng, cand.lat, cand.lng);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestIdx = i;
+            } else if (Math.abs(dist - bestDist) < 1) {
+              const tBest = tsToMs(pool[bestIdx].createdAt || 0);
+              const tCand = tsToMs(cand.createdAt || 0);
+              if (tCand < tBest) bestIdx = i;
+            }
+          }
+          const picked = pool.splice(bestIdx, 1)[0];
+          ordered.push(picked);
+          cur = { lat: picked.lat, lng: picked.lng };
+        }
+        return manual.concat(ordered);
+      }
+
+      auto.sort((a,b)=>tsToMs(a.createdAt||0) - tsToMs(b.createdAt||0));
+      return manual.concat(auto);
+    }
+
+    function clearDriverRouteOnMap(opts){
+      if (driverRouteLine && driverMap) {
+        try { driverMap.removeLayer(driverRouteLine); } catch(_){}
+      }
+      driverRouteLine = null;
+      if (!opts || !opts.keepMsg) {
+        if (driverRouteMsg) driverRouteMsg.textContent = "";
+      }
+    }
+
+    function updateDriverOrderMarkers(){
+      if (!driverMap) return;
+
+      Object.keys(driverOrderMarkers).forEach(orderId => {
+        if (!ordersCache[orderId] || !currentDriverId || ordersCache[orderId].assignedDriverId !== currentDriverId) {
+          try { driverMap.removeLayer(driverOrderMarkers[orderId]); } catch(_){}
+          delete driverOrderMarkers[orderId];
+        }
+      });
+
+      Object.entries(ordersCache || {}).forEach(([orderId, o]) => {
+        if (!o || typeof o.lat !== "number" || typeof o.lng !== "number") return;
+        if (!currentDriverId || o.assignedDriverId !== currentDriverId) return;
+
+        const st = String(o.status || "registered");
+        if (st === "delivered" || st === "returned") {
+          if (driverOrderMarkers[orderId]) {
+            try { driverMap.removeLayer(driverOrderMarkers[orderId]); } catch(_){}
+            delete driverOrderMarkers[orderId];
+          }
+          return;
+        }
+
+        const pr = normalizePriority(o.priority);
+        const manualTxt = hasManualPriority(o) ? "يدوية" : "تلقائية";
+        const popupHtml =
+          `<b>${escapeHtml(o.clientName || "زبون")}</b>` +
+          `<br/>الحالة: <b>${statusLabel(o.status)}</b>` +
+          `<br/>الأولوية: <b>${pr || "-"}</b> (${manualTxt})` +
+          `<br/><button class="secondary" onclick="openOrderInGoogleMaps(${Number(o.lat)}, ${Number(o.lng)})">Google Maps</button>` +
+          ` <button class="secondary" onclick="openOrderInWaze(${Number(o.lat)}, ${Number(o.lng)})">Waze</button>`;
+
+        if (!driverOrderMarkers[orderId]) {
+          const marker = L.marker([o.lat, o.lng], { title: o.clientName || "زبون" });
+          marker.addTo(driverMap);
+          marker.bindPopup(popupHtml);
+          driverOrderMarkers[orderId] = marker;
+        } else {
+          driverOrderMarkers[orderId].setLatLng([o.lat, o.lng]);
+          driverOrderMarkers[orderId].setPopupContent(popupHtml);
+        }
       });
     }
 
-    function buildGoogleMapsMultiStopUrl(points){
-      const pts = Array.isArray(points) ? points.filter(p => p && Number.isFinite(p.lat) && Number.isFinite(p.lng)) : [];
-      if (!pts.length) return "";
-      const origin = driverSelfLatLng && Number.isFinite(driverSelfLatLng.lat) && Number.isFinite(driverSelfLatLng.lng)
-        ? `${driverSelfLatLng.lat},${driverSelfLatLng.lng}`
-        : `${pts[0].lat},${pts[0].lng}`;
-      const maxStops = 10;
-      const sliced = pts.slice(0, maxStops);
-      const destination = `${sliced[sliced.length - 1].lat},${sliced[sliced.length - 1].lng}`;
-      const waypoints = sliced.slice(0, -1).map(p => `${p.lat},${p.lng}`).join("|");
-      let url = `https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
-      if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`;
-      return url;
-    }
-
-    async function buildDriverRouteOnMap(){
+    async function buildDriverRouteOnMap(opts){
       if (!driverMap) return;
       const stops = getDriverActiveOrdersSorted();
+      clearDriverRouteOnMap({ keepMsg:true });
+
       if (!stops.length) {
-        if (driverRouteMsg) driverRouteMsg.textContent = "لا توجد طلبات نشطة للمسار.";
+        if (driverRouteMsg && !(opts && opts.silent)) driverRouteMsg.textContent = "لا توجد طلبات نشطة للمسار.";
         return;
       }
 
-      const coords = [];
+      let latlngs = [];
       if (driverSelfLatLng && Number.isFinite(driverSelfLatLng.lat) && Number.isFinite(driverSelfLatLng.lng)) {
-        coords.push([driverSelfLatLng.lng, driverSelfLatLng.lat]);
+        latlngs.push([driverSelfLatLng.lat, driverSelfLatLng.lng]);
       }
-      stops.forEach(o => coords.push([o.lng, o.lat]));
+      stops.forEach(x => latlngs.push([x.lat, x.lng]));
 
-      if (coords.length < 2) {
-        if (driverRouteMsg) driverRouteMsg.textContent = "المسار يحتاج نقطتين على الأقل.";
-        return;
+      driverRouteLine = L.polyline(latlngs, { weight:4, opacity:0.85 }).addTo(driverMap);
+      try { driverMap.fitBounds(driverRouteLine.getBounds(), { padding:[30,30] }); } catch(_){}
+
+      if (driverRouteMsg && !(opts && opts.silent)) {
+        const manualCount = stops.filter(hasManualPriority).length;
+        driverRouteMsg.textContent = manualCount
+          ? `تم إنشاء المسار. الطلبات المعدلة من الأدمن تُعرض أولاً (${manualCount}) ثم الباقي حسب الأقرب.`
+          : `تم إنشاء المسار حسب الأقرب.`;
       }
-
-      const coordStr = coords.map(([lng,lat]) => `${lng},${lat}`).join(";");
-      let latlngs = stops.map(o => [o.lat, o.lng]);
-      let msg = `تم تجهيز مسار ${stops.length} طلب`;
-
-      try {
-        const hasStart = !!(driverSelfLatLng && Number.isFinite(driverSelfLatLng.lat) && Number.isFinite(driverSelfLatLng.lng));
-        const service = hasStart
-          ? `https://router.project-osrm.org/trip/v1/driving/${coordStr}?source=first&roundtrip=false&steps=false&overview=full&geometries=geojson`
-          : `https://router.project-osrm.org/trip/v1/driving/${coordStr}?roundtrip=false&steps=false&overview=full&geometries=geojson`;
-        const res = await fetch(service, { cache: "no-store" });
-        if (!res.ok) throw new Error(`OSRM ${res.status}`);
-        const data = await res.json();
-        const trip = data && data.trips && data.trips[0];
-        if (!trip || !trip.geometry || !Array.isArray(trip.geometry.coordinates)) throw new Error("NO_GEOMETRY");
-        latlngs = trip.geometry.coordinates.map(([lng,lat]) => [lat,lng]);
-        const tripDistanceKm = Number(trip.distance || 0) / 1000;
-        const tripDurationMin = Number(trip.duration || 0) / 60;
-        msg = `تم إنشاء مسار ${stops.length} طلب | ${tripDistanceKm.toFixed(1)} كم | ${tripDurationMin.toFixed(0)} دقيقة تقريباً`;
-      } catch(err) {
-        console.warn("Route build fallback:", err);
-        msg = `تم رسم خط بين ${stops.length} طلب (بدون تحسين خارجي للمسار)`;
-      }
-
-      if (driverRouteLine) {
-        try { driverMap.removeLayer(driverRouteLine); } catch(e){}
-      }
-      driverRouteLine = L.polyline(latlngs, { weight: 5, opacity: 0.9, dashArray: "10 8" }).addTo(driverMap);
-      try { driverMap.fitBounds(driverRouteLine.getBounds(), { padding: [30, 30] }); } catch(e){}
-      if (driverRouteMsg) driverRouteMsg.textContent = msg;
-    }
-
-    function clearDriverRouteOnMap(){
-      if (driverMap && driverRouteLine) {
-        try { driverMap.removeLayer(driverRouteLine); } catch(e){}
-      }
-      driverRouteLine = null;
-      if (driverRouteMsg) driverRouteMsg.textContent = "";
     }
 
     function openAllDriverOrdersInGoogleMaps(){
       const stops = getDriverActiveOrdersSorted();
       if (!stops.length) {
-        if (driverRouteMsg) driverRouteMsg.textContent = "لا توجد طلبات نشطة لفتحها في Google Maps.";
+        if (driverRouteMsg) driverRouteMsg.textContent = "لا توجد طلبات نشطة لفتحها.";
         return;
       }
-      const url = buildGoogleMapsMultiStopUrl(stops);
-      if (!url) return;
+
+      const hasStart = !!(driverSelfLatLng && Number.isFinite(driverSelfLatLng.lat) && Number.isFinite(driverSelfLatLng.lng));
+      const destination = stops[stops.length - 1];
+      const waypoints = stops.slice(0, -1).map(x => `${x.lat},${x.lng}`).join("|");
+
+      let url = `https://www.google.com/maps/dir/?api=1&destination=${destination.lat},${destination.lng}&travelmode=driving`;
+      if (hasStart) url += `&origin=${driverSelfLatLng.lat},${driverSelfLatLng.lng}`;
+      if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`;
+
       window.open(url, "_blank");
       if (driverRouteMsg) {
-        driverRouteMsg.textContent = stops.length > 10
-          ? "تم فتح أول 10 نقاط فقط في Google Maps بسبب حدود الرابط."
-          : `تم فتح ${stops.length} طلب في Google Maps.`;
+        const manualCount = stops.filter(hasManualPriority).length;
+        driverRouteMsg.textContent = manualCount
+          ? `تم فتح المسار. الطلبات المعدلة من الأدمن أولاً ثم الباقي حسب الأقرب.`
+          : `تم فتح المسار حسب الأقرب في Google Maps.`;
       }
     }
 
     window.openOrderInGoogleMaps = function(lat, lng){ openInGoogleMaps(Number(lat), Number(lng)); };
     window.openOrderInWaze = function(lat, lng){ openInWaze(Number(lat), Number(lng)); };
-    window.buildDriverRouteOnMap = buildDriverRouteOnMap;
-    window.openAllDriverOrdersInGoogleMaps = openAllDriverOrdersInGoogleMaps;
 
     function isPin4(pin) {
       return /^\d{4}$/.test(String(pin ?? "").trim());
@@ -2729,7 +2756,6 @@ function renderDriverAttendanceBox(tickOnly=false){
     }
 
     function resetDriverSelfTrack(){
-      clearDriverRouteOnMap();
       driverPathPoints = [];
       if (driverMap && driverSelfMarker){
         try { driverMap.removeLayer(driverSelfMarker); } catch(e){}
@@ -3092,6 +3118,8 @@ function subscribeEmployees(){
     function refreshOrdersUIAndMap(){
       updateOrdersOnManagerMap();
       updateOrdersOnDriverMap();
+      updateDriverOrderMarkers();
+      if (driverRouteLine) buildDriverRouteOnMap({ silent:true });
       renderManagerOrdersList();
       renderManagerDriverBreakdown();
       renderManagerReturnedAll();
@@ -3162,32 +3190,16 @@ function subscribeEmployees(){
       if (!driverMap) return;
 
       Object.keys(orderLayersDriver).forEach(orderId=>{
-        if (!ordersCache[orderId]) {
-          try { driverMap.removeLayer(orderLayersDriver[orderId]); } catch(e){}
+        if (!ordersCache[orderId] || !currentDriverId || ordersCache[orderId].assignedDriverId !== currentDriverId) {
+          try { driverMap.removeLayer(orderLayersDriver[orderId]); } catch(_){}
           delete orderLayersDriver[orderId];
-        }
-      });
-      Object.keys(driverOrderMarkers).forEach(orderId=>{
-        if (!ordersCache[orderId]) {
-          try { driverMap.removeLayer(driverOrderMarkers[orderId]); } catch(e){}
-          delete driverOrderMarkers[orderId];
         }
       });
 
       Object.entries(ordersCache).forEach(([orderId, o])=>{
         if (!o || typeof o.lat !== "number" || typeof o.lng !== "number") return;
         if (!currentDriverId) return;
-        if (o.assignedDriverId !== currentDriverId) {
-          if (orderLayersDriver[orderId]) {
-            try { driverMap.removeLayer(orderLayersDriver[orderId]); } catch(e){}
-            delete orderLayersDriver[orderId];
-          }
-          if (driverOrderMarkers[orderId]) {
-            try { driverMap.removeLayer(driverOrderMarkers[orderId]); } catch(e){}
-            delete driverOrderMarkers[orderId];
-          }
-          return;
-        }
+        if (o.assignedDriverId !== currentDriverId) return;
 
         const isNearby = driverSelfLatLng
           ? (haversineMeters(driverSelfLatLng.lat, driverSelfLatLng.lng, o.lat, o.lng) <= NEARBY_METERS)
@@ -3202,12 +3214,11 @@ function subscribeEmployees(){
 
         const color = orderColorByStatus(o);
         const bounds = makeRectBounds(o.lat, o.lng);
-        const distanceTxt = driverSelfLatLng
-          ? `<br/>المسافة: <b>${Math.round(haversineMeters(driverSelfLatLng.lat, driverSelfLatLng.lng, o.lat, o.lng))} م</b>`
-          : "";
+
         const actionsHint = (o.status === "nearby")
           ? `<br/><b>قريب ✅</b> (تقدر: تم التسليم / راجع)`
           : "";
+
         const pr = (Number.isFinite(Number(o.priority)) ? Number(o.priority) : null);
         const prTxt = (pr!=null ? `<br/>أولوية: <b>${pr}</b>` : "");
 
@@ -3216,43 +3227,26 @@ function subscribeEmployees(){
           `الحالة: <b>${statusLabel(o.status)}</b>` +
           actionsHint +
           prTxt +
-          distanceTxt +
           (o.status === "delivered" ? `<br/>المبلغ: <b>${formatIQD(o.deliveredCash)}</b>` : "") +
           (o.status === "returned" ? `<br/>سبب: <b>${escapeHtml(o.returnReason || "")}</b>` : "") +
-          `<br/><span class="small">${ordersWorkDate}</span>` +
-          `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">` +
-          `<button class="secondary" onclick="openOrderInGoogleMaps(${Number(o.lat)},${Number(o.lng)})">Google Maps</button>` +
-          `<button class="secondary" onclick="openOrderInWaze(${Number(o.lat)},${Number(o.lng)})">Waze</button>` +
-          `</div>`;
+          `<br/><span class="small">${ordersWorkDate}</span>`;
 
         if (!orderLayersDriver[orderId]) {
           const rect = L.rectangle(bounds, { color, weight:2, fillOpacity:0.35 });
           rect.addTo(driverMap);
           rect.bindPopup(popupHtml);
+
           rect.on("click", () => {
             if (o.status === "nearby") {
               driverOrderAction(orderId, o);
             }
           });
+
           orderLayersDriver[orderId] = rect;
         } else {
           orderLayersDriver[orderId].setBounds(bounds);
           orderLayersDriver[orderId].setStyle({ color });
           orderLayersDriver[orderId].setPopupContent(popupHtml);
-        }
-
-        if (!driverOrderMarkers[orderId]) {
-          const mk = L.marker([o.lat, o.lng], {
-            icon: makeDriverOrderNameIcon(o),
-            title: o.clientName || "زبون",
-            keyboard: false
-          }).addTo(driverMap);
-          mk.bindPopup(popupHtml);
-          driverOrderMarkers[orderId] = mk;
-        } else {
-          driverOrderMarkers[orderId].setLatLng([o.lat, o.lng]);
-          driverOrderMarkers[orderId].setIcon(makeDriverOrderNameIcon(o));
-          driverOrderMarkers[orderId].setPopupContent(popupHtml);
         }
       });
     }
@@ -3296,7 +3290,9 @@ function subscribeEmployees(){
       try{
         await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
           priority: p,
-          priorityUpdatedAt: SERVER_TS
+          priorityManual: true,
+          priorityUpdatedAt: SERVER_TS,
+          ...buildAuditFields("lastEditedBy")
         });
       }catch(e){}
     }
@@ -3539,7 +3535,11 @@ function subscribeEmployees(){
       if (pr == null) return;
       if (String(pr).trim() !== ""){
         const p = normalizePriority(pr);
-        if (p) patch.priority = p;
+        if (p) {
+          patch.priority = p;
+          patch.priorityManual = true;
+          patch.priorityUpdatedAt = SERVER_TS;
+        }
       }
 
       // ✅ مبلغ الفاتورة المقترح من الأدمن
@@ -3685,6 +3685,7 @@ function subscribeEmployees(){
         status: "registered",
         cashCollected: false,
         priority: nextP,           // ✅ NEW
+        priorityManual: false,
         createdAt: SERVER_TS,
         ...buildAuditFields("createdBy"),
         ...buildAuditFields("lastEditedBy")
@@ -3765,13 +3766,16 @@ function subscribeEmployees(){
 
       // ✅ Sorting
       if (tab === "registered") {
-        // الأولوية أولاً، ثم الوقت
+        // اليدوي من الأدمن أولاً، ثم رقم الأولوية، ثم الباقي حسب وقت التسجيل
         list.sort((a,b)=>{
+          const ma = hasManualPriority(a) ? 0 : 1;
+          const mb = hasManualPriority(b) ? 0 : 1;
+          if (ma !== mb) return ma - mb;
           const pa = normalizePriority(a.priority) || 999999;
           const pb = normalizePriority(b.priority) || 999999;
           if (pa !== pb) return pa - pb;
-          const ta = tsToMs(a.nearbyAt || a.createdAt || 0);
-          const tb = tsToMs(b.nearbyAt || b.createdAt || 0);
+          const ta = tsToMs(a.priorityUpdatedAt || a.nearbyAt || a.createdAt || 0);
+          const tb = tsToMs(b.priorityUpdatedAt || b.nearbyAt || b.createdAt || 0);
           return ta - tb;
         });
       } else {
@@ -3832,6 +3836,7 @@ function subscribeEmployees(){
         const pr = normalizePriority(x.priority);
         if (tab === "registered") {
           extra += ` | أولوية: ${pr ? pr : "-"}`;
+          extra += hasManualPriority(x) ? " | يدوية من الأدمن" : " | تلقائية حسب الأقرب";
           if (x.adminInvoiceAmount != null) extra += ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}`;
         }
 
@@ -4543,18 +4548,13 @@ function subscribeEmployees(){
       const activeFiltered = active.filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
       const deliveredFiltered = delivered.filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
 
-      // ✅ active list sorted by priority then createdAt
+      // ✅ active list: الأقرب افتراضياً، واليدوي من الأدمن يتقدّم عليه
       driverOrdersList.innerHTML = "";
       if (!activeFiltered.length) {
         driverOrdersList.innerHTML = `<div class="small">لا توجد طلبات نشطة.</div>`;
       } else {
-        activeFiltered.sort((a,b)=>{
-          const pa = normalizePriority(a.priority) || 999999;
-          const pb = normalizePriority(b.priority) || 999999;
-          if (pa !== pb) return pa - pb;
-          return tsToMs(a.createdAt||0) - tsToMs(b.createdAt||0);
-        });
-        activeFiltered.forEach(x=>{
+        const orderedActive = getDriverActiveOrdersSorted().filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
+        orderedActive.forEach(x=>{
           const item = document.createElement("div");
           item.className = "list-item";
 
@@ -4567,14 +4567,18 @@ function subscribeEmployees(){
 
           const meta = document.createElement("div");
           meta.className = "small";
-          meta.textContent = `الحالة: ${statusLabel(x.status)}` + (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
+          const distanceText = (driverSelfLatLng && Number.isFinite(driverSelfLatLng.lat) && Number.isFinite(driverSelfLatLng.lng))
+            ? ` | المسافة: ${Math.round(haversineMeters(driverSelfLatLng.lat, driverSelfLatLng.lng, x.lat, x.lng))}م`
+            : "";
+          const priorityModeText = hasManualPriority(x) ? " | أولوية الأدمن" : " | ترتيب تلقائي حسب الأقرب";
+          meta.textContent = `الحالة: ${statusLabel(x.status)}` + priorityModeText + distanceText + (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
 
           left.appendChild(title);
           left.appendChild(meta);
 
           if (typeof x.lat === "number" && typeof x.lng === "number") {
             const go = document.createElement("button");
-            go.textContent = "Google Maps";
+            go.textContent = "Google";
             go.className = "secondary";
             go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
             right.appendChild(go);
@@ -4584,6 +4588,16 @@ function subscribeEmployees(){
             wz.className = "secondary";
             wz.onclick = ()=>openInWaze(x.lat, x.lng);
             right.appendChild(wz);
+
+            const focusBtn = document.createElement("button");
+            focusBtn.textContent = "إظهار";
+            focusBtn.className = "secondary";
+            focusBtn.onclick = ()=>{
+              if (!driverMap) return;
+              driverMap.setView([x.lat, x.lng], Math.max(driverMap.getZoom(), 16));
+              if (driverOrderMarkers[x.id]) driverOrderMarkers[x.id].openPopup();
+            };
+            right.appendChild(focusBtn);
           }
 
           if (x.status === "nearby") {
@@ -5628,9 +5642,9 @@ logoutDriverBtn.onclick = () => {
       renderDriverOrdersLists();
     });
 
-    if (driverBuildRouteBtn) driverBuildRouteBtn.addEventListener("click", buildDriverRouteOnMap);
-    if (driverOpenAllGoogleBtn) driverOpenAllGoogleBtn.addEventListener("click", openAllDriverOrdersInGoogleMaps);
-    if (driverClearRouteBtn) driverClearRouteBtn.addEventListener("click", clearDriverRouteOnMap);
+    if (driverBuildRouteBtn) driverBuildRouteBtn.addEventListener("click", ()=>buildDriverRouteOnMap());
+    if (driverOpenAllGoogleBtn) driverOpenAllGoogleBtn.addEventListener("click", ()=>openAllDriverOrdersInGoogleMaps());
+    if (driverClearRouteBtn) driverClearRouteBtn.addEventListener("click", ()=>clearDriverRouteOnMap());
 
     // ✅ زر تسجيل راجع سابق
     if (legacyReturnBtn) {
