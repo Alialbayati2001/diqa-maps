@@ -687,6 +687,52 @@ background:#fff;
       return (n < 1e12) ? (n * 1000) : n;
     }
 
+    function normalizeSpeedKmh(raw) {
+      if (raw == null || raw === "") return null;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) return null;
+      return n;
+    }
+
+    function extractSpeedKmh(position) {
+      if (!position || typeof position !== "object") return null;
+
+      const directKmh = normalizeSpeedKmh(position.speedKmh ?? position.speed);
+      if (directKmh != null) return directKmh;
+
+      const attrs = position.attributes || {};
+      const attrKmh = normalizeSpeedKmh(attrs.speedKmh ?? attrs.speed);
+      if (attrKmh != null) return attrKmh;
+
+      const knots = normalizeSpeedKmh(position.speedKnots ?? attrs.speedKnots);
+      if (knots != null) return (knots * 1.852);
+
+      return null;
+    }
+
+    function calcSpeedFromPrev(prevLoc, lat, lng, whenMs) {
+      if (!prevLoc) return null;
+      const prevLat = Number(prevLoc.lat);
+      const prevLng = Number(prevLoc.lng);
+      const prevMs = tsToMs(prevLoc.updatedAt);
+      if (!Number.isFinite(prevLat) || !Number.isFinite(prevLng) || !Number.isFinite(whenMs) || !prevMs || whenMs <= prevMs) return null;
+
+      const distM = haversineMeters(prevLat, prevLng, lat, lng);
+      const dtHours = (whenMs - prevMs) / 3600000;
+      if (!Number.isFinite(distM) || dtHours <= 0) return null;
+
+      const kmh = (distM / 1000) / dtHours;
+      if (!Number.isFinite(kmh) || kmh < 0 || kmh > 180) return null;
+      return kmh;
+    }
+
+    function formatSpeedText(speedKmh) {
+      const n = normalizeSpeedKmh(speedKmh);
+      if (n == null) return "";
+      if (n < 3) return " | واقف تقريباً";
+      return ` | السرعة: ${Math.round(n)} كم/س`;
+    }
+
     // ✅ حساب الحالة حسب العمر
     function calcLiveState(updatedAt) {
       const now = Date.now();
@@ -779,6 +825,7 @@ background:#fff;
           lat: Number(p.latitude),
           lng: Number(p.longitude),
           accuracy: (p.accuracy != null ? Number(p.accuracy) : null),
+          speedKmh: extractSpeedKmh(p),
           time: tMs
         };
       }).filter(x => !Number.isNaN(x.lat) && !Number.isNaN(x.lng));
@@ -845,12 +892,19 @@ background:#fff;
             if (efound && efound[0]) empKey = efound[0];
           }
 
+          const prevDriverLoc = driversLocationsCache[key] || driversLocationsCache[devId] || null;
+          const prevEmpLoc = empKey ? (employeesLocationsCache[empKey] || null) : null;
+          const directSpeedKmh = normalizeSpeedKmh(p.speedKmh ?? p.speed);
+          const speedKmh = directSpeedKmh != null ? directSpeedKmh : calcSpeedFromPrev(prevDriverLoc, lat, lng, whenMs);
+          const employeeSpeedKmh = directSpeedKmh != null ? directSpeedKmh : calcSpeedFromPrev(prevEmpLoc, lat, lng, whenMs);
+
           if (empKey) {
             nextEmployees[empKey] = {
               name: devName,
               lat,
               lng,
               accuracy: acc,
+              speedKmh: employeeSpeedKmh,
               gpsOk: true,
               gpsError: null,
               active: !st.isStale,
@@ -864,6 +918,7 @@ nextDrivers[key] = {
             lat,
             lng,
             accuracy: acc,
+            speedKmh,
             gpsOk: true,
             gpsError: null,
             active: !st.isStale,
@@ -2693,7 +2748,12 @@ function renderDriverAttendanceBox(tickOnly=false){
       if (!currentDriverId) return;
       const loc = driversLocationsCache[currentDriverId];
       if (loc && typeof loc.lat === "number" && typeof loc.lng === "number") {
-        driverSelfLatLng = { lat: loc.lat, lng: loc.lng };
+        driverSelfLatLng = {
+          lat: loc.lat,
+          lng: loc.lng,
+          updatedAt: loc.updatedAt || Date.now(),
+          speedKmh: normalizeSpeedKmh(loc.speedKmh)
+        };
       }
     }
 
@@ -2732,7 +2792,7 @@ function renderDriverAttendanceBox(tickOnly=false){
       pushDriverPathPoint(lat, lng, Date.now());
 
       // Marker
-      const popup = `موقعك الآن ✅<br/>آخر تحديث: <b>${formatTime(Date.now())}</b>`;
+      const popup = `موقعك الآن ✅<br/>آخر تحديث: <b>${formatTime(driverSelfLatLng.updatedAt || Date.now())}</b>${formatSpeedText(driverSelfLatLng.speedKmh)}`;
       if (!driverSelfMarker){
         driverSelfMarker = L.marker([lat, lng], { icon: makeSelfIcon(), title: "موقعك" }).addTo(driverMap);
         driverSelfMarker.bindPopup(popup);
@@ -4901,9 +4961,11 @@ function renderDriversSelect() {
           const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
           const accText = acc ? ` | ±${acc}m` : "";
 
-          if (st.isOnline) statusEl.appendChild(document.createTextNode(`نشط - ${formatTime(loc.updatedAt)}${accText}`));
-          else if (st.isWarn) statusEl.appendChild(document.createTextNode(`متأخر شوي - ${formatTime(loc.updatedAt)}${accText}`));
-          else statusEl.appendChild(document.createTextNode("غير متصل"));
+          const speedText = formatSpeedText(loc.speedKmh);
+
+          if (st.isOnline) statusEl.appendChild(document.createTextNode(`نشط - ${formatTime(loc.updatedAt)}${accText}${speedText}`));
+          else if (st.isWarn) statusEl.appendChild(document.createTextNode(`متأخر شوي - ${formatTime(loc.updatedAt)}${accText}${speedText}`));
+          else statusEl.appendChild(document.createTextNode(`غير متصل${speedText}`));
         }
 
         left.appendChild(nameEl);
@@ -4963,12 +5025,13 @@ function renderDriversSelect() {
 
         const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
         const accText = acc ? `<br/>الدقة: ±${acc}m` : "";
+        const speedText = formatSpeedText(loc.speedKmh);
 
         const stateText = st.isOnline ? "🟢 مباشر" : "🟡 آخر إشارة قديمة شوي";
         const popupHtml =
           `مندوب: ${loc.name || id}<br/>` +
           `الحالة: ${stateText}<br/>` +
-          `آخر تحديث: ${formatTime(loc.updatedAt)}${accText}`;
+          `آخر تحديث: ${formatTime(loc.updatedAt)}${accText}${speedText ? `<br/>${speedText.replace(/^ \| /, "")}` : ""}`;
 
         if (!driverMarkers[id]) {
           const marker = L.marker([loc.lat, loc.lng], {
