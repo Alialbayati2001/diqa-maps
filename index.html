@@ -416,6 +416,11 @@ background:#fff;
           <hr style="border-color:#111827;margin:10px 0;" />
           <h4>ملخص كل مندوب (تحصيل + فواتير)</h4>
           <div class="hint">✅ يعزل المبالغ والطلبات لكل مندوب. تقدر تختار مندوب من الفلتر حتى يظهر وحده.</div>
+          <div class="inline-actions" id="driver-report-actions">
+            <button id="print-driver-report-btn" class="secondary">🖨️ طباعة هذا المندوب A4</button>
+            <button id="download-driver-report-image-btn" class="secondary">🖼️ تحميل صورة الملخص</button>
+            <button id="print-all-drivers-reports-btn">🖨️ طباعة جميع المندوبين A4</button>
+          </div>
           <div id="manager-driver-breakdown" class="driver-report">
             <div class="driver-report-head">
               <div class="driver-report-name">اسم المندوب: <span class="mono" id="driver-report-name">—</span></div>
@@ -614,6 +619,8 @@ background:#fff;
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin="">
   </script>
+
+  <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
 
   <!-- Firebase v8 -->
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
@@ -1062,6 +1069,9 @@ nextDrivers[key] = {
     const managerSumLabel = document.getElementById("manager-sum-label");
 
     const managerDriverBreakdownList = document.getElementById("manager-driver-breakdown");
+    const printDriverReportBtn = document.getElementById("print-driver-report-btn");
+    const downloadDriverReportImageBtn = document.getElementById("download-driver-report-image-btn");
+    const printAllDriversReportsBtn = document.getElementById("print-all-drivers-reports-btn");
 
     const managerReturnedAllList = document.getElementById("manager-returned-all-list");
     // ✅ NEW: Manager client filter (today orders by client)
@@ -3580,6 +3590,250 @@ function subscribeEmployees(){
       tbodyEl.innerHTML = `<tr><td colspan="4">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
       return;
 }
+
+
+
+
+    function getDriverBreakdownRows(driverId){
+      const id = String(driverId || "");
+      if (!id) return [];
+
+      return Object.entries(ordersCache || {})
+        .map(([orderId, o]) => ({ id: orderId, ...(o || {}) }))
+        .filter(x => String(x.assignedDriverId || "") === id)
+        .sort((a,b)=>{
+          const ta = tsToMs(a.deliveredAt || a.returnedAt || a.nearbyAt || a.createdAt || 0);
+          const tb = tsToMs(b.deliveredAt || b.returnedAt || b.nearbyAt || b.createdAt || 0);
+          return tb - ta;
+        });
+    }
+
+    function buildDriverBreakdownReportData(driverId){
+      const id = String(driverId || "");
+      const rows = getDriverBreakdownRows(id);
+      const workDate = ordersWorkDate || getActiveWorkDate();
+      let sumUncollected = 0;
+      let sumCollected = 0;
+
+      const mappedRows = rows.map(o=>{
+        const st = String(o.status || "registered");
+        let invoiceTxt = "—";
+        let gotTxt = "—";
+        let detailsHtml = "";
+
+        if (st === "delivered") {
+          const v = Number(o.deliveredCash);
+          invoiceTxt = Number.isFinite(v) ? formatIQD(v) : "—";
+
+          const isCollected = (o.cashCollected === true);
+          if (Number.isFinite(v)){
+            if (isCollected) sumCollected += v;
+            else sumUncollected += v;
+          }
+
+          gotTxt = (isCollected && Number.isFinite(v)) ? formatIQD(v) : (isCollected ? "✅" : "0");
+          detailsHtml =
+            (isCollected ? "✅ تم الاستلام" : "💰 غير مستلم") +
+            ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
+        } else if (st === "returned") {
+          detailsHtml =
+            `❌ راجع` +
+            ` <div class="small">سبب: ${escapeHtml(o.returnReason || "-")}</div>` +
+            ` <div class="small">وقت: ${escapeHtml(formatTime(o.returnedAt || o.updatedAt || o.createdAt || ""))}</div>`;
+        } else if (st === "nearby") {
+          const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
+          invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
+          const pr = normalizePriority(o.priority);
+          detailsHtml = `📍 قريب <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+        } else {
+          const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
+          invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
+          const pr = normalizePriority(o.priority);
+          detailsHtml = `📝 مسجّل <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+        }
+
+        return {
+          clientName: o.clientName || "—",
+          invoiceTxt,
+          gotTxt,
+          detailsHtml
+        };
+      });
+
+      return {
+        driverId: id,
+        driverName: driverNameById(id) || id || "—",
+        workDate: workDate || "—",
+        rows: mappedRows,
+        sumUncollected,
+        sumCollected
+      };
+    }
+
+    function buildDriverReportHtml(driverId){
+      const data = buildDriverBreakdownReportData(driverId);
+      const rowsHtml = data.rows.length
+        ? data.rows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.clientName)}</td>
+              <td>${escapeHtml(r.invoiceTxt)}</td>
+              <td>${escapeHtml(r.gotTxt)}</td>
+              <td style="text-align:right">${r.detailsHtml}</td>
+            </tr>
+          `).join("")
+        : `<tr><td colspan="4">لا يوجد بيانات.</td></tr>`;
+
+      const footerText = data.rows.length
+        ? `مجموع المبالغ غير المستلمة: ${formatIQD(data.sumUncollected)} | مجموع المبالغ المستلمة: ${formatIQD(data.sumCollected)}`
+        : "";
+
+      return `
+        <div class="driver-report print-report-card">
+          <div class="driver-report-head">
+            <div class="driver-report-name">اسم المندوب: <span class="mono">${escapeHtml(data.driverName)}</span></div>
+            <div class="driver-report-date">اليوم/الشهر/السنة: <span class="mono">${escapeHtml(data.workDate)}</span></div>
+          </div>
+          <div class="table-wrap">
+            <table class="report-table">
+              <thead>
+                <tr>
+                  <th>اسم الزبون</th>
+                  <th>مبلغ الفاتورة</th>
+                  <th>المبلغ المستلم</th>
+                  <th>التفاصيل</th>
+                </tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+          <div class="driver-report-foot small">${escapeHtml(footerText)}</div>
+        </div>
+      `;
+    }
+
+    function getPrintableDriverIds(){
+      const selected = getManagerSelectedDriverId();
+      if (selected) return [String(selected)];
+
+      return Object.keys(driversMetaCache || {})
+        .filter(id => getDriverBreakdownRows(id).length > 0);
+    }
+
+    function openDriverReportsPrintWindow(reportHtmlList, titleText){
+      const html = reportHtmlList.map((html, idx)=>{
+        const pageBreak = idx < reportHtmlList.length - 1 ? '<div class="print-page-break"></div>' : '';
+        return html + pageBreak;
+      }).join('');
+
+      const w = window.open('', '_blank', 'width=1100,height=900');
+      if (!w){
+        alert('المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة وجرب مرة ثانية.');
+        return;
+      }
+
+      w.document.open();
+      w.document.write(`
+        <!DOCTYPE html>
+        <html lang="ar" dir="rtl">
+        <head>
+          <meta charset="UTF-8">
+          <title>${escapeHtml(titleText || 'طباعة ملخص المندوب')}</title>
+          <style>
+            *{box-sizing:border-box}
+            body{font-family:Arial,"Tahoma",sans-serif;background:#ffffff;color:#111827;margin:0;padding:0;direction:rtl}
+            .print-wrap{padding:10mm}
+            .driver-report{background:#ffffff;color:#111827;border:2px solid #0b1120;border-radius:12px;padding:10px;overflow:hidden;page-break-inside:avoid}
+            .driver-report-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid #111827}
+            .driver-report-head .driver-report-name,.driver-report-head .driver-report-date{font-weight:900;color:#dc2626}
+            .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;color:#111827;font-weight:800}
+            .table-wrap{overflow:visible}
+            table.report-table{width:100%;table-layout:fixed;border-collapse:collapse;background:#fff;color:#111827}
+            .report-table th,.report-table td{border:2px solid #111827;padding:10px 8px;vertical-align:top;text-align:center;font-weight:800;white-space:normal;word-break:break-word}
+            .report-table th{background:#ffffff;color:#111827;font-size:18px;line-height:1.2}
+            .report-table td{font-weight:700;font-size:14px}
+            .report-table td .small{font-weight:700;font-size:11px;color:#374151;margin-top:4px}
+            .driver-report-foot{margin-top:10px;padding-top:8px;border-top:2px solid #111827;font-weight:900;color:#dc2626;text-align:center}
+            .print-page-break{page-break-after:always;break-after:page;height:0}
+            @page{size:A4 portrait;margin:10mm}
+          </style>
+        </head>
+        <body>
+          <div class="print-wrap">${html}</div>
+          <script>window.onload=function(){setTimeout(function(){window.print();},150);};<\/script>
+        </body>
+        </html>
+      `);
+      w.document.close();
+    }
+
+    function printDriverReport(){
+      const driverId = getManagerSelectedDriverId();
+      if (!driverId){
+        alert('اختر مندوب من الفلتر أولاً حتى يطبع ملخصه فقط.');
+        return;
+      }
+
+      openDriverReportsPrintWindow([buildDriverReportHtml(driverId)], 'طباعة ملخص المندوب');
+    }
+
+    async function downloadDriverReportImage(){
+      const driverId = getManagerSelectedDriverId();
+      if (!driverId){
+        alert('اختر مندوب من الفلتر أولاً حتى يتحمل ملخصه كصورة.');
+        return;
+      }
+
+      if (typeof html2canvas !== 'function'){
+        alert('مكتبة تحويل الصورة لم تُحمَّل بعد. حدّث الصفحة وجرب مرة ثانية.');
+        return;
+      }
+
+      const wrap = document.createElement('div');
+      wrap.style.position = 'fixed';
+      wrap.style.left = '-100000px';
+      wrap.style.top = '0';
+      wrap.style.width = '794px';
+      wrap.style.background = '#ffffff';
+      wrap.style.padding = '16px';
+      wrap.style.zIndex = '-1';
+      wrap.innerHTML = buildDriverReportHtml(driverId);
+      document.body.appendChild(wrap);
+
+      try{
+        const target = wrap.firstElementChild;
+        const canvas = await html2canvas(target, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff'
+        });
+        const link = document.createElement('a');
+        const data = buildDriverBreakdownReportData(driverId);
+        const safeName = String(data.driverName || 'driver-report').replace(/[\/:*?"<>|]+/g,'-');
+        link.download = `ملخص-${safeName}-${data.workDate || ''}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      } catch(e){
+        console.error(e);
+        alert('فشل تحميل صورة الملخص.');
+      } finally {
+        wrap.remove();
+      }
+    }
+
+    function printAllDriversReports(){
+      const ids = getPrintableDriverIds();
+      if (!ids.length){
+        alert('لا توجد بيانات جاهزة للطباعة في هذا اليوم.');
+        return;
+      }
+
+      const reports = ids.map(id => buildDriverReportHtml(id));
+      openDriverReportsPrintWindow(reports, 'طباعة جميع ملخصات المندوبين');
+    }
+
+    if (printDriverReportBtn) printDriverReportBtn.addEventListener('click', printDriverReport);
+    if (downloadDriverReportImageBtn) downloadDriverReportImageBtn.addEventListener('click', downloadDriverReportImage);
+    if (printAllDriversReportsBtn) printAllDriversReportsBtn.addEventListener('click', printAllDriversReports);
 
 
 
