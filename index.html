@@ -773,14 +773,21 @@ background:#fff;
         const t = p.deviceTime || p.fixTime || p.serverTime || p.updatedAt || null;
         const tMs = tsToMs(t) || Date.now();
 
+        const rawSpeed = [
+          p.speed,
+          p.attributes && p.attributes.speed,
+          p.attributes && p.attributes.Speed
+        ].map(v => Number(v)).find(v => Number.isFinite(v) && v >= 0);
+        const speedKmh = Number.isFinite(rawSpeed) ? (rawSpeed * 1.852) : null;
+
         return {
           deviceId: String(p.deviceId),
           name: dev.name || String(p.deviceId),
           lat: Number(p.latitude),
           lng: Number(p.longitude),
           accuracy: (p.accuracy != null ? Number(p.accuracy) : null),
-          speed: (p.speed != null ? Number(p.speed) : ((p.attributes && p.attributes.speed != null) ? Number(p.attributes.speed) : null)),
-          time: tMs
+          time: tMs,
+          speedKmh
         };
       }).filter(x => !Number.isNaN(x.lat) && !Number.isNaN(x.lng));
 
@@ -818,7 +825,7 @@ background:#fff;
 
           const whenMs = tsToMs(p.time) || Date.now();
           const acc = (p.accuracy != null) ? Number(p.accuracy) : null;
-          const rawSpeedKmh = normalizeSpeedKmhFromTraccar(p.speed);
+          let speedKmh = (p.speedKmh != null) ? Number(p.speedKmh) : null;
 
           const st = calcLiveState(whenMs);
           const devName = (p.name || devId);
@@ -847,10 +854,18 @@ background:#fff;
             if (efound && efound[0]) empKey = efound[0];
           }
 
-          const prevDriverLoc = driversLocationsCache ? (driversLocationsCache[key] || null) : null;
-          const speedKmh = rawSpeedKmh != null
-            ? rawSpeedKmh
-            : computeSpeedKmhFromPoints(prevDriverLoc, lat, lng, whenMs);
+          const prevLoc = driversLocationsCache[key];
+          if ((!Number.isFinite(speedKmh) || speedKmh < 1) && prevLoc && Number.isFinite(prevLoc.lat) && Number.isFinite(prevLoc.lng)) {
+            const prevMs = tsToMs(prevLoc.updatedAt || 0);
+            const diffMs = whenMs - prevMs;
+            if (diffMs >= 3000 && diffMs <= (15 * 60 * 1000)) {
+              const movedM = haversineMeters(prevLoc.lat, prevLoc.lng, lat, lng);
+              const calcKmh = (movedM / diffMs) * 3.6;
+              if (Number.isFinite(calcKmh) && calcKmh >= 1 && calcKmh <= 140) {
+                speedKmh = calcKmh;
+              }
+            }
+          }
 
           if (empKey) {
             nextEmployees[empKey] = {
@@ -863,11 +878,11 @@ background:#fff;
               active: !st.isStale,
               liveState: (st.isOnline ? "online" : (st.isWarn ? "warn" : "offline")),
               updatedAt: whenMs,
-              speedKmh: speedKmh
+              speedKmh: Number.isFinite(speedKmh) ? speedKmh : null
             };
           }
 
-nextDrivers[key] = {
+          nextDrivers[key] = {
             name: devName,
             lat,
             lng,
@@ -877,7 +892,7 @@ nextDrivers[key] = {
             active: !st.isStale,
             liveState: (st.isOnline ? "online" : (st.isWarn ? "warn" : "offline")),
             updatedAt: whenMs,
-            speedKmh: speedKmh
+            speedKmh: Number.isFinite(speedKmh) ? speedKmh : null
           };
         });
 
@@ -1838,70 +1853,40 @@ function openInGoogleMaps(lat, lng) {
       return R*c;
     }
 
-    function normalizeSpeedKmhFromTraccar(raw){
-      const v = Number(raw);
-      if (!Number.isFinite(v) || v < 0) return null;
-      return v * 1.852; // Traccar speed غالباً knots
+    function formatDistanceShort(meters){
+      const m = Number(meters);
+      if (!Number.isFinite(m) || m < 0) return "";
+      if (m < 1000) return `${Math.round(m)}م`;
+      return `${(m / 1000).toFixed(1)}كم`;
     }
 
-    function computeSpeedKmhFromPoints(prevLoc, lat, lng, whenMs){
-      if (!prevLoc) return null;
-      const prevLat = Number(prevLoc.lat);
-      const prevLng = Number(prevLoc.lng);
-      const prevMs = tsToMs(prevLoc.updatedAt);
-      if (!Number.isFinite(prevLat) || !Number.isFinite(prevLng) || !Number.isFinite(prevMs) || !Number.isFinite(whenMs)) return null;
-      const dtMs = whenMs - prevMs;
-      if (dtMs < 8000) return null;
-      if (dtMs > 20 * 60 * 1000) return null;
-      const distM = haversineMeters(prevLat, prevLng, lat, lng);
-      if (!Number.isFinite(distM) || distM < 5) return 0;
-      const kmh = (distM / 1000) / (dtMs / 3600000);
-      if (!Number.isFinite(kmh) || kmh < 0 || kmh > 160) return null;
-      return kmh;
+    function formatEtaText(minutes){
+      const mins = Number(minutes);
+      if (!Number.isFinite(mins) || mins < 0) return "";
+      if (mins < 1) return "أقل من دقيقة";
+      if (mins < 60) return `${Math.round(mins)} د`;
+      const h = Math.floor(mins / 60);
+      const m = Math.round(mins % 60);
+      return m ? `${h} س ${m} د` : `${h} س`;
     }
 
-    function formatMetersSmart(m){
-      const x = Number(m);
-      if (!Number.isFinite(x) || x < 0) return "-";
-      if (x < 1000) return `${Math.round(x)}م`;
-      return `${(x/1000).toFixed(x >= 10000 ? 0 : 1)}كم`;
-    }
+    function getDriverEtaInfoForOrder(order){
+      if (!order || !Number.isFinite(order.lat) || !Number.isFinite(order.lng) || !order.assignedDriverId) return null;
+      const loc = driversLocationsCache[order.assignedDriverId];
+      if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lng)) return null;
 
-    function formatSpeedKmh(kmh){
-      const x = Number(kmh);
-      if (!Number.isFinite(x) || x < 0) return "-";
-      return `${Math.round(x)} كم/س`;
-    }
-
-    function calcEtaMinutes(distanceM, speedKmh){
-      const d = Number(distanceM);
-      const s = Number(speedKmh);
-      if (!Number.isFinite(d) || d < 1) return 0;
-      if (!Number.isFinite(s) || s <= 2) return null;
-      const mins = (d / 1000) / s * 60;
-      if (!Number.isFinite(mins) || mins < 0) return null;
-      return Math.max(1, Math.round(mins));
-    }
-
-    function formatEtaMinutes(mins){
-      const x = Number(mins);
-      if (!Number.isFinite(x) || x < 0) return "-";
-      if (x < 60) return `${x} د`;
-      const h = Math.floor(x / 60);
-      const m = x % 60;
-      return `${h}س ${m}د`;
-    }
-
-    function getAdminOrderEtaInfo(order){
-      if (!order || typeof order.lat !== "number" || typeof order.lng !== "number") return null;
-      const driverId = order.assignedDriverId;
-      if (!driverId) return null;
-      const loc = driversLocationsCache && driversLocationsCache[driverId];
-      if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") return null;
       const distanceM = haversineMeters(loc.lat, loc.lng, order.lat, order.lng);
-      const speedKmh = Number.isFinite(Number(loc.speedKmh)) ? Number(loc.speedKmh) : null;
-      const etaMin = calcEtaMinutes(distanceM, speedKmh);
-      return { distanceM, speedKmh, etaMin };
+      if (!Number.isFinite(distanceM)) return null;
+
+      let speedKmh = Number(loc.speedKmh);
+      if (!Number.isFinite(speedKmh) || speedKmh < 3) speedKmh = null;
+
+      let etaMinutes = null;
+      if (speedKmh) {
+        etaMinutes = ((distanceM / 1000) / speedKmh) * 60;
+      }
+
+      return { distanceM, speedKmh, etaMinutes };
     }
 
     // =========================
@@ -3929,13 +3914,6 @@ function subscribeEmployees(){
           extra += ` | قريب ✅`;
         }
 
-        const etaInfo = getAdminOrderEtaInfo(x);
-        if (etaInfo) {
-          extra += ` | يبعد: ${formatMetersSmart(etaInfo.distanceM)}`;
-          if (etaInfo.etaMin != null) extra += ` | الوصول المتوقع: ${formatEtaMinutes(etaInfo.etaMin)}`;
-          else if (etaInfo.speedKmh != null) extra += ` | سرعة المندوب: ${formatSpeedKmh(etaInfo.speedKmh)}`;
-        }
-
         meta.textContent = extra;
 
         left.appendChild(title);
@@ -4527,7 +4505,15 @@ function subscribeEmployees(){
           const reason = x.returnReason ? x.returnReason : "-";
           stTxt = `راجع 🔴 | يم: ${drv} | سبب: ${reason} | ${formatTime(x.returnedAt)}`;
         } else {
-          stTxt = `يم المندوب: ${drv} | الحالة: ${statusLabel(x.status)} | ${formatTime(x.nearbyAt || x.createdAt)}`;
+          const etaInfo = getDriverEtaInfoForOrder(x);
+          const distanceTxt = etaInfo ? ` | يبعد: ${formatDistanceShort(etaInfo.distanceM)}` : "";
+          const etaTxt = (etaInfo && Number.isFinite(etaInfo.etaMinutes))
+            ? ` | وقت الوصول المتوقع: ${formatEtaText(etaInfo.etaMinutes)}`
+            : "";
+          const speedTxt = (etaInfo && !Number.isFinite(etaInfo.etaMinutes) && Number.isFinite(etaInfo.speedKmh))
+            ? ` | سرعة المندوب: ${Math.round(etaInfo.speedKmh)} كم/س`
+            : "";
+          stTxt = `يم المندوب: ${drv} | الحالة: ${statusLabel(x.status)}${distanceTxt}${etaTxt}${speedTxt} | ${formatTime(x.nearbyAt || x.createdAt)}`;
         }
 
         meta.textContent = stTxt;
@@ -4982,11 +4968,10 @@ function renderDriversSelect() {
           const st = calcLiveState(loc.updatedAt);
           const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
           const accText = acc ? ` | ±${acc}m` : "";
-          const speedText = Number.isFinite(Number(loc.speedKmh)) ? ` | السرعة: ${formatSpeedKmh(loc.speedKmh)}` : "";
 
-          if (st.isOnline) statusEl.appendChild(document.createTextNode(`نشط - ${formatTime(loc.updatedAt)}${accText}${speedText}`));
-          else if (st.isWarn) statusEl.appendChild(document.createTextNode(`متأخر شوي - ${formatTime(loc.updatedAt)}${accText}${speedText}`));
-          else statusEl.appendChild(document.createTextNode(`غير متصل${speedText}`));
+          if (st.isOnline) statusEl.appendChild(document.createTextNode(`نشط - ${formatTime(loc.updatedAt)}${accText}`));
+          else if (st.isWarn) statusEl.appendChild(document.createTextNode(`متأخر شوي - ${formatTime(loc.updatedAt)}${accText}`));
+          else statusEl.appendChild(document.createTextNode("غير متصل"));
         }
 
         left.appendChild(nameEl);
@@ -5046,13 +5031,12 @@ function renderDriversSelect() {
 
         const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
         const accText = acc ? `<br/>الدقة: ±${acc}m` : "";
-        const speedText = Number.isFinite(Number(loc.speedKmh)) ? `<br/>السرعة: ${formatSpeedKmh(loc.speedKmh)}` : "";
 
         const stateText = st.isOnline ? "🟢 مباشر" : "🟡 آخر إشارة قديمة شوي";
         const popupHtml =
           `مندوب: ${loc.name || id}<br/>` +
           `الحالة: ${stateText}<br/>` +
-          `آخر تحديث: ${formatTime(loc.updatedAt)}${accText}${speedText}`;
+          `آخر تحديث: ${formatTime(loc.updatedAt)}${accText}`;
 
         if (!driverMarkers[id]) {
           const marker = L.marker([loc.lat, loc.lng], {
@@ -6104,7 +6088,7 @@ const payload = {
 };
 
 ref.update(payload).then(() => {
-  alert(outMs === null ? "✅ تم تعديل وقت الدخول (والحالة الآن: مستمر)" : "✅ تم تعديل الدخول والخروج بنجاح");
+  alert(outMs === null ? "✅ شتم تعديل وقت الدخول (والحالة الآن: مستمر)" : "✅ تم تعديل الدخول والخروج بنجاح");
 }).catch((e) => {
   console.error(e);
   alert("❌ فشل التعديل");
