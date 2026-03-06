@@ -3325,7 +3325,7 @@ function subscribeEmployees(){
         if (!Number.isFinite(v)) return;
 
         if (o.cashCollected === true) sumCollected += v;
-        else sumUncollected += v; // الافتراضي غير مستلم إذا false/undefined
+        else sumUncollected += v; // الافتراضي المندوب استلم المبلغ إذا false/undefined
       });
 
       if (managerSumLabel) managerSumLabel.textContent = "ملخص التحصيل (حسب اليوم المختار)";
@@ -3365,7 +3365,7 @@ function subscribeEmployees(){
 
         if (x.status === "delivered") {
           extra += ` | مبلغ: ${formatIQD(x.deliveredCash)}`;
-          extra += x.cashCollected ? " | ✅ تم الاستلام" : " | 💰 غير مستلم";
+          extra += x.cashCollected ? " | ✅ تم الاستلام" : " | 💰 المندوب استلم المبلغ";
         }
         if (x.status === "returned") {
           // ✅ (4) السبب + اسم المندوب
@@ -3530,7 +3530,7 @@ function subscribeEmployees(){
 
             gotTxt = (isCollected && Number.isFinite(v)) ? formatIQD(v) : (isCollected ? "✅" : "0");
             details =
-              (isCollected ? "✅ تم الاستلام" : "💰 غير مستلم") +
+              (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
               ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
           } else if (st === "returned"){
             details =
@@ -3633,7 +3633,7 @@ function subscribeEmployees(){
 
           gotTxt = (isCollected && Number.isFinite(v)) ? formatIQD(v) : (isCollected ? "✅" : "0");
           detailsHtml =
-            (isCollected ? "✅ تم الاستلام" : "💰 غير مستلم") +
+            (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
             ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
         } else if (st === "returned") {
           detailsHtml =
@@ -4143,7 +4143,7 @@ function subscribeEmployees(){
             if (x.cashCollected !== true) pendingSum += v;
           }
 
-          meta.textContent = `مبلغ: ${formatIQD(x.deliveredCash)} | ${x.cashCollected ? "✅ تم الاستلام" : "💰 غير مستلم"}`;
+          meta.textContent = `مبلغ: ${formatIQD(x.deliveredCash)} | ${x.cashCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ"}`;
 
           left.appendChild(title);
           left.appendChild(meta);
