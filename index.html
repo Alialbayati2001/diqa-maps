@@ -3131,10 +3131,23 @@ function subscribeEmployees(){
       await db.ref(`orders/${ordersWorkDate}/${orderId}`).remove();
     }
 
+    function normalizeManagerOrderStatusInput(input, fallback){
+      const s = String(input == null ? "" : input).trim().toLowerCase();
+      if (!s) return fallback || "registered";
+
+      if (["1","registered","reg","مسجل","مُسجل"].includes(s)) return "registered";
+      if (["2","nearby","قريب"].includes(s)) return "nearby";
+      if (["3","delivered","تم التسليم","تم_التسليم","تسليم"].includes(s)) return "delivered";
+      if (["4","returned","راجع","مرتجع"].includes(s)) return "returned";
+
+      return fallback || "registered";
+    }
+
     async function managerEditOrder(orderId){
       const o = ordersCache[orderId];
       if (!o) return;
 
+      const currentStatus = String(o.status || "registered");
       const newClientName = prompt("اسم الزبون داخل الطلب:", o.clientName || "");
       if (newClientName == null) return;
 
@@ -3151,22 +3164,119 @@ function subscribeEmployees(){
         return;
       }
 
-      const newDriverId = prompt("ID المندوب (اتركه فارغ بدون تغيير):", o.assignedDriverId || "");
-      let patch = { clientName: newClientName.trim(), lat, lng };
+      const driverDefault = o.assignedDriverId || "";
+      const newDriverId = prompt(
+        "ID المندوب (اتركه كما هو أو اكتبه من جديد إذا تريد تغييره):",
+        driverDefault
+      );
+      if (newDriverId == null) return;
 
-      if (newDriverId && driversMetaCache[newDriverId]) {
-        patch.assignedDriverId = newDriverId;
-        patch.assignedDriverName = driverNameById(newDriverId);
+      const patch = {
+        clientName: newClientName.trim(),
+        lat,
+        lng
+      };
+
+      const newDriverIdTrim = String(newDriverId || "").trim();
+      if (newDriverIdTrim) {
+        if (!driversMetaCache[newDriverIdTrim]) {
+          alert("ID المندوب غير موجود بالقائمة.");
+          return;
+        }
+        patch.assignedDriverId = newDriverIdTrim;
+        patch.assignedDriverName = driverNameById(newDriverIdTrim);
       }
 
       // ✅ أولوية
       const pr = prompt("أولوية التوصيل (رقم 1/2/3.. - اتركه فارغ بدون تغيير):", (o.priority!=null?String(o.priority):""));
-      if (pr != null && String(pr).trim() !== ""){
+      if (pr == null) return;
+      if (String(pr).trim() !== ""){
         const p = normalizePriority(pr);
         if (p) patch.priority = p;
       }
 
+      // ✅ مبلغ الفاتورة المقترح من الأدمن
+      const adminInvoiceInput = prompt(
+        "مبلغ الفاتورة المقترح من الأدمن (اتركه فارغ إذا ما تريد، واكتب 0 إذا تريد تصفيره):",
+        (o.adminInvoiceAmount != null ? String(o.adminInvoiceAmount) : "")
+      );
+      if (adminInvoiceInput == null) return;
+      const adminInvoiceTrim = String(adminInvoiceInput || "").trim();
+      if (adminInvoiceTrim === "") patch.adminInvoiceAmount = null;
+      else {
+        const adminInvoice = parseIQD(adminInvoiceTrim);
+        if (adminInvoice == null || !Number.isFinite(adminInvoice)) {
+          alert("مبلغ الفاتورة المقترح غير صحيح.");
+          return;
+        }
+        patch.adminInvoiceAmount = adminInvoice;
+      }
+
+      const statusInput = prompt(
+        "حالة الطلب:
+1) مسجل
+2) قريب
+3) تم التسليم
+4) راجع
+اكتب الرقم أو اسم الحالة:",
+        currentStatus
+      );
+      if (statusInput == null) return;
+      const nextStatus = normalizeManagerOrderStatusInput(statusInput, currentStatus);
+      patch.status = nextStatus;
+
+      if (nextStatus === "delivered") {
+        const deliveredInput = prompt(
+          "مبلغ الاستلام الفعلي لهذا الطلب:",
+          (o.deliveredCash != null ? String(o.deliveredCash) : (o.adminInvoiceAmount != null ? String(o.adminInvoiceAmount) : "0"))
+        );
+        if (deliveredInput == null) return;
+        const deliveredCash = parseIQD(deliveredInput);
+        if (deliveredCash == null || !Number.isFinite(deliveredCash)) {
+          alert("مبلغ التسليم غير صحيح.");
+          return;
+        }
+
+        patch.deliveredCash = deliveredCash;
+        if (!o.deliveredAt || currentStatus !== "delivered") patch.deliveredAt = SERVER_TS;
+
+        const collectedDefault = (o.cashCollected === true ? "1" : "0");
+        const collectedInput = prompt(
+          "هل استلم الأدمن هذا المبلغ؟
+اكتب 1 = نعم / 0 = لا",
+          collectedDefault
+        );
+        if (collectedInput == null) return;
+
+        const collectedVal = String(collectedInput || "").trim().toLowerCase();
+        const isCollected = ["1","yes","y","true","نعم","تم","مستلم"].includes(collectedVal);
+        patch.cashCollected = isCollected;
+        patch.cashCollectedAt = isCollected ? SERVER_TS : null;
+
+        patch.returnReason = null;
+        patch.returnedAt = null;
+      } else if (nextStatus === "returned") {
+        const reasonInput = prompt("سبب الراجع:", o.returnReason || "");
+        if (reasonInput == null) return;
+
+        patch.returnReason = String(reasonInput || "").trim() || null;
+        if (!o.returnedAt || currentStatus !== "returned") patch.returnedAt = SERVER_TS;
+        patch.cashCollected = false;
+        patch.cashCollectedAt = null;
+        patch.deliveredCash = null;
+        patch.deliveredAt = null;
+      } else {
+        // Registered / Nearby
+        patch.cashCollected = false;
+        patch.cashCollectedAt = null;
+        patch.deliveredCash = null;
+        patch.deliveredAt = null;
+        patch.returnReason = null;
+        patch.returnedAt = null;
+      }
+
       await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
+      alert("تم تعديل الطلب بنجاح ✅");
     }
 
     // =========================
