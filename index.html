@@ -4367,7 +4367,6 @@ function subscribeEmployees(){
         theadEl.innerHTML = `
           <tr>
             <th>اسم الزبون</th>
-            <th>الوقت المتوقع للوصول</th>
             <th>مبلغ الفاتورة</th>
             <th>المبلغ المستلم</th>
             <th>التفاصيل</th>
@@ -4395,7 +4394,7 @@ function subscribeEmployees(){
         tbodyEl.innerHTML = "";
 
         if (!list.length){
-          tbodyEl.innerHTML = `<tr><td colspan="6">لا يوجد بيانات.</td></tr>`;
+          tbodyEl.innerHTML = `<tr><td colspan="5">لا يوجد بيانات.</td></tr>`;
           if (footerEl) footerEl.textContent = "";
           return;
         }
@@ -4442,10 +4441,9 @@ function subscribeEmployees(){
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td>${escapeHtml(clientName)}</td>
-            <td><div class="small">جاري الحساب...</div></td>
             <td>${escapeHtml(invoiceTxt)}</td>
             <td>${escapeHtml(gotTxt)}</td>
-            <td style="text-align:right">${details}</td>
+            <td style="text-align:right"><div class="small eta-inline">جاري حساب وقت الوصول...</div>${details}</td>
             <td style="text-align:right">${describeOrderDataActor(o)}</td>
           `;
           tbodyEl.appendChild(tr);
@@ -4459,11 +4457,13 @@ function subscribeEmployees(){
 
         await Promise.all(rows.map(async ({order, tr})=>{
           try{
-            const etaCell = tr.children[1];
-            if (!etaCell) return;
+            const detailsCell = tr.children[3];
+            if (!detailsCell) return;
+            const etaHolder = detailsCell.querySelector('.eta-inline');
+            if (!etaHolder) return;
             const etaInfo = await fetchTrafficAwareEta(driverId, Number(order.lat), Number(order.lng));
             if (renderSeq !== managerBreakdownRenderSeq) return;
-            etaCell.innerHTML = buildEtaDisplayHtml(etaInfo);
+            etaHolder.outerHTML = `<div class="small">${buildEtaDisplayHtml(etaInfo)}</div>`;
           }catch(err){
             console.error(err);
           }
@@ -4474,7 +4474,7 @@ function subscribeEmployees(){
       if (headName) headName.textContent = "—";
       if (footerEl) footerEl.textContent = "";
       renderHead();
-      tbodyEl.innerHTML = `<tr><td colspan="6">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
+      tbodyEl.innerHTML = `<tr><td colspan="5">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
     }
 
 
@@ -4545,10 +4545,9 @@ function subscribeEmployees(){
 
         return {
           clientName: o.clientName || "—",
-          etaHtml: buildEtaDisplayHtml(etaInfo),
           invoiceTxt,
           gotTxt,
-          detailsHtml,
+          detailsHtml: `<div class="small">${buildEtaDisplayHtml(etaInfo)}</div>${detailsHtml}`,
           actorHtml: describeOrderDataActor(o)
         };
       });
@@ -4577,7 +4576,7 @@ function subscribeEmployees(){
               <td style="text-align:right">${r.actorHtml}</td>
             </tr>
           `).join("")
-        : `<tr><td colspan="6">لا يوجد بيانات.</td></tr>`;
+        : `<tr><td colspan="5">لا يوجد بيانات.</td></tr>`;
 
       const footerText = data.rows.length
         ? `مجموع المبالغ غير المستلمة: ${formatIQD(data.sumUncollected)} | مجموع المبالغ المستلمة: ${formatIQD(data.sumCollected)}`
@@ -4594,7 +4593,6 @@ function subscribeEmployees(){
               <thead>
                 <tr>
                   <th>اسم الزبون</th>
-                  <th>الوقت المتوقع للوصول</th>
                   <th>مبلغ الفاتورة</th>
                   <th>المبلغ المستلم</th>
                   <th>التفاصيل</th>
