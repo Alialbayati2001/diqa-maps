@@ -1125,6 +1125,7 @@ nextDrivers[key] = {
     let driverSelfLatLng = null;   // {lat,lng}
 
     const NEARBY_METERS = 150;
+    const DELIVERY_ALLOWED_METERS = 250;
 
     // ✅ NEW: عناصر مسار المندوب (Driver only)
     let driverSelfMarker = null;
@@ -2801,9 +2802,21 @@ function renderDriverAttendanceBox(tickOnly=false){
     // =========================
     function updateDriverSelfLocationFromCache(){
       if (!currentDriverId) return;
-      const loc = driversLocationsCache[currentDriverId];
+
+      let loc = driversLocationsCache[currentDriverId] || null;
+      const currentName = String(currentDriverNameLabel && currentDriverNameLabel.textContent ? currentDriverNameLabel.textContent : (driverNameById(currentDriverId) || "")).trim();
+
+      if (!loc && currentName) {
+        const found = Object.values(driversLocationsCache || {}).find(x =>
+          x && typeof x.lat === "number" && typeof x.lng === "number" && String(x.name || "").trim() === currentName
+        );
+        if (found) loc = found;
+      }
+
       if (loc && typeof loc.lat === "number" && typeof loc.lng === "number") {
-        driverSelfLatLng = { lat: loc.lat, lng: loc.lng };
+        driverSelfLatLng = { lat: Number(loc.lat), lng: Number(loc.lng) };
+      } else {
+        driverSelfLatLng = null;
       }
     }
 
@@ -3296,6 +3309,24 @@ function subscribeEmployees(){
       });
     }
 
+    function getOrderDistanceMeters(order){
+      if (!order) return null;
+      if (!driverSelfLatLng || !Number.isFinite(driverSelfLatLng.lat) || !Number.isFinite(driverSelfLatLng.lng)) return null;
+      const lat = Number(order.lat), lng = Number(order.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return haversineMeters(driverSelfLatLng.lat, driverSelfLatLng.lng, lat, lng);
+    }
+
+    function isOrderWithinNearby(order){
+      const d = getOrderDistanceMeters(order);
+      return d != null && d <= NEARBY_METERS;
+    }
+
+    function isOrderWithinDeliveryRange(order){
+      const d = getOrderDistanceMeters(order);
+      return d != null && d <= DELIVERY_ALLOWED_METERS;
+    }
+
     function updateOrdersOnDriverMap(){
       if (!driverMap) return;
 
@@ -3311,9 +3342,9 @@ function subscribeEmployees(){
         if (!currentDriverId) return;
         if (o.assignedDriverId !== currentDriverId) return;
 
-        const isNearby = driverSelfLatLng
-          ? (haversineMeters(driverSelfLatLng.lat, driverSelfLatLng.lng, o.lat, o.lng) <= NEARBY_METERS)
-          : false;
+        const distanceMeters = getOrderDistanceMeters(o);
+        const isNearby = distanceMeters != null && distanceMeters <= NEARBY_METERS;
+        const canDeliverHere = distanceMeters != null && distanceMeters <= DELIVERY_ALLOWED_METERS;
 
         if ((o.status === "registered" || o.status === "nearby") && isNearby && o.status !== "nearby") {
           db.ref(`orders/${ordersWorkDate}/${orderId}`).update({ status: "nearby", nearbyAt: SERVER_TS }).catch(()=>{});
@@ -3325,8 +3356,8 @@ function subscribeEmployees(){
         const color = orderColorByStatus(o);
         const bounds = makeRectBounds(o.lat, o.lng);
 
-        const actionsHint = (o.status === "nearby")
-          ? `<br/><b>قريب ✅</b> (تقدر: تم التسليم / راجع)`
+        const actionsHint = canDeliverHere
+          ? `<br/><b>${distanceMeters != null && distanceMeters <= NEARBY_METERS ? "قريب ✅" : "ضمن مجال التسليم ✅"}</b> (تقدر: تم التسليم / راجع)`
           : "";
 
         const pr = (Number.isFinite(Number(o.priority)) ? Number(o.priority) : null);
@@ -3335,6 +3366,7 @@ function subscribeEmployees(){
         const popupHtml =
           `طلب: <b>${o.clientName || "زبون"}</b><br/>` +
           `الحالة: <b>${statusLabel(o.status)}</b>` +
+          (distanceMeters != null ? `<br/>المسافة: <b>${Math.round(distanceMeters)}م</b>` : "") +
           actionsHint +
           prTxt +
           (o.status === "delivered" ? `<br/>المبلغ: <b>${formatIQD(o.deliveredCash)}</b>` : "") +
@@ -3347,8 +3379,9 @@ function subscribeEmployees(){
           rect.bindPopup(popupHtml);
 
           rect.on("click", () => {
-            if (o.status === "nearby") {
-              driverOrderAction(orderId, o);
+            const latest = ordersCache[orderId] || o;
+            if (isOrderWithinDeliveryRange(latest) || latest.status === "nearby") {
+              driverOrderAction(orderId, latest);
             }
           });
 
@@ -3500,6 +3533,20 @@ function subscribeEmployees(){
       if (!currentDriverId) return;
       if (!o || o.assignedDriverId !== currentDriverId) return;
 
+      const liveOrder = ordersCache[orderId] || o;
+      const distanceMeters = getOrderDistanceMeters(liveOrder);
+      const canDeliverHere = distanceMeters != null && distanceMeters <= DELIVERY_ALLOWED_METERS;
+
+      if (!driverSelfLatLng || distanceMeters == null) {
+        alert("موقعك الحالي غير متوفر بعد. تأكد أن Traccar أو GPS محدث ثم جرّب مرة أخرى.");
+        return;
+      }
+
+      if (!(liveOrder.status === "registered" || liveOrder.status === "nearby" || liveOrder.status === "returned" || liveOrder.status === "delivered")) {
+        alert("هذه الحالة لا يمكن تحديثها من هنا.");
+        return;
+      }
+
       const choice = prompt(
         "اكتب رقم الخيار:\n1) تم التسليم\n2) الطلب راجع (هذا الطلب)\n3) استلام راجع سابق (قطعة قديمة)",
         "1"
@@ -3507,8 +3554,13 @@ function subscribeEmployees(){
       if (!choice) return;
 
       if (String(choice).trim() === "1") {
+        if (!canDeliverHere && liveOrder.status !== "nearby") {
+          alert(`أنت بعيد عن الزبون حالياً (${Math.round(distanceMeters)}م). يسمح بالتسليم ضمن ${DELIVERY_ALLOWED_METERS}م.`);
+          return;
+        }
+
         let amountStr;
-        const suggested = (o && o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : null;
+        const suggested = (liveOrder && liveOrder.adminInvoiceAmount != null) ? Number(liveOrder.adminInvoiceAmount) : null;
         const hint = (suggested != null) ? `\n(مبلغ مقترح من الأدمن: ${formatIQD(suggested)})` : "";
         amountStr = prompt("اكتب مبلغ الاستلام (إجباري حتى لو 0):" + hint, (suggested != null ? String(suggested) : "0"));
         if (amountStr == null) return;
@@ -3522,6 +3574,7 @@ function subscribeEmployees(){
 
         await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
           status: "delivered",
+          nearbyAt: liveOrder.nearbyAt || SERVER_TS,
           deliveredCash: amount,
           deliveredAt: SERVER_TS,
           cashCollected: false,
@@ -3539,6 +3592,10 @@ function subscribeEmployees(){
 
         alert("تم تسجيل (تم التسليم) ✅");
       } else if (String(choice).trim() === "2") {
+        if (!canDeliverHere && liveOrder.status !== "nearby") {
+          alert(`أنت بعيد عن الزبون حالياً (${Math.round(distanceMeters)}م). يسمح بتحديث الطلب ضمن ${DELIVERY_ALLOWED_METERS}م.`);
+          return;
+        }
         const reason = prompt("سبب الرجوع (مهم حتى يظهر للأدمن):", "");
         await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
           status: "returned",
@@ -4699,8 +4756,9 @@ function subscribeEmployees(){
 
           const meta = document.createElement("div");
           meta.className = "small";
-          const distanceText = (driverSelfLatLng && Number.isFinite(driverSelfLatLng.lat) && Number.isFinite(driverSelfLatLng.lng))
-            ? ` | المسافة: ${Math.round(haversineMeters(driverSelfLatLng.lat, driverSelfLatLng.lng, x.lat, x.lng))}م`
+          const orderDistance = getOrderDistanceMeters(x);
+          const distanceText = (orderDistance != null)
+            ? ` | المسافة: ${Math.round(orderDistance)}م`
             : "";
           const priorityModeText = hasManualPriority(x) ? " | أولوية الأدمن" : " | ترتيب تلقائي حسب الأقرب";
           meta.textContent = `الحالة: ${statusLabel(x.status)}` + priorityModeText + distanceText + (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
@@ -4732,7 +4790,8 @@ function subscribeEmployees(){
             right.appendChild(focusBtn);
           }
 
-          if (x.status === "nearby") {
+          const canActHere = isOrderWithinDeliveryRange(x) || x.status === "nearby";
+          if (canActHere) {
             const act = document.createElement("button");
             act.textContent = "تحديث";
             act.className = "";
