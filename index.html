@@ -1855,6 +1855,25 @@ function openInGoogleMaps(lat, lng) {
     const ETA_FALLBACK_SPEED_KMH = 30;
     const ETA_MIN_MOVING_SPEED_KMH = 3;
 
+    // =========================
+    // ✅ Google Routes API (Traffic-aware ETA)
+    // ضع API Key هنا حتى نحسب الوصول حسب الزحام الفعلي مثل الخرائط
+    // لازم تكون مفعّل عليها Routes API + Billing
+    // إذا بقيت فارغة، يرجع النظام تلقائياً إلى ETA التقليدي (مسافة + سرعة)
+    // =========================
+    const GOOGLE_ROUTES_API_KEY = "";
+    const GOOGLE_ROUTES_API_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
+    const GOOGLE_ROUTES_REFRESH_MS = 90 * 1000;
+    const GOOGLE_ROUTES_MIN_REQUEST_GAP_MS = 1500;
+    const GOOGLE_ROUTES_TRAVEL_MODE = "DRIVE";
+    const GOOGLE_ROUTES_ROUTING_PREFERENCE = "TRAFFIC_AWARE_OPTIMAL";
+    const GOOGLE_ROUTES_USE_TRAFFIC = true;
+
+    let routeEtaCache = {}; // key -> { etaMin, staticMin, distanceM, trafficLabel, trafficClass, fetchedAt, source }
+    let routeEtaPending = {}; // key -> Promise
+    let routeEtaLastRequestAt = 0;
+    let managerBreakdownRenderSeq = 0;
+
     function normalizeSpeedKmhFromTraccar(raw){
       const n = Number(raw);
       if (!Number.isFinite(n) || n < 0) return null;
@@ -1934,6 +1953,200 @@ function openInGoogleMaps(lat, lng) {
       const st = calcLiveState(loc.updatedAt);
       const liveState = st.isOnline ? 'online' : (st.isWarn ? 'warn' : 'offline');
       return { distanceM, speedKmh, etaMin, usedFallback, liveState, updatedAt: loc.updatedAt };
+    }
+
+    function routesApiEnabled(){
+      return !!(GOOGLE_ROUTES_USE_TRAFFIC && String(GOOGLE_ROUTES_API_KEY || '').trim());
+    }
+
+    function parseGoogleDurationMinutes(raw){
+      if (raw == null) return null;
+      if (typeof raw === 'number' && Number.isFinite(raw)) return Math.max(1, Math.round(raw / 60));
+      const s = String(raw).trim();
+      const m = s.match(/^(-?\d+(?:\.\d+)?)s$/);
+      if (!m) return null;
+      const secs = Number(m[1]);
+      if (!Number.isFinite(secs) || secs < 0) return null;
+      return Math.max(1, Math.round(secs / 60));
+    }
+
+    function getWorstTrafficSpeed(intervals){
+      const arr = Array.isArray(intervals) ? intervals : [];
+      let hasJam = false;
+      let hasSlow = false;
+      let hasNormal = false;
+      arr.forEach(x=>{
+        const sp = String(x && x.speed || '').toUpperCase();
+        if (sp === 'TRAFFIC_JAM') hasJam = true;
+        else if (sp === 'SLOW') hasSlow = true;
+        else if (sp === 'NORMAL') hasNormal = true;
+      });
+      if (hasJam) return 'TRAFFIC_JAM';
+      if (hasSlow) return 'SLOW';
+      if (hasNormal) return 'NORMAL';
+      return '';
+    }
+
+    function trafficSpeedMeta(speed){
+      const sp = String(speed || '').toUpperCase();
+      if (sp === 'TRAFFIC_JAM') return { label: 'ازدحام شديد', cls: 'jam' };
+      if (sp === 'SLOW') return { label: 'ازدحام متوسط', cls: 'slow' };
+      if (sp === 'NORMAL') return { label: 'طريق طبيعي', cls: 'normal' };
+      return { label: 'غير واضح', cls: 'unknown' };
+    }
+
+    function roundCoordKey(v){
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toFixed(5) : 'x';
+    }
+
+    function buildTrafficEtaCacheKey(driverId, originLat, originLng, destLat, destLng){
+      return [
+        String(driverId || ''),
+        roundCoordKey(originLat),
+        roundCoordKey(originLng),
+        roundCoordKey(destLat),
+        roundCoordKey(destLng),
+        String(GOOGLE_ROUTES_TRAVEL_MODE || 'DRIVE')
+      ].join('|');
+    }
+
+    function buildTrafficEtaFallback(driverId, clientLat, clientLng){
+      const live = getDriverEtaInfoForClient(driverId, clientLat, clientLng);
+      if (!live) return null;
+      return {
+        etaMin: live.etaMin,
+        staticMin: live.etaMin,
+        distanceM: live.distanceM,
+        trafficLabel: live.usedFallback ? 'تقريبي' : 'حسب السرعة الحالية',
+        trafficClass: live.usedFallback ? 'fallback' : 'live',
+        fetchedAt: Date.now(),
+        source: live.usedFallback ? 'fallback_speed' : 'live_speed',
+        speedKmh: live.speedKmh,
+        usedFallback: live.usedFallback,
+        liveState: live.liveState,
+        updatedAt: live.updatedAt
+      };
+    }
+
+    async function fetchTrafficAwareEta(driverId, clientLat, clientLng){
+      const loc = driversLocationsCache ? driversLocationsCache[String(driverId)] : null;
+      if (!loc) return buildTrafficEtaFallback(driverId, clientLat, clientLng);
+
+      const originLat = Number(loc.lat);
+      const originLng = Number(loc.lng);
+      const destLat = Number(clientLat);
+      const destLng = Number(clientLng);
+      if (!Number.isFinite(originLat) || !Number.isFinite(originLng) || !Number.isFinite(destLat) || !Number.isFinite(destLng)) {
+        return buildTrafficEtaFallback(driverId, clientLat, clientLng);
+      }
+
+      const cacheKey = buildTrafficEtaCacheKey(driverId, originLat, originLng, destLat, destLng);
+      const now = Date.now();
+      const cached = routeEtaCache[cacheKey];
+      if (cached && (now - Number(cached.fetchedAt || 0) <= GOOGLE_ROUTES_REFRESH_MS)) {
+        return cached;
+      }
+
+      if (!routesApiEnabled()) {
+        const fallback = buildTrafficEtaFallback(driverId, clientLat, clientLng);
+        if (fallback) routeEtaCache[cacheKey] = { ...fallback, cacheKey };
+        return fallback;
+      }
+
+      if (routeEtaPending[cacheKey]) return routeEtaPending[cacheKey];
+
+      routeEtaPending[cacheKey] = (async ()=>{
+        try{
+          const gap = Date.now() - routeEtaLastRequestAt;
+          if (gap < GOOGLE_ROUTES_MIN_REQUEST_GAP_MS) {
+            await new Promise(r => setTimeout(r, GOOGLE_ROUTES_MIN_REQUEST_GAP_MS - gap));
+          }
+          routeEtaLastRequestAt = Date.now();
+
+          const body = {
+            origin: { location: { latLng: { latitude: originLat, longitude: originLng } } },
+            destination: { location: { latLng: { latitude: destLat, longitude: destLng } } },
+            travelMode: GOOGLE_ROUTES_TRAVEL_MODE,
+            routingPreference: GOOGLE_ROUTES_ROUTING_PREFERENCE,
+            departureTime: new Date().toISOString(),
+            languageCode: 'ar',
+            units: 'METRIC',
+            extraComputations: ['TRAFFIC_ON_POLYLINE']
+          };
+
+          const res = await fetch(GOOGLE_ROUTES_API_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Goog-Api-Key': GOOGLE_ROUTES_API_KEY,
+              'X-Goog-FieldMask': 'routes.duration,routes.staticDuration,routes.distanceMeters,routes.travelAdvisory.speedReadingIntervals,routes.legs.travelAdvisory.speedReadingIntervals'
+            },
+            body: JSON.stringify(body)
+          });
+
+          if (!res.ok) throw new Error('Routes API ' + res.status);
+          const json = await res.json();
+          const route = Array.isArray(json.routes) ? json.routes[0] : null;
+          if (!route) throw new Error('No route returned');
+
+          const durationMin = parseGoogleDurationMinutes(route.duration);
+          const staticMin = parseGoogleDurationMinutes(route.staticDuration);
+          const distanceM = Number(route.distanceMeters);
+          let trafficIntervals = [];
+          if (route.travelAdvisory && Array.isArray(route.travelAdvisory.speedReadingIntervals)) {
+            trafficIntervals = route.travelAdvisory.speedReadingIntervals;
+          } else if (Array.isArray(route.legs)) {
+            route.legs.forEach(leg=>{
+              const arr = leg && leg.travelAdvisory && Array.isArray(leg.travelAdvisory.speedReadingIntervals)
+                ? leg.travelAdvisory.speedReadingIntervals
+                : [];
+              if (arr.length) trafficIntervals = trafficIntervals.concat(arr);
+            });
+          }
+
+          const worst = getWorstTrafficSpeed(trafficIntervals);
+          const meta = trafficSpeedMeta(worst);
+          const out = {
+            etaMin: durationMin,
+            staticMin: staticMin,
+            distanceM: Number.isFinite(distanceM) ? distanceM : null,
+            trafficLabel: meta.label,
+            trafficClass: meta.cls,
+            fetchedAt: Date.now(),
+            source: 'google_routes'
+          };
+          routeEtaCache[cacheKey] = out;
+          return out;
+        }catch(err){
+          console.error('Traffic ETA error:', err);
+          const fallback = buildTrafficEtaFallback(driverId, clientLat, clientLng);
+          if (fallback) routeEtaCache[cacheKey] = { ...fallback, cacheKey };
+          return fallback;
+        }finally{
+          delete routeEtaPending[cacheKey];
+        }
+      })();
+
+      return routeEtaPending[cacheKey];
+    }
+
+    function buildEtaDisplayHtml(etaInfo){
+      if (!etaInfo) return '—';
+      const etaTxt = formatEtaMinutes(etaInfo.etaMin);
+      const trafficLabel = etaInfo.trafficLabel ? escapeHtml(etaInfo.trafficLabel) : '';
+      const staticTxt = (Number.isFinite(Number(etaInfo.staticMin)) && Number(etaInfo.staticMin) > 0) ? formatEtaMinutes(etaInfo.staticMin) : '';
+      const distanceTxt = Number.isFinite(Number(etaInfo.distanceM)) ? formatMetersSmart(etaInfo.distanceM) : '';
+      const diff = (Number.isFinite(Number(etaInfo.etaMin)) && Number.isFinite(Number(etaInfo.staticMin)))
+        ? Math.max(0, Math.round(Number(etaInfo.etaMin) - Number(etaInfo.staticMin)))
+        : 0;
+      const diffTxt = diff > 0 ? `+${diff} د زحام` : '';
+      const sourceTxt = etaInfo.source === 'google_routes'
+        ? 'مروري'
+        : (etaInfo.source === 'live_speed' ? 'حي' : 'تقريبي');
+
+      const extra = [trafficLabel, diffTxt, distanceTxt, sourceTxt].filter(Boolean).join(' | ');
+      return `${escapeHtml(etaTxt)}${extra ? `<div class="small">${extra}</div>` : ''}`;
     }
 
     function getNearestActiveOrderIdForDriver(driverId){
@@ -4130,9 +4343,10 @@ function subscribeEmployees(){
     // =========================
     // ✅ NEW: Breakdown per driver (collection + invoices)
     // =========================
-    function renderManagerDriverBreakdown(){
+    async function renderManagerDriverBreakdown(){
       if (!managerDriverBreakdownList) return;
 
+      const renderSeq = ++managerBreakdownRenderSeq;
       const filterDriver = getManagerSelectedDriverId();
       const workDate = ordersWorkDate || getActiveWorkDate();
 
@@ -4144,32 +4358,30 @@ function subscribeEmployees(){
 
       if (headDate) headDate.textContent = workDate || "—";
 
-      // Safety
       if (!theadEl || !tbodyEl){
-        // fallback: keep old behavior if table skeleton missing
         managerDriverBreakdownList.innerHTML = `<div class="small">⚠️ table not ready.</div>`;
         return;
       }
 
-      // --------------------------------------------------
-      // ✅ (A) إذا مختار مندوب → جدول تفصيلي للطلبات
-      // --------------------------------------------------
-      if (filterDriver){
-        const driverId = String(filterDriver);
-        const driverName = driverNameById(driverId) || driverId;
-
-        if (headName) headName.textContent = driverName;
-
-        // Table head (مثل التصميم اللي أرسلته)
+      const renderHead = ()=>{
         theadEl.innerHTML = `
           <tr>
             <th>اسم الزبون</th>
+            <th>الوقت المتوقع للوصول</th>
             <th>مبلغ الفاتورة</th>
             <th>المبلغ المستلم</th>
             <th>التفاصيل</th>
             <th>مستلم البيانات</th>
           </tr>
         `;
+      };
+
+      if (filterDriver){
+        const driverId = String(filterDriver);
+        const driverName = driverNameById(driverId) || driverId;
+
+        if (headName) headName.textContent = driverName;
+        renderHead();
 
         const list = Object.entries(ordersCache || {})
           .map(([id,o])=>({ id, ...(o||{}) }))
@@ -4183,7 +4395,7 @@ function subscribeEmployees(){
         tbodyEl.innerHTML = "";
 
         if (!list.length){
-          tbodyEl.innerHTML = `<tr><td colspan="5">لا يوجد بيانات.</td></tr>`;
+          tbodyEl.innerHTML = `<tr><td colspan="6">لا يوجد بيانات.</td></tr>`;
           if (footerEl) footerEl.textContent = "";
           return;
         }
@@ -4191,11 +4403,9 @@ function subscribeEmployees(){
         let sumUncollected = 0;
         let sumCollected = 0;
 
-        list.forEach(o=>{
+        const rows = list.map(o=>{
           const st = String(o.status || "registered");
           const clientName = o.clientName || "—";
-
-          // Amounts
           let invoiceTxt = "—";
           let gotTxt = "—";
           let details = "";
@@ -4203,13 +4413,11 @@ function subscribeEmployees(){
           if (st === "delivered"){
             const v = Number(o.deliveredCash);
             invoiceTxt = Number.isFinite(v) ? formatIQD(v) : "—";
-
             const isCollected = (o.cashCollected === true);
             if (Number.isFinite(v)){
               if (isCollected) sumCollected += v;
               else sumUncollected += v;
             }
-
             gotTxt = (isCollected && Number.isFinite(v)) ? formatIQD(v) : (isCollected ? "✅" : "0");
             details =
               (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
@@ -4223,58 +4431,51 @@ function subscribeEmployees(){
             const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
             invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
             const pr = normalizePriority(o.priority);
-            details =
-              `📍 قريب` +
-              ` <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+            details = `📍 قريب <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
           } else {
-            // registered / any other
             const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
             invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
             const pr = normalizePriority(o.priority);
-            details =
-              `📝 مسجّل` +
-              ` <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+            details = `📝 مسجّل <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
           }
 
-          const actorHtml = describeOrderDataActor(o);
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td>${escapeHtml(clientName)}</td>
+            <td><div class="small">جاري الحساب...</div></td>
             <td>${escapeHtml(invoiceTxt)}</td>
             <td>${escapeHtml(gotTxt)}</td>
             <td style="text-align:right">${details}</td>
-            <td style="text-align:right">${actorHtml}</td>
+            <td style="text-align:right">${describeOrderDataActor(o)}</td>
           `;
           tbodyEl.appendChild(tr);
+          return { order: o, tr };
         });
 
         if (footerEl){
           footerEl.textContent =
             `مجموع المبالغ غير المستلمة: ${formatIQD(sumUncollected)} | مجموع المبالغ المستلمة: ${formatIQD(sumCollected)}`;
         }
+
+        await Promise.all(rows.map(async ({order, tr})=>{
+          try{
+            const etaCell = tr.children[1];
+            if (!etaCell) return;
+            const etaInfo = await fetchTrafficAwareEta(driverId, Number(order.lat), Number(order.lng));
+            if (renderSeq !== managerBreakdownRenderSeq) return;
+            etaCell.innerHTML = buildEtaDisplayHtml(etaInfo);
+          }catch(err){
+            console.error(err);
+          }
+        }));
         return;
       }
 
-      // --------------------------------------------------
-      // ✅ (B) ماكو فلتر → لازم تختار مندوب
-      // --------------------------------------------------
       if (headName) headName.textContent = "—";
       if (footerEl) footerEl.textContent = "";
-
-      // نفس أعمدة الجدول التفصيلي
-      theadEl.innerHTML = `
-        <tr>
-          <th>اسم الزبون</th>
-          <th>مبلغ الفاتورة</th>
-          <th>المبلغ المستلم</th>
-          <th>التفاصيل</th>
-          <th>مستلم البيانات</th>
-        </tr>
-      `;
-
-      tbodyEl.innerHTML = `<tr><td colspan="5">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
-      return;
-}
+      renderHead();
+      tbodyEl.innerHTML = `<tr><td colspan="6">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
+    }
 
 
 
@@ -4337,8 +4538,14 @@ function subscribeEmployees(){
           detailsHtml = `📝 مسجّل <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
         }
 
+        const etaCached = buildTrafficEtaFallback(id, Number(o.lat), Number(o.lng));
+        const loc = driversLocationsCache ? driversLocationsCache[String(id)] : null;
+        const cacheKey = loc ? buildTrafficEtaCacheKey(id, Number(loc.lat), Number(loc.lng), Number(o.lat), Number(o.lng)) : '';
+        const etaInfo = (cacheKey && routeEtaCache[cacheKey]) ? routeEtaCache[cacheKey] : etaCached;
+
         return {
           clientName: o.clientName || "—",
+          etaHtml: buildEtaDisplayHtml(etaInfo),
           invoiceTxt,
           gotTxt,
           detailsHtml,
@@ -4356,19 +4563,21 @@ function subscribeEmployees(){
       };
     }
 
+
     function buildDriverReportHtml(driverId){
       const data = buildDriverBreakdownReportData(driverId);
       const rowsHtml = data.rows.length
         ? data.rows.map(r => `
             <tr>
               <td>${escapeHtml(r.clientName)}</td>
+              <td>${r.etaHtml || '—'}</td>
               <td>${escapeHtml(r.invoiceTxt)}</td>
               <td>${escapeHtml(r.gotTxt)}</td>
               <td style="text-align:right">${r.detailsHtml}</td>
               <td style="text-align:right">${r.actorHtml}</td>
             </tr>
           `).join("")
-        : `<tr><td colspan="5">لا يوجد بيانات.</td></tr>`;
+        : `<tr><td colspan="6">لا يوجد بيانات.</td></tr>`;
 
       const footerText = data.rows.length
         ? `مجموع المبالغ غير المستلمة: ${formatIQD(data.sumUncollected)} | مجموع المبالغ المستلمة: ${formatIQD(data.sumCollected)}`
@@ -4385,9 +4594,11 @@ function subscribeEmployees(){
               <thead>
                 <tr>
                   <th>اسم الزبون</th>
+                  <th>الوقت المتوقع للوصول</th>
                   <th>مبلغ الفاتورة</th>
                   <th>المبلغ المستلم</th>
                   <th>التفاصيل</th>
+                  <th>مستلم البيانات</th>
                 </tr>
               </thead>
               <tbody>${rowsHtml}</tbody>
