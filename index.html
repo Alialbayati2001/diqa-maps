@@ -3319,14 +3319,18 @@ function subscribeEmployees(){
           `<span class="small">اليوم: ${ordersWorkDate}</span>`;
 
         if (!orderLayersManager[orderId]) {
-          const rect = L.rectangle(bounds, { color, weight:2, fillOpacity:0.35 });
+          const rect = L.rectangle(bounds, {
+            color,
+            weight:2,
+            fillOpacity:0.35,
+            interactive:false,
+            bubblingMouseEvents:false
+          });
           rect.addTo(map);
-          rect.bindPopup(popupHtml);
           orderLayersManager[orderId] = rect;
         } else {
           orderLayersManager[orderId].setBounds(bounds);
-          orderLayersManager[orderId].setStyle({ color });
-          orderLayersManager[orderId].setPopupContent(popupHtml);
+          orderLayersManager[orderId].setStyle({ color, interactive:false, bubblingMouseEvents:false });
         }
       });
     }
@@ -5283,7 +5287,35 @@ function renderDriversSelect() {
 
     // expose for early calls safety
     window.updateEmployeeMarkers = updateEmployeeMarkers;
-function updateClientMarkers() {
+function getClientOrdersHtml(clientId){
+      const items = Object.entries(ordersCache)
+        .filter(([_, o]) => o && String(o.clientId || "") === String(clientId || ""))
+        .sort((a, b) => {
+          const ta = Number(a[1] && (a[1].updatedAt || a[1].createdAt || a[1].assignedAt) || 0);
+          const tb = Number(b[1] && (b[1].updatedAt || b[1].createdAt || b[1].assignedAt) || 0);
+          return tb - ta;
+        });
+
+      if (!items.length) {
+        return `<div class="small">لا يوجد طلب لهذا الزبون في ${escapeHtml(ordersWorkDate || "اليوم المختار")}.</div>`;
+      }
+
+      return items.map(([orderId, o]) => {
+        const pr = Number.isFinite(Number(o.priority)) ? Number(o.priority) : null;
+        return `
+          <div style="padding-top:6px;margin-top:6px;border-top:1px solid #e5e7eb;">
+            <div><b>طلب:</b> ${escapeHtml(o.clientName || "زبون")}</div>
+            <div><b>الحالة:</b> ${escapeHtml(statusLabel(o.status))}</div>
+            <div><b>المندوب:</b> ${escapeHtml(o.assignedDriverName || driverNameById(o.assignedDriverId))}</div>
+            ${pr != null ? `<div><b>الأولوية:</b> ${pr}</div>` : ``}
+            ${o.status === "delivered" ? `<div><b>المبلغ:</b> ${escapeHtml(formatIQD(o.deliveredCash))}</div>` : ``}
+            ${o.status === "returned" ? `<div><b>سبب الراجع:</b> ${escapeHtml(o.returnReason || "-")}</div>` : ``}
+          </div>
+        `;
+      }).join("");
+    }
+
+    function updateClientMarkers() {
       if (!map) return;
 
       Object.keys(clientMarkers).forEach(id => {
@@ -5296,12 +5328,26 @@ function updateClientMarkers() {
       Object.entries(clientsCache).forEach(([id, c]) => {
         if (!c || typeof c.lat !== "number" || typeof c.lng !== "number") return;
 
+        const popupHtml = `
+          <div style="min-width:210px">
+            <div style="font-weight:800;margin-bottom:6px">زبون: ${escapeHtml(c.name || "زبون")}</div>
+            <div class="small">ID: <span class="mono">${escapeHtml(id)}</span></div>
+            <div class="small">${getClientOrdersHtml(id)}</div>
+          </div>
+        `;
+
         if (!clientMarkers[id]) {
-          const marker = L.circleMarker([c.lat, c.lng], { radius: 6 }).addTo(map);
-          marker.bindPopup(`زبون: ${c.name || "زبون"}`);
+          const marker = L.circleMarker([c.lat, c.lng], {
+            radius: 6,
+            bubblingMouseEvents: false
+          }).addTo(map);
+          marker.bindPopup(popupHtml);
+          marker.bringToFront();
           clientMarkers[id] = marker;
         } else {
           clientMarkers[id].setLatLng([c.lat, c.lng]);
+          clientMarkers[id].setPopupContent(popupHtml);
+          clientMarkers[id].bringToFront();
         }
       });
     }
