@@ -3451,6 +3451,33 @@ function initMap() {
       return starts.concat(contains).slice(0, 30);
     }
 
+    const managerBreakdownDraftByDriver = {};
+
+    function getManagerBreakdownDraft(driverId){
+      const id = String(driverId || '').trim();
+      if (!id) return { clientName:'', invoice:'', got:'', status:'registered' };
+      if (!managerBreakdownDraftByDriver[id]) {
+        managerBreakdownDraftByDriver[id] = { clientName:'', invoice:'', got:'', status:'registered' };
+      }
+      return managerBreakdownDraftByDriver[id];
+    }
+
+    function syncManagerBreakdownDraftFromRow(row){
+      if (!row) return;
+      const btn = row.querySelector('[data-role="breakdown-create"]');
+      const driverId = String((btn && btn.getAttribute('data-driver-id')) || getManagerSelectedDriverId() || '').trim();
+      if (!driverId) return;
+      const draft = getManagerBreakdownDraft(driverId);
+      const clientEl = row.querySelector('.edit-client');
+      const invoiceEl = row.querySelector('.edit-invoice');
+      const gotEl = row.querySelector('.edit-got');
+      const statusEl = row.querySelector('[data-role="breakdown-status-new"]');
+      draft.clientName = String(clientEl && clientEl.value || '');
+      draft.invoice = String(invoiceEl && invoiceEl.value || '');
+      draft.got = String(gotEl && gotEl.value || '');
+      draft.status = String(statusEl && statusEl.value || 'registered') || 'registered';
+    }
+
     function closeBreakdownClientSuggests(exceptInput){
       document.querySelectorAll('.breakdown-client-suggest').forEach(box => {
         if (exceptInput && box.dataset.forInputId === exceptInput.dataset.breakdownInputId) return;
@@ -3490,10 +3517,12 @@ function initMap() {
           item.textContent = name;
           item.addEventListener('mousedown', function(e){
             e.preventDefault();
+            e.stopPropagation();
             inputEl.value = name;
             inputEl.title = name;
+            const row = inputEl.closest('tr[data-kind="new"]');
+            if (row) syncManagerBreakdownDraftFromRow(row);
             box.classList.remove('show');
-            inputEl.dispatchEvent(new Event('input', { bubbles:true }));
             inputEl.dispatchEvent(new Event('change', { bubbles:true }));
           });
           box.appendChild(item);
@@ -4295,6 +4324,12 @@ function subscribeEmployees(){
       const ref = db.ref(`orders/${ordersWorkDate}`).push();
       await ref.set(payload);
 
+      const draft = getManagerBreakdownDraft(driverIdText);
+      draft.clientName = '';
+      draft.invoice = '';
+      draft.got = '';
+      draft.status = 'registered';
+
       const clientEl = row.querySelector('.edit-client');
       const invoiceEl = row.querySelector('.edit-invoice');
       const gotEl = row.querySelector('.edit-got');
@@ -4867,18 +4902,19 @@ function subscribeEmployees(){
           tbodyEl.appendChild(tr);
         });
 
+        const draft = getManagerBreakdownDraft(driverId);
         const newRow = document.createElement("tr");
         newRow.className = "breakdown-new-row";
         newRow.setAttribute("data-kind", "new");
         newRow.innerHTML = `
-          <td class='client-name-cell'><input class='edit-client client-name-input' value='' placeholder='اسم الزبون الجديد' style='width:100%' title='' oninput='this.title=this.value'></td>
-          <td><input class='edit-invoice' value='' placeholder='مبلغ الفاتورة' style='width:90px'></td>
-          <td><input class='edit-got' value='' placeholder='مبلغ الاستلام' style='width:90px'></td>
+          <td class='client-name-cell'><input class='edit-client client-name-input' value='${escapeHtml(draft.clientName || "")}' placeholder='اسم الزبون الجديد' style='width:100%' title='${escapeHtml(draft.clientName || "")}' oninput='this.title=this.value'></td>
+          <td><input class='edit-invoice' value='${escapeHtml(draft.invoice || "")}' placeholder='مبلغ الفاتورة' style='width:90px'></td>
+          <td><input class='edit-got' value='${escapeHtml(draft.got || "")}' placeholder='مبلغ الاستلام' style='width:90px'></td>
           <td style="text-align:right"><div class="small">سطر جديد فارغ — ينحفظ كطلب جديد على هذا المندوب.</div></td>
           <td style="text-align:right">—</td>
           <td class="btn-cell">
             <select class="report-inline-control" data-role="breakdown-status-new">
-              ${buildManagerBreakdownQuickStatusOptions("registered")}
+              ${buildManagerBreakdownQuickStatusOptions(draft.status || "registered")}
             </select>
             <button class="secondary report-inline-save-btn" data-role="breakdown-create" data-driver-id="${escapeHtml(driverId)}">إضافة صف</button>
             <span class="report-inline-note">يبقى دائمًا بأسفل الجدول.</span>
@@ -7064,12 +7100,18 @@ document.addEventListener("DOMContentLoaded",function(){
 
   document.addEventListener('input', function(e){
     const row = e.target && e.target.closest ? e.target.closest('#manager-driver-breakdown-tbody tr') : null;
-    if(row) applyRowRules(row);
+    if(row){
+      applyRowRules(row);
+      if (row.getAttribute('data-kind') === 'new') syncManagerBreakdownDraftFromRow(row);
+    }
   });
 
   document.addEventListener('change', function(e){
     const row = e.target && e.target.closest ? e.target.closest('#manager-driver-breakdown-tbody tr') : null;
-    if(row) applyRowRules(row);
+    if(row){
+      applyRowRules(row);
+      if (row.getAttribute('data-kind') === 'new') syncManagerBreakdownDraftFromRow(row);
+    }
   });
 
 
