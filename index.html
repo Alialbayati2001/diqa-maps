@@ -173,6 +173,33 @@ background:#fff;
     .report-table .btn-cell button{
       white-space:nowrap;
     }
+    .report-inline-control{
+      min-width:150px;
+      width:100%;
+      margin:0 0 6px 0;
+      padding:6px 8px;
+      border-radius:8px;
+      border:1px solid #9ca3af;
+      background:#fff;
+      color:#111827;
+      font-size:12px;
+      font-weight:700;
+    }
+    .report-inline-save-btn{
+      width:100%;
+      margin:0;
+      padding:6px 8px;
+      border-radius:8px;
+      font-size:12px;
+      font-weight:800;
+    }
+    .report-inline-note{
+      display:block;
+      margin-top:4px;
+      font-size:10px;
+      color:#374151;
+      line-height:1.35;
+    }
     .driver-report-foot{
       margin-top:10px;
       padding-top:8px;
@@ -3894,6 +3921,263 @@ function subscribeEmployees(){
       return fallback || "registered";
     }
 
+
+    function getManagerBreakdownQuickStatusValue(o){
+      const st = String((o && o.status) || "registered");
+      if (st === "delivered") return (o && o.cashCollected === true) ? "delivered_collected" : "delivered_pending";
+      if (st === "returned") return "returned";
+      if (st === "nearby") return "nearby";
+      return "registered";
+    }
+
+    function getManagerBreakdownQuickStatusLabel(value){
+      const map = {
+        registered: "📝 مسجل",
+        nearby: "📍 قريب",
+        delivered_pending: "💰 المندوب استلم المبلغ",
+        delivered_collected: "✅ تم استلامها",
+        returned: "❌ راجع"
+      };
+      return map[value] || map.registered;
+    }
+
+    function buildManagerBreakdownQuickStatusOptions(selectedValue){
+      const options = [
+        ["registered", "📝 مسجل"],
+        ["nearby", "📍 قريب"],
+        ["delivered_pending", "💰 المندوب استلم المبلغ"],
+        ["delivered_collected", "✅ تم استلامها"],
+        ["returned", "❌ راجع"]
+      ];
+      return options.map(([value, label]) => `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${label}</option>`).join("");
+    }
+
+    async function managerQuickUpdateFromBreakdown(orderId, quickValue){
+      const o = ordersCache[orderId];
+      if (!o || !ordersWorkDate) return;
+
+      const nextValue = String(quickValue || "").trim() || getManagerBreakdownQuickStatusValue(o);
+      const patch = {
+        ...buildAuditFields("lastEditedBy")
+      };
+
+      if (nextValue === "delivered_pending" || nextValue === "delivered_collected") {
+        let defaultAmount = null;
+        if (o.deliveredCash != null && Number.isFinite(Number(o.deliveredCash))) defaultAmount = Number(o.deliveredCash);
+        else if (o.adminInvoiceAmount != null && Number.isFinite(Number(o.adminInvoiceAmount))) defaultAmount = Number(o.adminInvoiceAmount);
+        else defaultAmount = 0;
+
+        const deliveredInput = prompt(
+          "مبلغ الاستلام الفعلي لهذا الطلب:",
+          String(defaultAmount)
+        );
+        if (deliveredInput == null) return;
+
+        const deliveredCash = parseIQD(deliveredInput);
+        if (deliveredCash == null || !Number.isFinite(deliveredCash)) {
+          alert("مبلغ التسليم غير صحيح.");
+          return;
+        }
+
+        patch.status = "delivered";
+        patch.deliveredCash = deliveredCash;
+        if (!o.deliveredAt || String(o.status || "") !== "delivered") patch.deliveredAt = SERVER_TS;
+        patch.returnReason = null;
+        patch.returnedAt = null;
+
+        const isCollected = (nextValue === "delivered_collected");
+        patch.cashCollected = isCollected;
+        patch.cashCollectedAt = isCollected ? SERVER_TS : null;
+        if (isCollected) {
+          Object.assign(patch, buildAuditFields("cashCollectedBy"));
+        } else {
+          patch.cashCollectedById = null;
+          patch.cashCollectedByName = null;
+          patch.cashCollectedByRole = null;
+          patch.cashCollectedByRoleLabel = null;
+          patch.cashCollectedFromPage = null;
+        }
+      } else if (nextValue === "returned") {
+        const reasonInput = prompt("سبب الراجع:", o.returnReason || "");
+        if (reasonInput == null) return;
+
+        patch.status = "returned";
+        patch.returnReason = String(reasonInput || "").trim() || null;
+        if (!o.returnedAt || String(o.status || "") !== "returned") patch.returnedAt = SERVER_TS;
+        patch.cashCollected = false;
+        patch.cashCollectedAt = null;
+        patch.cashCollectedById = null;
+        patch.cashCollectedByName = null;
+        patch.cashCollectedByRole = null;
+        patch.cashCollectedByRoleLabel = null;
+        patch.cashCollectedFromPage = null;
+        patch.deliveredCash = null;
+        patch.deliveredAt = null;
+      } else {
+        patch.status = (nextValue === "nearby") ? "nearby" : "registered";
+        patch.cashCollected = false;
+        patch.cashCollectedAt = null;
+        patch.cashCollectedById = null;
+        patch.cashCollectedByName = null;
+        patch.cashCollectedByRole = null;
+        patch.cashCollectedByRoleLabel = null;
+        patch.cashCollectedFromPage = null;
+        patch.deliveredCash = null;
+        patch.deliveredAt = null;
+        patch.returnReason = null;
+        patch.returnedAt = null;
+      }
+
+      await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
+      alert(`تم تحديث الطلب إلى: ${getManagerBreakdownQuickStatusLabel(nextValue)} ✅`);
+    }
+
+
+    function getBreakdownRowFormData(row){
+      if (!row) return null;
+      const clientEl = row.querySelector('.edit-client');
+      const invoiceEl = row.querySelector('.edit-invoice');
+      const gotEl = row.querySelector('.edit-got');
+      const statusEl = row.querySelector('[data-role="breakdown-status"], [data-role="breakdown-status-new"]');
+      return {
+        clientName: String(clientEl && clientEl.value || '').trim(),
+        invoiceAmount: invoiceEl ? parseIQD(invoiceEl.value) : null,
+        gotAmount: gotEl ? parseIQD(gotEl.value) : null,
+        statusValue: String(statusEl && statusEl.value || 'registered').trim() || 'registered'
+      };
+    }
+
+    function buildBreakdownPatchFromRow(orderId, row){
+      const o = orderId ? (ordersCache[orderId] || {}) : {};
+      const form = getBreakdownRowFormData(row);
+      if (!form) throw new Error('row_missing');
+      if (!form.clientName) throw new Error('client_required');
+
+      const patch = {
+        clientName: form.clientName,
+        adminInvoiceAmount: (form.invoiceAmount != null && Number.isFinite(form.invoiceAmount)) ? form.invoiceAmount : null,
+        ...buildAuditFields("lastEditedBy")
+      };
+
+      if (form.statusValue === "delivered_pending" || form.statusValue === "delivered_collected") {
+        const deliveredCash = (form.gotAmount != null && Number.isFinite(form.gotAmount))
+          ? form.gotAmount
+          : ((form.invoiceAmount != null && Number.isFinite(form.invoiceAmount)) ? form.invoiceAmount : 0);
+        patch.status = "delivered";
+        patch.deliveredCash = deliveredCash;
+        patch.deliveredAt = (o && o.deliveredAt && String(o.status || '') === 'delivered') ? o.deliveredAt : SERVER_TS;
+        patch.returnReason = null;
+        patch.returnedAt = null;
+        const isCollected = (form.statusValue === "delivered_collected");
+        patch.cashCollected = isCollected;
+        patch.cashCollectedAt = isCollected ? (o && o.cashCollectedAt ? o.cashCollectedAt : SERVER_TS) : null;
+        if (isCollected) {
+          Object.assign(patch, buildAuditFields("cashCollectedBy"));
+        } else {
+          patch.cashCollectedById = null;
+          patch.cashCollectedByName = null;
+          patch.cashCollectedByRole = null;
+          patch.cashCollectedByRoleLabel = null;
+          patch.cashCollectedFromPage = null;
+        }
+      } else if (form.statusValue === "returned") {
+        patch.status = "returned";
+        patch.returnReason = (o && o.returnReason) ? o.returnReason : null;
+        patch.returnedAt = (o && o.returnedAt && String(o.status || '') === 'returned') ? o.returnedAt : SERVER_TS;
+        patch.cashCollected = false;
+        patch.cashCollectedAt = null;
+        patch.cashCollectedById = null;
+        patch.cashCollectedByName = null;
+        patch.cashCollectedByRole = null;
+        patch.cashCollectedByRoleLabel = null;
+        patch.cashCollectedFromPage = null;
+        patch.deliveredCash = null;
+        patch.deliveredAt = null;
+      } else {
+        patch.status = (form.statusValue === "nearby") ? "nearby" : "registered";
+        patch.cashCollected = false;
+        patch.cashCollectedAt = null;
+        patch.cashCollectedById = null;
+        patch.cashCollectedByName = null;
+        patch.cashCollectedByRole = null;
+        patch.cashCollectedByRoleLabel = null;
+        patch.cashCollectedFromPage = null;
+        patch.deliveredCash = null;
+        patch.deliveredAt = null;
+        patch.returnReason = null;
+        patch.returnedAt = null;
+        if (patch.status === 'nearby' && !(o && o.nearbyAt)) patch.nearbyAt = SERVER_TS;
+      }
+
+      return patch;
+    }
+
+    async function managerSaveBreakdownRow(orderId, row){
+      if (!orderId || !ordersWorkDate) return;
+      let patch;
+      try {
+        patch = buildBreakdownPatchFromRow(orderId, row);
+      } catch (err) {
+        if (String(err && err.message || err) === 'client_required') {
+          alert('اكتب اسم الزبون أولاً.');
+          return;
+        }
+        throw err;
+      }
+      await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
+      alert('تم حفظ تعديل السطر ✅');
+    }
+
+    async function managerCreateBreakdownRow(driverId, row){
+      const driverIdText = String(driverId || '').trim();
+      if (!driverIdText || !ordersWorkDate) return;
+      let patch;
+      try {
+        patch = buildBreakdownPatchFromRow('', row);
+      } catch (err) {
+        if (String(err && err.message || err) === 'client_required') {
+          alert('اكتب اسم الزبون في السطر الجديد أولاً.');
+          return;
+        }
+        throw err;
+      }
+
+      const existing = Object.values(ordersCache || {}).filter(x => x && String(x.assignedDriverId || '') === driverIdText);
+      const maxP = existing.reduce((m,x)=>{
+        const p = normalizePriority(x.priority);
+        return (p && p > m) ? p : m;
+      }, 0);
+
+      const payload = {
+        workDate: ordersWorkDate,
+        type: 'manual_breakdown_entry',
+        assignedDriverId: driverIdText,
+        assignedDriverName: driverNameById(driverIdText),
+        clientId: null,
+        clientName: patch.clientName,
+        lat: null,
+        lng: null,
+        priority: maxP + 1,
+        priorityManual: true,
+        createdAt: SERVER_TS,
+        ...buildAuditFields('createdBy'),
+        ...patch
+      };
+
+      const ref = db.ref(`orders/${ordersWorkDate}`).push();
+      await ref.set(payload);
+
+      const clientEl = row.querySelector('.edit-client');
+      const invoiceEl = row.querySelector('.edit-invoice');
+      const gotEl = row.querySelector('.edit-got');
+      const statusEl = row.querySelector('[data-role="breakdown-status-new"]');
+      if (clientEl) clientEl.value = '';
+      if (invoiceEl) invoiceEl.value = '';
+      if (gotEl) gotEl.value = '';
+      if (statusEl) statusEl.value = 'registered';
+      alert('تمت إضافة صف جديد على المندوب ✅');
+    }
+
     async function managerEditOrder(orderId){
       const o = ordersCache[orderId];
       if (!o) return;
@@ -4360,23 +4644,17 @@ function subscribeEmployees(){
 
       if (headDate) headDate.textContent = workDate || "—";
 
-      // Safety
       if (!theadEl || !tbodyEl){
-        // fallback: keep old behavior if table skeleton missing
         managerDriverBreakdownList.innerHTML = `<div class="small">⚠️ table not ready.</div>`;
         return;
       }
 
-      // --------------------------------------------------
-      // ✅ (A) إذا مختار مندوب → جدول تفصيلي للطلبات
-      // --------------------------------------------------
       if (filterDriver){
         const driverId = String(filterDriver);
         const driverName = driverNameById(driverId) || driverId;
 
         if (headName) headName.textContent = driverName;
 
-        // Table head (مثل التصميم اللي أرسلته)
         theadEl.innerHTML = `
           <tr>
             <th>اسم الزبون</th>
@@ -4384,6 +4662,7 @@ function subscribeEmployees(){
             <th>المبلغ المستلم</th>
             <th>التفاصيل</th>
             <th>مستلم البيانات</th>
+            <th>تعديل السطر</th>
           </tr>
         `;
 
@@ -4391,34 +4670,30 @@ function subscribeEmployees(){
           .map(([id,o])=>({ id, ...(o||{}) }))
           .filter(x => String(x.assignedDriverId || "") === driverId)
           .sort((a,b)=>{
-            const ta = tsToMs(a.deliveredAt || a.returnedAt || a.nearbyAt || a.createdAt || 0);
-            const tb = tsToMs(b.deliveredAt || b.returnedAt || b.nearbyAt || b.createdAt || 0);
-            return tb - ta;
+            const ta = tsToMs(a.createdAt || a.nearbyAt || a.deliveredAt || a.returnedAt || 0);
+            const tb = tsToMs(b.createdAt || b.nearbyAt || b.deliveredAt || b.returnedAt || 0);
+            return ta - tb;
           });
 
         tbodyEl.innerHTML = "";
-
-        if (!list.length){
-          tbodyEl.innerHTML = `<tr><td colspan="5">لا يوجد بيانات.</td></tr>`;
-          if (footerEl) footerEl.textContent = "";
-          return;
-        }
 
         let sumUncollected = 0;
         let sumCollected = 0;
 
         list.forEach(o=>{
           const st = String(o.status || "registered");
-          const clientName = o.clientName || "—";
+          const clientName = o.clientName || "";
 
-          // Amounts
-          let invoiceTxt = "—";
-          let gotTxt = "—";
+          let invoiceNumber = (o.adminInvoiceAmount != null && Number.isFinite(Number(o.adminInvoiceAmount))) ? Number(o.adminInvoiceAmount) : null;
+          let invoiceTxt = invoiceNumber != null ? formatIQD(invoiceNumber) : "";
+          let gotNumber = null;
+          let gotTxt = "";
           let details = "";
 
           if (st === "delivered"){
             const v = Number(o.deliveredCash);
-            invoiceTxt = Number.isFinite(v) ? formatIQD(v) : "—";
+            if (Number.isFinite(v)) gotNumber = v;
+            gotTxt = gotNumber != null ? formatIQD(gotNumber) : "";
 
             const isCollected = (o.cashCollected === true);
             if (Number.isFinite(v)){
@@ -4426,7 +4701,6 @@ function subscribeEmployees(){
               else sumUncollected += v;
             }
 
-            gotTxt = (isCollected && Number.isFinite(v)) ? formatIQD(v) : (isCollected ? "✅" : "0");
             details =
               (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
               ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
@@ -4436,33 +4710,96 @@ function subscribeEmployees(){
               ` <div class="small">سبب: ${escapeHtml(o.returnReason || "-")}</div>` +
               ` <div class="small">وقت: ${escapeHtml(formatTime(o.returnedAt || o.updatedAt || o.createdAt || ""))}</div>`;
           } else if (st === "nearby"){
-            const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
-            invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
             const pr = normalizePriority(o.priority);
-            details =
-              `📍 قريب` +
-              ` <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+            details = `📍 قريب <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
           } else {
-            // registered / any other
-            const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
-            invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
             const pr = normalizePriority(o.priority);
-            details =
-              `📝 مسجّل` +
-              ` <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+            details = `📝 مسجّل <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
           }
 
           const actorHtml = describeOrderDataActor(o);
+          const quickValue = getManagerBreakdownQuickStatusValue(o);
           const tr = document.createElement("tr");
+          tr.setAttribute("data-kind", "existing");
+          tr.setAttribute("data-order-id", String(o.id || ""));
           tr.innerHTML = `
-            <td>${escapeHtml(clientName)}</td>
-            <td>${escapeHtml(invoiceTxt)}</td>
-            <td>${escapeHtml(gotTxt)}</td>
+            <td><input class='edit-client' list='clients-datalist' value='${escapeHtml(clientName)}' placeholder='اسم الزبون' style='width:100%'></td>
+            <td><input class='edit-invoice' value='${escapeHtml(invoiceTxt)}' placeholder='0' style='width:90px'></td>
+            <td><input class='edit-got' value='${escapeHtml(gotTxt)}' placeholder='0' style='width:90px'></td>
             <td style="text-align:right">${details}</td>
             <td style="text-align:right">${actorHtml}</td>
+            <td class="btn-cell">
+              <select class="report-inline-control" data-role="breakdown-status" data-order-id="${escapeHtml(o.id)}">
+                ${buildManagerBreakdownQuickStatusOptions(quickValue)}
+              </select>
+              <button class="secondary report-inline-save-btn" data-role="breakdown-save" data-order-id="${escapeHtml(o.id)}">حفظ</button>
+              <span class="report-inline-note">تعديل مباشر من نفس السطر.</span>
+            </td>
           `;
           tbodyEl.appendChild(tr);
         });
+
+        const newRow = document.createElement("tr");
+        newRow.className = "breakdown-new-row";
+        newRow.setAttribute("data-kind", "new");
+        newRow.innerHTML = `
+          <td><input class='edit-client' list='clients-datalist' value='' placeholder='اسم الزبون الجديد' style='width:100%'></td>
+          <td><input class='edit-invoice' value='' placeholder='مبلغ الفاتورة' style='width:90px'></td>
+          <td><input class='edit-got' value='' placeholder='مبلغ الاستلام' style='width:90px'></td>
+          <td style="text-align:right"><div class="small">سطر جديد فارغ — ينحفظ كطلب جديد على هذا المندوب.</div></td>
+          <td style="text-align:right">—</td>
+          <td class="btn-cell">
+            <select class="report-inline-control" data-role="breakdown-status-new">
+              ${buildManagerBreakdownQuickStatusOptions("registered")}
+            </select>
+            <button class="secondary report-inline-save-btn" data-role="breakdown-create" data-driver-id="${escapeHtml(driverId)}">إضافة صف</button>
+            <span class="report-inline-note">يبقى دائمًا بأسفل الجدول.</span>
+          </td>
+        `;
+        tbodyEl.appendChild(newRow);
+
+        tbodyEl.querySelectorAll('[data-role="breakdown-save"]').forEach(btn => {
+          btn.onclick = async () => {
+            const orderId = String(btn.getAttribute('data-order-id') || '');
+            const row = btn.closest('tr');
+            btn.disabled = true;
+            const oldText = btn.textContent;
+            btn.textContent = 'جاري...';
+            try {
+              await managerSaveBreakdownRow(orderId, row);
+            } catch (err) {
+              console.error(err);
+              alert('تعذر تحديث الطلب.');
+            } finally {
+              btn.disabled = false;
+              btn.textContent = oldText;
+            }
+          };
+        });
+
+        tbodyEl.querySelectorAll('[data-role="breakdown-create"]').forEach(btn => {
+          btn.onclick = async () => {
+            const driverIdValue = String(btn.getAttribute('data-driver-id') || '');
+            const row = btn.closest('tr');
+            btn.disabled = true;
+            const oldText = btn.textContent;
+            btn.textContent = 'جاري...';
+            try {
+              await managerCreateBreakdownRow(driverIdValue, row);
+            } catch (err) {
+              console.error(err);
+              alert('تعذر إضافة الصف الجديد.');
+            } finally {
+              btn.disabled = false;
+              btn.textContent = oldText;
+            }
+          };
+        });
+
+        if (!list.length && footerEl){
+          footerEl.textContent = `لا توجد طلبات قديمة لهذا المندوب بعد. يمكنك استخدام السطر الفارغ بالأسفل لإضافة أول طلب.`;
+          return;
+        }
 
         if (footerEl){
           footerEl.textContent =
@@ -4471,13 +4808,9 @@ function subscribeEmployees(){
         return;
       }
 
-      // --------------------------------------------------
-      // ✅ (B) ماكو فلتر → لازم تختار مندوب
-      // --------------------------------------------------
       if (headName) headName.textContent = "—";
       if (footerEl) footerEl.textContent = "";
 
-      // نفس أعمدة الجدول التفصيلي
       theadEl.innerHTML = `
         <tr>
           <th>اسم الزبون</th>
@@ -4485,13 +4818,13 @@ function subscribeEmployees(){
           <th>المبلغ المستلم</th>
           <th>التفاصيل</th>
           <th>مستلم البيانات</th>
+          <th>تعديل السطر</th>
         </tr>
       `;
 
-      tbodyEl.innerHTML = `<tr><td colspan="5">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
+      tbodyEl.innerHTML = `<tr><td colspan="6">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
       return;
-}
-
+    }
 
 
 
@@ -4683,7 +5016,65 @@ function subscribeEmployees(){
         <body>
           <div class="print-wrap">${html}</div>
           <script>window.onload=function(){setTimeout(function(){window.print();},150);};<\/script>
-        </body>
+        
+<script>
+document.addEventListener("DOMContentLoaded",function(){
+
+function applyRowRules(row){
+  const status=row.querySelector("select");
+  const received=row.querySelector(".received-input,input[name*=receive],input[data-receive]");
+  if(status){
+    if(!status.value) status.value="مسجل";
+    if(received){
+      if(status.value==="المندوب استلم المبلغ"||status.value==="تم استلامها"){
+        received.disabled=false;
+      }else{
+        received.value="";
+        received.disabled=true;
+      }
+    }
+    status.addEventListener("change",()=>applyRowRules(row));
+  }
+
+  row.querySelectorAll("input,select").forEach(el=>{
+    el.addEventListener("keydown",e=>{
+      if(e.key==="Enter"){
+        e.preventDefault();
+        const tbody=row.parentElement;
+        if(row===tbody.lastElementChild){
+          const clone=row.cloneNode(true);
+          clone.querySelectorAll("input").forEach(i=>{i.value="";});
+          const st=clone.querySelector("select");
+          if(st) st.value="مسجل";
+          const r=clone.querySelector("input[type=number]");
+          if(r) r.disabled=true;
+          tbody.appendChild(clone);
+          applyRowRules(clone);
+          clone.querySelector("input,select")?.focus();
+        }else{
+          const inputs=[...tbody.querySelectorAll("input,select")];
+          const idx=inputs.indexOf(e.target);
+          if(idx>-1 && inputs[idx+1]) inputs[idx+1].focus();
+        }
+      }
+    });
+  });
+}
+
+const tbody=document.getElementById("manager-driver-breakdown-tbody");
+if(tbody){
+  const observer=new MutationObserver(()=>{
+    const rows=[...tbody.querySelectorAll("tr")];
+    rows.forEach(r=>applyRowRules(r));
+  });
+  observer.observe(tbody,{childList:true});
+  [...tbody.querySelectorAll("tr")].forEach(r=>applyRowRules(r));
+}
+
+});
+</script>
+
+</body>
         </html>
       `);
       w.document.close();
@@ -6540,5 +6931,63 @@ ref.update(payload).then(() => {
 
 }
 </script>
+
+<script>
+document.addEventListener("DOMContentLoaded",function(){
+
+function applyRowRules(row){
+  const status=row.querySelector("select");
+  const received=row.querySelector(".received-input,input[name*=receive],input[data-receive]");
+  if(status){
+    if(!status.value) status.value="مسجل";
+    if(received){
+      if(status.value==="المندوب استلم المبلغ"||status.value==="تم استلامها"){
+        received.disabled=false;
+      }else{
+        received.value="";
+        received.disabled=true;
+      }
+    }
+    status.addEventListener("change",()=>applyRowRules(row));
+  }
+
+  row.querySelectorAll("input,select").forEach(el=>{
+    el.addEventListener("keydown",e=>{
+      if(e.key==="Enter"){
+        e.preventDefault();
+        const tbody=row.parentElement;
+        if(row===tbody.lastElementChild){
+          const clone=row.cloneNode(true);
+          clone.querySelectorAll("input").forEach(i=>{i.value="";});
+          const st=clone.querySelector("select");
+          if(st) st.value="مسجل";
+          const r=clone.querySelector("input[type=number]");
+          if(r) r.disabled=true;
+          tbody.appendChild(clone);
+          applyRowRules(clone);
+          clone.querySelector("input,select")?.focus();
+        }else{
+          const inputs=[...tbody.querySelectorAll("input,select")];
+          const idx=inputs.indexOf(e.target);
+          if(idx>-1 && inputs[idx+1]) inputs[idx+1].focus();
+        }
+      }
+    });
+  });
+}
+
+const tbody=document.getElementById("manager-driver-breakdown-tbody");
+if(tbody){
+  const observer=new MutationObserver(()=>{
+    const rows=[...tbody.querySelectorAll("tr")];
+    rows.forEach(r=>applyRowRules(r));
+  });
+  observer.observe(tbody,{childList:true});
+  [...tbody.querySelectorAll("tr")].forEach(r=>applyRowRules(r));
+}
+
+});
+</script>
+
 </body>
 </html>
