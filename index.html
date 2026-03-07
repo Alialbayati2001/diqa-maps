@@ -202,6 +202,36 @@ background:#fff;
       min-height:38px;
       direction:rtl;
     }
+
+    .client-name-cell{position:relative;overflow:visible !important;}
+    .breakdown-client-suggest{
+      position:absolute;
+      top:calc(100% + 4px);
+      right:0;
+      left:0;
+      max-height:220px;
+      overflow-y:auto;
+      background:#ffffff;
+      border:1px solid #cbd5e1;
+      border-radius:12px;
+      box-shadow:0 12px 30px rgba(0,0,0,.18);
+      z-index:99999;
+      display:none;
+    }
+    .breakdown-client-suggest.show{display:block;}
+    .breakdown-client-suggest-item{
+      padding:10px 12px;
+      cursor:pointer;
+      text-align:right;
+      font-weight:700;
+      font-size:13px;
+      line-height:1.35;
+      color:#111827;
+      background:#fff;
+      border-bottom:1px solid #eef2f7;
+    }
+    .breakdown-client-suggest-item:last-child{border-bottom:none;}
+    .breakdown-client-suggest-item:hover{background:#f8fafc;}
     .report-inline-save-btn{
       width:100%;
       margin:0;
@@ -3403,6 +3433,83 @@ function initMap() {
     }
 
     // استخراج clientId من قيمة input: "name — id"
+
+    function getBreakdownClientSuggestionNames(keyword){
+      const q = String(keyword || '').trim().toLowerCase();
+      const names = Object.entries(clientsCache || {}).map(([id, c]) => {
+        const name = (c && c.name) ? String(c.name).trim() : String(id || '').trim();
+        return name;
+      }).filter(Boolean);
+
+      const unique = [...new Set(names)];
+      unique.sort((a,b)=>a.localeCompare(b, 'ar'));
+
+      if (!q) return unique.slice(0, 30);
+
+      const starts = unique.filter(name => name.toLowerCase().startsWith(q));
+      const contains = unique.filter(name => !name.toLowerCase().startsWith(q) && name.toLowerCase().includes(q));
+      return starts.concat(contains).slice(0, 30);
+    }
+
+    function closeBreakdownClientSuggests(exceptInput){
+      document.querySelectorAll('.breakdown-client-suggest').forEach(box => {
+        if (exceptInput && box.dataset.forInputId === exceptInput.dataset.breakdownInputId) return;
+        box.classList.remove('show');
+      });
+    }
+
+    function ensureBreakdownClientAutocomplete(inputEl){
+      if (!inputEl || inputEl.dataset.breakdownAutocompleteReady === '1') return;
+      inputEl.dataset.breakdownAutocompleteReady = '1';
+      if (!inputEl.dataset.breakdownInputId) {
+        inputEl.dataset.breakdownInputId = 'bci_' + Math.random().toString(36).slice(2, 10);
+      }
+
+      const cell = inputEl.closest('.client-name-cell') || inputEl.parentElement;
+      if (!cell) return;
+      cell.classList.add('client-name-cell');
+
+      let box = cell.querySelector('.breakdown-client-suggest');
+      if (!box) {
+        box = document.createElement('div');
+        box.className = 'breakdown-client-suggest';
+        box.dataset.forInputId = inputEl.dataset.breakdownInputId;
+        cell.appendChild(box);
+      }
+
+      const render = () => {
+        const suggestions = getBreakdownClientSuggestionNames(inputEl.value);
+        box.innerHTML = '';
+        if (!suggestions.length) {
+          box.classList.remove('show');
+          return;
+        }
+        suggestions.forEach(name => {
+          const item = document.createElement('div');
+          item.className = 'breakdown-client-suggest-item';
+          item.textContent = name;
+          item.addEventListener('mousedown', function(e){
+            e.preventDefault();
+            inputEl.value = name;
+            inputEl.title = name;
+            box.classList.remove('show');
+            inputEl.dispatchEvent(new Event('input', { bubbles:true }));
+            inputEl.dispatchEvent(new Event('change', { bubbles:true }));
+          });
+          box.appendChild(item);
+        });
+        closeBreakdownClientSuggests(inputEl);
+        box.classList.add('show');
+      };
+
+      inputEl.addEventListener('focus', render);
+      inputEl.addEventListener('click', render);
+      inputEl.addEventListener('input', render);
+      inputEl.addEventListener('blur', () => {
+        setTimeout(() => box.classList.remove('show'), 180);
+      });
+    }
+
     function parseClientPickValue(v){
       const s = String(v || "").trim();
       if (!s) return { clientId:null, clientName:null };
@@ -4744,7 +4851,7 @@ function subscribeEmployees(){
           tr.setAttribute("data-kind", "existing");
           tr.setAttribute("data-order-id", String(o.id || ""));
           tr.innerHTML = `
-            <td><input class='edit-client client-name-input' list='clients-datalist' value='${escapeHtml(clientName)}' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'></td>
+            <td class='client-name-cell'><input class='edit-client client-name-input' value='${escapeHtml(clientName)}' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'></td>
             <td><input class='edit-invoice' value='${escapeHtml(invoiceTxt)}' placeholder='0' style='width:90px'></td>
             <td><input class='edit-got' value='${escapeHtml(gotTxt)}' placeholder='0' style='width:90px'></td>
             <td style="text-align:right">${details}</td>
@@ -4764,7 +4871,7 @@ function subscribeEmployees(){
         newRow.className = "breakdown-new-row";
         newRow.setAttribute("data-kind", "new");
         newRow.innerHTML = `
-          <td><input class='edit-client client-name-input' list='clients-datalist' value='' placeholder='اسم الزبون الجديد' style='width:100%' title='' oninput='this.title=this.value'></td>
+          <td class='client-name-cell'><input class='edit-client client-name-input' value='' placeholder='اسم الزبون الجديد' style='width:100%' title='' oninput='this.title=this.value'></td>
           <td><input class='edit-invoice' value='' placeholder='مبلغ الفاتورة' style='width:90px'></td>
           <td><input class='edit-got' value='' placeholder='مبلغ الاستلام' style='width:90px'></td>
           <td style="text-align:right"><div class="small">سطر جديد فارغ — ينحفظ كطلب جديد على هذا المندوب.</div></td>
@@ -4778,6 +4885,8 @@ function subscribeEmployees(){
           </td>
         `;
         tbodyEl.appendChild(newRow);
+
+        tbodyEl.querySelectorAll('.client-name-input').forEach(input => ensureBreakdownClientAutocomplete(input));
 
         tbodyEl.querySelectorAll('[data-role="breakdown-save"]').forEach(btn => {
           btn.onclick = async () => {
@@ -6963,6 +7072,12 @@ document.addEventListener("DOMContentLoaded",function(){
     if(row) applyRowRules(row);
   });
 
+
+  document.addEventListener('click', function(e){
+    if(e.target.closest('.client-name-cell')) return;
+    closeBreakdownClientSuggests(null);
+  });
+
   document.addEventListener('keydown', function(e){
     if(e.key !== 'Enter') return;
     const el = e.target;
@@ -6994,9 +7109,11 @@ document.addEventListener("DOMContentLoaded",function(){
   if(tbody){
     const observer = new MutationObserver(()=>{
       [...tbody.querySelectorAll("tr")].forEach(r=>applyRowRules(r));
+      tbody.querySelectorAll('.client-name-input').forEach(input=>ensureBreakdownClientAutocomplete(input));
     });
     observer.observe(tbody,{childList:true, subtree:true});
     [...tbody.querySelectorAll("tr")].forEach(r=>applyRowRules(r));
+    tbody.querySelectorAll('.client-name-input').forEach(input=>ensureBreakdownClientAutocomplete(input));
   }
 });
 </script>
