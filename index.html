@@ -801,6 +801,7 @@ background:#fff;
           lat: Number(p.latitude),
           lng: Number(p.longitude),
           accuracy: (p.accuracy != null ? Number(p.accuracy) : null),
+          rawSpeed: (p.speed != null ? p.speed : (p.attributes && p.attributes.speed != null ? p.attributes.speed : null)),
           time: tMs
         };
       }).filter(x => !Number.isNaN(x.lat) && !Number.isNaN(x.lng));
@@ -842,6 +843,7 @@ background:#fff;
 
           const st = calcLiveState(whenMs);
           const devName = (p.name || devId);
+          const rawSpeedKmh = normalizeSpeedKmhFromTraccar(p.rawSpeed);
 
           let key = devId;
           const slug = slugify(devName);
@@ -867,6 +869,17 @@ background:#fff;
             if (efound && efound[0]) empKey = efound[0];
           }
 
+          const prevDriverLoc = (driversLocationsCache && driversLocationsCache[key]) ? driversLocationsCache[key] : null;
+          const computedSpeedKmh = computeSpeedKmhFromPoints(prevDriverLoc, lat, lng, whenMs);
+          const bestSpeedKmh = getPreferredDriverSpeedKmh({
+            traccarSpeedKmh: rawSpeedKmh,
+            computedSpeedKmh,
+            speedKmh: (prevDriverLoc && Number.isFinite(Number(prevDriverLoc.speedKmh))) ? Number(prevDriverLoc.speedKmh) : null
+          });
+          const speedSource = Number.isFinite(Number(rawSpeedKmh)) && rawSpeedKmh >= ETA_MIN_MOVING_SPEED_KMH
+            ? 'traccar'
+            : (Number.isFinite(Number(computedSpeedKmh)) && computedSpeedKmh >= ETA_MIN_MOVING_SPEED_KMH ? 'map' : 'fallback');
+
           if (empKey) {
             nextEmployees[empKey] = {
               name: devName,
@@ -890,7 +903,11 @@ nextDrivers[key] = {
             gpsError: null,
             active: !st.isStale,
             liveState: (st.isOnline ? "online" : (st.isWarn ? "warn" : "offline")),
-            updatedAt: whenMs
+            updatedAt: whenMs,
+            traccarSpeedKmh: rawSpeedKmh,
+            computedSpeedKmh,
+            speedKmh: bestSpeedKmh,
+            speedSource
           };
         });
 
@@ -1852,8 +1869,13 @@ function openInGoogleMaps(lat, lng) {
       return R*c;
     }
 
-    const ETA_FALLBACK_SPEED_KMH = 30;
+    const ETA_FALLBACK_SPEED_KMH = 32;
     const ETA_MIN_MOVING_SPEED_KMH = 3;
+    const ETA_MAX_REASONABLE_MOTO_SPEED_KMH = 95;
+    const GOOGLE_ROUTES_API_KEY = ""; // ضع مفتاح Google Routes API هنا إذا أردت ETA مروري فعلي
+    const DRIVER_ROUTE_CACHE_MS = 90 * 1000;
+    const driverRouteEtaCache = {};
+    const driverRouteEtaInFlight = {};
 
     function normalizeSpeedKmhFromTraccar(raw){
       const n = Number(raw);
@@ -1888,6 +1910,25 @@ function openInGoogleMaps(lat, lng) {
       return Math.round(kmh * 10) / 10;
     }
 
+    function normalizePreferredMotoSpeed(speedKmh){
+      const n = Number(speedKmh);
+      if (!Number.isFinite(n) || n < 0) return null;
+      if (n <= ETA_MIN_MOVING_SPEED_KMH) return 0;
+      if (n > ETA_MAX_REASONABLE_MOTO_SPEED_KMH) return null;
+      return Math.round(n * 10) / 10;
+    }
+
+    function getPreferredDriverSpeedKmh(locOrSpeedBag){
+      const src = locOrSpeedBag || {};
+      const traccar = normalizePreferredMotoSpeed(src.traccarSpeedKmh);
+      if (Number.isFinite(traccar) && traccar >= ETA_MIN_MOVING_SPEED_KMH) return traccar;
+      const computed = normalizePreferredMotoSpeed(src.computedSpeedKmh);
+      if (Number.isFinite(computed) && computed >= ETA_MIN_MOVING_SPEED_KMH) return computed;
+      const current = normalizePreferredMotoSpeed(src.speedKmh);
+      if (Number.isFinite(current) && current >= ETA_MIN_MOVING_SPEED_KMH) return current;
+      return ETA_FALLBACK_SPEED_KMH;
+    }
+
     function formatSpeedKmh(speedKmh){
       const n = Number(speedKmh);
       if (!Number.isFinite(n) || n < 0) return '—';
@@ -1920,7 +1961,81 @@ function openInGoogleMaps(lat, lng) {
       return Math.max(1, Math.round(((d / 1000) / usedSpeed) * 60));
     }
 
-    function getDriverEtaInfoForClient(driverId, clientLat, clientLng){
+    function parseGoogleDurationToMinutes(raw){
+      if (raw == null) return null;
+      if (typeof raw === 'number' && Number.isFinite(raw)) return Math.max(1, Math.round(raw / 60));
+      const s = String(raw).trim();
+      const m = s.match(/^([0-9]+(?:\.[0-9]+)?)s$/);
+      if (!m) return null;
+      const sec = Number(m[1]);
+      if (!Number.isFinite(sec) || sec <= 0) return null;
+      return Math.max(1, Math.round(sec / 60));
+    }
+
+    function getTrafficLabelFromRouteDurations(durationMin, staticDurationMin){
+      const live = Number(durationMin);
+      const base = Number(staticDurationMin);
+      if (!Number.isFinite(live) || live <= 0 || !Number.isFinite(base) || base <= 0) return 'تقريبي';
+      const ratio = live / base;
+      if (ratio >= 1.35) return 'ازدحام شديد';
+      if (ratio >= 1.12) return 'ازدحام متوسط';
+      return 'طريق طبيعي';
+    }
+
+    function hasGoogleRoutesApiKey(){
+      return !!(GOOGLE_ROUTES_API_KEY && String(GOOGLE_ROUTES_API_KEY).trim());
+    }
+
+    function getDriverRouteCacheKey(driverId, orderId, clientLat, clientLng){
+      return [String(driverId || ''), String(orderId || ''), Number(clientLat).toFixed(5), Number(clientLng).toFixed(5)].join('|');
+    }
+
+    function getCachedDriverRouteInfo(driverId, orderId, clientLat, clientLng){
+      const key = getDriverRouteCacheKey(driverId, orderId, clientLat, clientLng);
+      const entry = driverRouteEtaCache[key];
+      if (!entry) return null;
+      if ((Date.now() - Number(entry.fetchedAt || 0)) > DRIVER_ROUTE_CACHE_MS) return null;
+      return entry;
+    }
+
+    async function fetchGoogleRouteInfo(originLat, originLng, destLat, destLng){
+      if (!hasGoogleRoutesApiKey()) return null;
+      const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': GOOGLE_ROUTES_API_KEY,
+          'X-Goog-FieldMask': 'routes.duration,routes.staticDuration,routes.distanceMeters'
+        },
+        body: JSON.stringify({
+          origin: { location: { latLng: { latitude: Number(originLat), longitude: Number(originLng) } } },
+          destination: { location: { latLng: { latitude: Number(destLat), longitude: Number(destLng) } } },
+          travelMode: 'DRIVE',
+          routingPreference: 'TRAFFIC_AWARE_OPTIMAL',
+          departureTime: new Date().toISOString(),
+          languageCode: 'ar-IQ',
+          units: 'METRIC'
+        })
+      });
+      if (!res.ok) throw new Error('routes api failed: ' + res.status);
+      const json = await res.json();
+      const route = json && Array.isArray(json.routes) ? json.routes[0] : null;
+      if (!route) return null;
+      const durationMin = parseGoogleDurationToMinutes(route.duration);
+      const staticDurationMin = parseGoogleDurationToMinutes(route.staticDuration);
+      const distanceM = Number(route.distanceMeters);
+      return {
+        source: 'google',
+        distanceM: Number.isFinite(distanceM) ? distanceM : null,
+        etaMin: durationMin,
+        staticEtaMin: staticDurationMin,
+        trafficText: getTrafficLabelFromRouteDurations(durationMin, staticDurationMin),
+        usedFallback: false,
+        fetchedAt: Date.now()
+      };
+    }
+
+    function getFallbackRouteInfo(driverId, orderId, clientLat, clientLng){
       if (!driverId) return null;
       const loc = driversLocationsCache ? driversLocationsCache[String(driverId)] : null;
       if (!loc) return null;
@@ -1928,39 +2043,100 @@ function openInGoogleMaps(lat, lng) {
       const lng = Number(loc.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(Number(clientLat)) || !Number.isFinite(Number(clientLng))) return null;
       const distanceM = haversineMeters(lat, lng, Number(clientLat), Number(clientLng));
-      const speedKmh = Number.isFinite(Number(loc.speedKmh)) ? Number(loc.speedKmh) : null;
-      const usedFallback = !(Number.isFinite(speedKmh) && speedKmh > ETA_MIN_MOVING_SPEED_KMH);
+      const speedKmh = getPreferredDriverSpeedKmh(loc);
       const etaMin = calcEtaMinutes(distanceM, speedKmh, ETA_FALLBACK_SPEED_KMH);
       const st = calcLiveState(loc.updatedAt);
       const liveState = st.isOnline ? 'online' : (st.isWarn ? 'warn' : 'offline');
-      return { distanceM, speedKmh, etaMin, usedFallback, liveState, updatedAt: loc.updatedAt };
+      return {
+        source: 'fallback',
+        orderId,
+        distanceM,
+        speedKmh,
+        etaMin,
+        usedFallback: true,
+        trafficText: 'تقريبي',
+        liveState,
+        updatedAt: loc.updatedAt,
+        fetchedAt: Date.now()
+      };
+    }
+
+    function ensureDriverRouteInfo(driverId, orderId, clientLat, clientLng){
+      if (!hasGoogleRoutesApiKey()) return;
+      const loc = driversLocationsCache ? driversLocationsCache[String(driverId)] : null;
+      if (!loc) return;
+      const originLat = Number(loc.lat);
+      const originLng = Number(loc.lng);
+      const destLat = Number(clientLat);
+      const destLng = Number(clientLng);
+      if (!Number.isFinite(originLat) || !Number.isFinite(originLng) || !Number.isFinite(destLat) || !Number.isFinite(destLng)) return;
+      const key = getDriverRouteCacheKey(driverId, orderId, destLat, destLng);
+      const cached = driverRouteEtaCache[key];
+      if (cached && (Date.now() - Number(cached.fetchedAt || 0)) <= DRIVER_ROUTE_CACHE_MS) return;
+      if (driverRouteEtaInFlight[key]) return;
+      driverRouteEtaInFlight[key] = true;
+      fetchGoogleRouteInfo(originLat, originLng, destLat, destLng)
+        .then((info)=>{
+          if (!info) return;
+          const locNow = driversLocationsCache ? driversLocationsCache[String(driverId)] : null;
+          driverRouteEtaCache[key] = {
+            ...info,
+            orderId,
+            speedKmh: locNow ? getPreferredDriverSpeedKmh(locNow) : ETA_FALLBACK_SPEED_KMH,
+            updatedAt: locNow ? locNow.updatedAt : Date.now(),
+            liveState: locNow ? (calcLiveState(locNow.updatedAt).isOnline ? 'online' : (calcLiveState(locNow.updatedAt).isWarn ? 'warn' : 'offline')) : 'offline'
+          };
+          renderDriversList();
+        })
+        .catch((e)=>{
+          console.error('Google route ETA failed:', e);
+        })
+        .finally(()=>{
+          delete driverRouteEtaInFlight[key];
+        });
+    }
+
+    function getDriverEtaInfoForClient(driverId, clientLat, clientLng, orderId){
+      const cached = getCachedDriverRouteInfo(driverId, orderId, clientLat, clientLng);
+      if (cached) return cached;
+      ensureDriverRouteInfo(driverId, orderId, clientLat, clientLng);
+      return getFallbackRouteInfo(driverId, orderId, clientLat, clientLng);
+    }
+
+    function getDriverActiveOrdersForTarget(driverId){
+      return Object.entries(ordersCache || {})
+        .map(([orderId, order]) => ({ orderId, ...(order || {}) }))
+        .filter((o)=>{
+          if (String(o.assignedDriverId || '') !== String(driverId || '')) return false;
+          if (o.status === 'delivered' || o.status === 'returned') return false;
+          return Number.isFinite(Number(o.lat)) && Number.isFinite(Number(o.lng));
+        });
     }
 
     function getNearestActiveOrderIdForDriver(driverId){
       if (!driverId) return null;
-      const loc = driversLocationsCache ? driversLocationsCache[String(driverId)] : null;
-      if (!loc || !Number.isFinite(Number(loc.lat)) || !Number.isFinite(Number(loc.lng))) return null;
-      let bestId = null;
-      let bestDist = Infinity;
-      Object.entries(ordersCache || {}).forEach(([orderId, order])=>{
-        const o = order || {};
-        if (String(o.assignedDriverId || '') !== String(driverId)) return;
-        if (o.status === 'delivered' || o.status === 'returned') return;
-        if (!Number.isFinite(Number(o.lat)) || !Number.isFinite(Number(o.lng))) return;
-        const d = haversineMeters(Number(loc.lat), Number(loc.lng), Number(o.lat), Number(o.lng));
-        if (d < bestDist) {
-          bestDist = d;
-          bestId = orderId;
+      const activeOrders = getDriverActiveOrdersForTarget(driverId);
+      if (!activeOrders.length) return null;
+      let bestOrderId = null;
+      let bestEta = Infinity;
+      let bestDistance = Infinity;
+      activeOrders.forEach((o)=>{
+        const info = getDriverEtaInfoForClient(driverId, o.lat, o.lng, o.orderId);
+        const etaVal = Number.isFinite(Number(info && info.etaMin)) ? Number(info.etaMin) : Infinity;
+        const distVal = Number.isFinite(Number(info && info.distanceM)) ? Number(info.distanceM) : Infinity;
+        if (etaVal < bestEta || (etaVal === bestEta && distVal < bestDistance)) {
+          bestEta = etaVal;
+          bestDistance = distVal;
+          bestOrderId = o.orderId;
         }
       });
-      return bestId;
+      return bestOrderId;
     }
 
     function isNearestActiveOrderForDriver(orderId, driverId){
       if (!orderId || !driverId) return false;
       return String(getNearestActiveOrderIdForDriver(driverId) || '') === String(orderId);
     }
-
 
     function getDriverCurrentTargetInfo(driverId){
       const nearestOrderId = getNearestActiveOrderIdForDriver(driverId);
@@ -1979,14 +2155,15 @@ function openInGoogleMaps(lat, lng) {
           etaText: '—',
           etaNote: '',
           speedText: '—',
+          trafficText: 'تقريبي',
           priority: normalizePriority(order.priority)
         };
       }
 
-      const etaInfo = getDriverEtaInfoForClient(driverId, lat, lng);
-      const speedText = etaInfo ? formatSpeedKmh(etaInfo.speedKmh) : '—';
+      const etaInfo = getDriverEtaInfoForClient(driverId, lat, lng, nearestOrderId);
+      const speedText = etaInfo ? formatSpeedKmh(getPreferredDriverSpeedKmh(etaInfo)) : '—';
       const etaText = (etaInfo && Number.isFinite(etaInfo.etaMin)) ? formatEtaMinutes(etaInfo.etaMin) : '—';
-      const etaNote = (etaInfo && etaInfo.usedFallback) ? 'تقريبي' : 'فعلي';
+      const etaNote = (etaInfo && etaInfo.usedFallback) ? 'تقريبي' : 'مروري فعلي';
 
       return {
         orderId: nearestOrderId,
@@ -1995,6 +2172,7 @@ function openInGoogleMaps(lat, lng) {
         etaText,
         etaNote,
         speedText,
+        trafficText: etaInfo && etaInfo.trafficText ? etaInfo.trafficText : 'تقريبي',
         priority: normalizePriority(order.priority)
       };
     }
@@ -5176,10 +5354,11 @@ function renderDriversSelect() {
           const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
           const accText = acc ? ` | ±${acc}m` : "";
           const speedText = Number.isFinite(Number(loc.speedKmh)) ? ` | السرعة: ${formatSpeedKmh(loc.speedKmh)}` : "";
+          const speedSourceText = loc.speedSource === 'traccar' ? ' | المصدر: تراكر' : (loc.speedSource === 'map' ? ' | المصدر: من الحركة' : ' | المصدر: احتياطي');
 
-          if (st.isOnline) statusEl.appendChild(document.createTextNode(`نشط - ${formatTime(loc.updatedAt)}${accText}${speedText}`));
-          else if (st.isWarn) statusEl.appendChild(document.createTextNode(`متأخر شوي - ${formatTime(loc.updatedAt)}${accText}${speedText}`));
-          else statusEl.appendChild(document.createTextNode(`غير متصل${speedText}`));
+          if (st.isOnline) statusEl.appendChild(document.createTextNode(`نشط - ${formatTime(loc.updatedAt)}${accText}${speedText}${speedSourceText}`));
+          else if (st.isWarn) statusEl.appendChild(document.createTextNode(`متأخر شوي - ${formatTime(loc.updatedAt)}${accText}${speedText}${speedSourceText}`));
+          else statusEl.appendChild(document.createTextNode(`غير متصل${speedText}${speedSourceText}`));
         }
 
         left.appendChild(nameEl);
@@ -5191,7 +5370,8 @@ function renderDriversSelect() {
         if (targetInfo) {
           const distText = Number.isFinite(Number(targetInfo.distanceM)) ? formatMetersSmart(targetInfo.distanceM) : "—";
           const prText = targetInfo.priority != null ? ` | أولوية: ${targetInfo.priority}` : "";
-          targetEl.innerHTML = `🎯 الزبون الحالي: <b>${escapeHtml(targetInfo.clientName)}</b><div class="small">المسافة: ${escapeHtml(distText)} | السرعة: ${escapeHtml(targetInfo.speedText)} | الوصول المتوقع: ${escapeHtml(targetInfo.etaText)}${targetInfo.etaNote ? ` <span class="small">(${escapeHtml(targetInfo.etaNote)})</span>` : ""}${prText}</div>`;
+          const trafficText = targetInfo.trafficText ? ` | الطريق: ${escapeHtml(targetInfo.trafficText)}` : "";
+          targetEl.innerHTML = `🎯 الزبون الحالي: <b>${escapeHtml(targetInfo.clientName)}</b><div class="small">مسافة الطريق: ${escapeHtml(distText)} | السرعة: ${escapeHtml(targetInfo.speedText)} | الوصول المتوقع: ${escapeHtml(targetInfo.etaText)}${trafficText}${targetInfo.etaNote ? ` <span class="small">(${escapeHtml(targetInfo.etaNote)})</span>` : ""}${prText}</div>`;
         } else {
           targetEl.textContent = "🎯 لا يوجد زبون متوجه له حالياً.";
         }
@@ -5252,12 +5432,13 @@ function renderDriversSelect() {
         const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
         const accText = acc ? `<br/>الدقة: ±${acc}m` : "";
         const speedText = Number.isFinite(Number(loc.speedKmh)) ? `<br/>السرعة: ${formatSpeedKmh(loc.speedKmh)}` : "";
+        const speedSourceText = loc.speedSource === 'traccar' ? `<br/>مصدر السرعة: تراكر` : (loc.speedSource === 'map' ? `<br/>مصدر السرعة: من حركة الخريطة` : `<br/>مصدر السرعة: احتياطي`);
 
         const stateText = st.isOnline ? "🟢 مباشر" : "🟡 آخر إشارة قديمة شوي";
         const popupHtml =
           `مندوب: ${loc.name || id}<br/>` +
           `الحالة: ${stateText}<br/>` +
-          `آخر تحديث: ${formatTime(loc.updatedAt)}${accText}${speedText}`;
+          `آخر تحديث: ${formatTime(loc.updatedAt)}${accText}${speedText}${speedSourceText}`;
 
         if (!driverMarkers[id]) {
           const marker = L.marker([loc.lat, loc.lng], {
