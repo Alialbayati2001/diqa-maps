@@ -200,30 +200,6 @@ background:#fff;
       color:#374151;
       line-height:1.35;
     }
-    .report-input{
-      width:100%;
-      min-width:90px;
-      padding:5px 6px;
-      border:1px solid #9ca3af;
-      border-radius:8px;
-      font-size:12px;
-      font-weight:700;
-      background:#fff;
-      color:#111827;
-      box-sizing:border-box;
-      margin:0 0 4px 0;
-    }
-    .report-input.small-input{
-      min-width:70px;
-    }
-    .report-row-actions{
-      display:flex;
-      flex-direction:column;
-      gap:4px;
-    }
-    .report-new-row td{
-      background:#f8fafc;
-    }
     .driver-report-foot{
       margin-top:10px;
       padding-top:8px;
@@ -3976,61 +3952,40 @@ function subscribeEmployees(){
       return options.map(([value, label]) => `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${label}</option>`).join("");
     }
 
-    function getBreakdownRowInputValue(row, role){
-      if (!row) return "";
-      const el = row.querySelector(`[data-role="${role}"]`);
-      return el ? String(el.value || "") : "";
-    }
+    async function managerQuickUpdateFromBreakdown(orderId, quickValue){
+      const o = ordersCache[orderId];
+      if (!o || !ordersWorkDate) return;
 
-    function buildManagerBreakdownPatchFromRow(row, baseOrder = null){
-      const currentStatus = String((baseOrder && baseOrder.status) || "registered");
-      const clientName = getBreakdownRowInputValue(row, "breakdown-client").trim();
-      if (!clientName) throw new Error("يرجى كتابة اسم الزبون.");
-
-      const invoiceRaw = getBreakdownRowInputValue(row, "breakdown-invoice").trim();
-      const receivedRaw = getBreakdownRowInputValue(row, "breakdown-received").trim();
-      const quickValue = getBreakdownRowInputValue(row, "breakdown-status") || getManagerBreakdownQuickStatusValue(baseOrder || {});
-      const returnReason = getBreakdownRowInputValue(row, "breakdown-reason").trim();
-      const priorityRaw = getBreakdownRowInputValue(row, "breakdown-priority").trim();
-
+      const nextValue = String(quickValue || "").trim() || getManagerBreakdownQuickStatusValue(o);
       const patch = {
-        clientName,
         ...buildAuditFields("lastEditedBy")
       };
 
-      if (invoiceRaw === "") patch.adminInvoiceAmount = null;
-      else {
-        const invoiceAmount = parseIQD(invoiceRaw);
-        if (invoiceAmount == null || !Number.isFinite(invoiceAmount)) throw new Error("مبلغ الفاتورة غير صحيح.");
-        patch.adminInvoiceAmount = invoiceAmount;
-      }
+      if (nextValue === "delivered_pending" || nextValue === "delivered_collected") {
+        let defaultAmount = null;
+        if (o.deliveredCash != null && Number.isFinite(Number(o.deliveredCash))) defaultAmount = Number(o.deliveredCash);
+        else if (o.adminInvoiceAmount != null && Number.isFinite(Number(o.adminInvoiceAmount))) defaultAmount = Number(o.adminInvoiceAmount);
+        else defaultAmount = 0;
 
-      if (priorityRaw === "") {
-        patch.priority = null;
-        patch.priorityManual = false;
-      } else {
-        const p = normalizePriority(priorityRaw);
-        if (!p) throw new Error("الأولوية غير صحيحة.");
-        patch.priority = p;
-        patch.priorityManual = true;
-        patch.priorityUpdatedAt = SERVER_TS;
-      }
+        const deliveredInput = prompt(
+          "مبلغ الاستلام الفعلي لهذا الطلب:",
+          String(defaultAmount)
+        );
+        if (deliveredInput == null) return;
 
-      if (quickValue === "delivered_pending" || quickValue === "delivered_collected") {
-        const fallbackAmount = (patch.adminInvoiceAmount != null)
-          ? patch.adminInvoiceAmount
-          : (baseOrder && baseOrder.deliveredCash != null ? Number(baseOrder.deliveredCash) : 0);
-        const amountText = receivedRaw !== "" ? receivedRaw : String(fallbackAmount || 0);
-        const deliveredCash = parseIQD(amountText);
-        if (deliveredCash == null || !Number.isFinite(deliveredCash)) throw new Error("مبلغ الاستلام غير صحيح.");
+        const deliveredCash = parseIQD(deliveredInput);
+        if (deliveredCash == null || !Number.isFinite(deliveredCash)) {
+          alert("مبلغ التسليم غير صحيح.");
+          return;
+        }
 
         patch.status = "delivered";
         patch.deliveredCash = deliveredCash;
-        if (!baseOrder || !baseOrder.deliveredAt || currentStatus !== "delivered") patch.deliveredAt = SERVER_TS;
+        if (!o.deliveredAt || String(o.status || "") !== "delivered") patch.deliveredAt = SERVER_TS;
         patch.returnReason = null;
         patch.returnedAt = null;
 
-        const isCollected = (quickValue === "delivered_collected");
+        const isCollected = (nextValue === "delivered_collected");
         patch.cashCollected = isCollected;
         patch.cashCollectedAt = isCollected ? SERVER_TS : null;
         if (isCollected) {
@@ -4042,10 +3997,13 @@ function subscribeEmployees(){
           patch.cashCollectedByRoleLabel = null;
           patch.cashCollectedFromPage = null;
         }
-      } else if (quickValue === "returned") {
+      } else if (nextValue === "returned") {
+        const reasonInput = prompt("سبب الراجع:", o.returnReason || "");
+        if (reasonInput == null) return;
+
         patch.status = "returned";
-        patch.returnReason = returnReason || null;
-        if (!baseOrder || !baseOrder.returnedAt || currentStatus !== "returned") patch.returnedAt = SERVER_TS;
+        patch.returnReason = String(reasonInput || "").trim() || null;
+        if (!o.returnedAt || String(o.status || "") !== "returned") patch.returnedAt = SERVER_TS;
         patch.cashCollected = false;
         patch.cashCollectedAt = null;
         patch.cashCollectedById = null;
@@ -4056,7 +4014,7 @@ function subscribeEmployees(){
         patch.deliveredCash = null;
         patch.deliveredAt = null;
       } else {
-        patch.status = (quickValue === "nearby") ? "nearby" : "registered";
+        patch.status = (nextValue === "nearby") ? "nearby" : "registered";
         patch.cashCollected = false;
         patch.cashCollectedAt = null;
         patch.cashCollectedById = null;
@@ -4070,27 +4028,8 @@ function subscribeEmployees(){
         patch.returnedAt = null;
       }
 
-      return patch;
-    }
-
-    async function managerSaveBreakdownOrder(orderId, row){
-      const o = ordersCache[orderId];
-      if (!o || !ordersWorkDate) return;
-      const patch = buildManagerBreakdownPatchFromRow(row, o);
       await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
-    }
-
-    async function managerCreateBreakdownOrder(driverId, row){
-      const workDate = ordersWorkDate || getActiveWorkDate();
-      if (!driverId || !workDate) throw new Error("اختر المندوب أولاً.");
-      const patch = buildManagerBreakdownPatchFromRow(row, null);
-      patch.assignedDriverId = driverId;
-      patch.assignedDriverName = driverNameById(driverId) || driverId;
-      patch.createdAt = SERVER_TS;
-      patch.lat = null;
-      patch.lng = null;
-      const newRef = db.ref(`orders/${workDate}`).push();
-      await newRef.set(patch);
+      alert(`تم تحديث الطلب إلى: ${getManagerBreakdownQuickStatusLabel(nextValue)} ✅`);
     }
 
     async function managerEditOrder(orderId){
@@ -4577,7 +4516,7 @@ function subscribeEmployees(){
             <th>المبلغ المستلم</th>
             <th>التفاصيل</th>
             <th>مستلم البيانات</th>
-            <th>إجراءات التعديل</th>
+            <th>تعديل الاستلام</th>
           </tr>
         `;
 
@@ -4592,145 +4531,98 @@ function subscribeEmployees(){
 
         tbodyEl.innerHTML = "";
 
+        if (!list.length){
+          tbodyEl.innerHTML = `<tr><td colspan="6">لا يوجد بيانات.</td></tr>`;
+          if (footerEl) footerEl.textContent = "";
+          return;
+        }
+
         let sumUncollected = 0;
         let sumCollected = 0;
 
         list.forEach(o=>{
           const st = String(o.status || "registered");
-          const invoiceValue = (o.adminInvoiceAmount != null && Number.isFinite(Number(o.adminInvoiceAmount)))
-            ? Number(o.adminInvoiceAmount)
-            : ((st === "delivered" && Number.isFinite(Number(o.deliveredCash))) ? Number(o.deliveredCash) : null);
-          const deliveredValue = (o.deliveredCash != null && Number.isFinite(Number(o.deliveredCash))) ? Number(o.deliveredCash) : null;
+          const clientName = o.clientName || "—";
 
-          if (st === "delivered" && Number.isFinite(deliveredValue)){
-            if (o.cashCollected === true) sumCollected += deliveredValue;
-            else sumUncollected += deliveredValue;
+          let invoiceTxt = "—";
+          let gotTxt = "—";
+          let details = "";
+
+          if (st === "delivered"){
+            const v = Number(o.deliveredCash);
+            invoiceTxt = Number.isFinite(v) ? formatIQD(v) : "—";
+
+            const isCollected = (o.cashCollected === true);
+            if (Number.isFinite(v)){
+              if (isCollected) sumCollected += v;
+              else sumUncollected += v;
+            }
+
+            gotTxt = Number.isFinite(v) ? formatIQD(v) : (isCollected ? "✅" : "0");
+            details =
+              (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
+              ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
+          } else if (st === "returned"){
+            details =
+              `❌ راجع` +
+              ` <div class="small">سبب: ${escapeHtml(o.returnReason || "-")}</div>` +
+              ` <div class="small">وقت: ${escapeHtml(formatTime(o.returnedAt || o.updatedAt || o.createdAt || ""))}</div>`;
+          } else if (st === "nearby"){
+            const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
+            invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
+            const pr = normalizePriority(o.priority);
+            details =
+              `📍 قريب` +
+              ` <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+          } else {
+            const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
+            invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
+            const pr = normalizePriority(o.priority);
+            details =
+              `📝 مسجّل` +
+              ` <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
           }
 
-          const priorityValue = normalizePriority(o.priority);
           const actorHtml = describeOrderDataActor(o);
           const quickValue = getManagerBreakdownQuickStatusValue(o);
           const tr = document.createElement("tr");
           tr.innerHTML = `
-            <td>
-              <input class="report-input" data-role="breakdown-client" value="${escapeHtml(o.clientName || "")}" placeholder="اسم الزبون" />
-            </td>
-            <td>
-              <input class="report-input" data-role="breakdown-invoice" inputmode="numeric" value="${invoiceValue != null ? escapeHtml(String(invoiceValue)) : ""}" placeholder="مبلغ الفاتورة" />
-            </td>
-            <td>
-              <input class="report-input" data-role="breakdown-received" inputmode="numeric" value="${deliveredValue != null ? escapeHtml(String(deliveredValue)) : ""}" placeholder="المبلغ المستلم" />
-            </td>
-            <td style="text-align:right">
-              <select class="report-inline-control" data-role="breakdown-status">
-                ${buildManagerBreakdownQuickStatusOptions(quickValue)}
-              </select>
-              <input class="report-input small-input" data-role="breakdown-priority" inputmode="numeric" value="${priorityValue ? escapeHtml(String(priorityValue)) : ""}" placeholder="الأولوية" />
-              <input class="report-input" data-role="breakdown-reason" value="${escapeHtml(o.returnReason || "")}" placeholder="سبب الراجع عند الحاجة" />
-              <div class="small">آخر وقت: ${escapeHtml(formatTime(o.deliveredAt || o.returnedAt || o.nearbyAt || o.updatedAt || o.createdAt || ""))}</div>
-            </td>
+            <td><input class='edit-client' list='clients-datalist' value='${escapeHtml(clientName)}' style='width:100%'></td>
+            <td><input class='edit-invoice' value='${escapeHtml(invoiceTxt)}' style='width:90px'></td>
+            <td><input class='edit-got' value='${escapeHtml(gotTxt)}' style='width:90px'></td>
+            <td style="text-align:right">${details}</td>
             <td style="text-align:right">${actorHtml}</td>
             <td class="btn-cell">
-              <div class="report-row-actions">
-                <button class="secondary report-inline-save-btn" data-role="breakdown-save" data-order-id="${escapeHtml(o.id)}">حفظ التعديل</button>
-                <button class="secondary report-inline-save-btn" data-role="breakdown-delete" data-order-id="${escapeHtml(o.id)}">حذف السطر</button>
-              </div>
-              <span class="report-inline-note">يمكنك تعديل اسم الزبون، مبلغ الفاتورة، مبلغ الاستلام، الحالة، الأولوية وسبب الراجع من نفس الجدول.</span>
+              <select class="report-inline-control" data-role="breakdown-status" data-order-id="${escapeHtml(o.id)}">
+                ${buildManagerBreakdownQuickStatusOptions(quickValue)}
+              </select>
+              <button class="secondary report-inline-save-btn" data-role="breakdown-save" data-order-id="${escapeHtml(o.id)}">حفظ</button>
+              <span class="report-inline-note">بدّل الحالة مباشرة من هذا الجدول.</span>
             </td>
           `;
           tbodyEl.appendChild(tr);
         });
 
-        const newTr = document.createElement("tr");
-        newTr.className = "report-new-row";
-        newTr.innerHTML = `
-          <td><input class="report-input" data-role="breakdown-client" placeholder="اسم الزبون الجديد" /></td>
-          <td><input class="report-input" data-role="breakdown-invoice" inputmode="numeric" placeholder="مبلغ الفاتورة" /></td>
-          <td><input class="report-input" data-role="breakdown-received" inputmode="numeric" placeholder="المبلغ المستلم إن وجد" /></td>
-          <td style="text-align:right">
-            <select class="report-inline-control" data-role="breakdown-status">
-              ${buildManagerBreakdownQuickStatusOptions("registered")}
-            </select>
-            <input class="report-input small-input" data-role="breakdown-priority" inputmode="numeric" placeholder="الأولوية" />
-            <input class="report-input" data-role="breakdown-reason" placeholder="سبب الراجع عند الحاجة" />
-            <div class="small">سطر جديد يُحفظ على نفس المندوب المختار.</div>
-          </td>
-          <td style="text-align:right">سيُسجّل من الصفحة الحالية</td>
-          <td class="btn-cell">
-            <div class="report-row-actions">
-              <button class="secondary report-inline-save-btn" data-role="breakdown-create">إضافة سطر جديد</button>
-            </div>
-            <span class="report-inline-note">اكتب اسم الزبون والمبالغ ثم احفظ. السطر الجديد يُعتبر مسجلاً افتراضياً ما لم تغيّر حالته.</span>
-          </td>
-        `;
-        tbodyEl.appendChild(newTr);
-
         tbodyEl.querySelectorAll('[data-role="breakdown-save"]').forEach(btn => {
           btn.onclick = async () => {
             const orderId = String(btn.getAttribute('data-order-id') || '');
             const row = btn.closest('tr');
+            const selectEl = row ? row.querySelector('[data-role="breakdown-status"]') : null;
+            const nextValue = selectEl ? selectEl.value : '';
             btn.disabled = true;
             const oldText = btn.textContent;
             btn.textContent = 'جاري...';
             try {
-              await managerSaveBreakdownOrder(orderId, row);
-              alert('تم حفظ التعديل ✅');
+              await managerQuickUpdateFromBreakdown(orderId, nextValue);
             } catch (err) {
               console.error(err);
-              alert(err && err.message ? err.message : 'تعذر تحديث الطلب.');
+              alert('تعذر تحديث الطلب.');
             } finally {
               btn.disabled = false;
               btn.textContent = oldText;
             }
           };
         });
-
-        tbodyEl.querySelectorAll('[data-role="breakdown-delete"]').forEach(btn => {
-          btn.onclick = async () => {
-            const orderId = String(btn.getAttribute('data-order-id') || '');
-            btn.disabled = true;
-            const oldText = btn.textContent;
-            btn.textContent = 'جاري...';
-            try {
-              await managerDeleteOrder(orderId);
-            } catch (err) {
-              console.error(err);
-              alert('تعذر حذف السطر.');
-            } finally {
-              btn.disabled = false;
-              btn.textContent = oldText;
-            }
-          };
-        });
-
-        const createBtn = tbodyEl.querySelector('[data-role="breakdown-create"]');
-        if (createBtn) {
-          createBtn.onclick = async () => {
-            const row = createBtn.closest('tr');
-            createBtn.disabled = true;
-            const oldText = createBtn.textContent;
-            createBtn.textContent = 'جاري...';
-            try {
-              await managerCreateBreakdownOrder(driverId, row);
-              alert('تمت إضافة السطر الجديد ✅');
-              row.querySelectorAll('input').forEach(inp => inp.value = '');
-              const stEl = row.querySelector('[data-role="breakdown-status"]');
-              if (stEl) stEl.value = 'registered';
-            } catch (err) {
-              console.error(err);
-              alert(err && err.message ? err.message : 'تعذر إنشاء السطر الجديد.');
-            } finally {
-              createBtn.disabled = false;
-              createBtn.textContent = oldText;
-            }
-          };
-        }
-
-        if (!list.length){
-          const emptyTr = document.createElement('tr');
-          emptyTr.innerHTML = `<td colspan="6">لا يوجد بيانات حالياً لهذا المندوب، لكن يمكنك إضافة سطر جديد من الصف الأخير.</td>`;
-          tbodyEl.insertBefore(emptyTr, newTr);
-        }
 
         if (footerEl){
           footerEl.textContent =
