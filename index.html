@@ -173,6 +173,33 @@ background:#fff;
     .report-table .btn-cell button{
       white-space:nowrap;
     }
+    .report-inline-control{
+      min-width:150px;
+      width:100%;
+      margin:0 0 6px 0;
+      padding:6px 8px;
+      border-radius:8px;
+      border:1px solid #9ca3af;
+      background:#fff;
+      color:#111827;
+      font-size:12px;
+      font-weight:700;
+    }
+    .report-inline-save-btn{
+      width:100%;
+      margin:0;
+      padding:6px 8px;
+      border-radius:8px;
+      font-size:12px;
+      font-weight:800;
+    }
+    .report-inline-note{
+      display:block;
+      margin-top:4px;
+      font-size:10px;
+      color:#374151;
+      line-height:1.35;
+    }
     .driver-report-foot{
       margin-top:10px;
       padding-top:8px;
@@ -3894,6 +3921,117 @@ function subscribeEmployees(){
       return fallback || "registered";
     }
 
+
+    function getManagerBreakdownQuickStatusValue(o){
+      const st = String((o && o.status) || "registered");
+      if (st === "delivered") return (o && o.cashCollected === true) ? "delivered_collected" : "delivered_pending";
+      if (st === "returned") return "returned";
+      if (st === "nearby") return "nearby";
+      return "registered";
+    }
+
+    function getManagerBreakdownQuickStatusLabel(value){
+      const map = {
+        registered: "📝 مسجل",
+        nearby: "📍 قريب",
+        delivered_pending: "💰 المندوب استلم المبلغ",
+        delivered_collected: "✅ تم استلامها",
+        returned: "❌ راجع"
+      };
+      return map[value] || map.registered;
+    }
+
+    function buildManagerBreakdownQuickStatusOptions(selectedValue){
+      const options = [
+        ["registered", "📝 مسجل"],
+        ["nearby", "📍 قريب"],
+        ["delivered_pending", "💰 المندوب استلم المبلغ"],
+        ["delivered_collected", "✅ تم استلامها"],
+        ["returned", "❌ راجع"]
+      ];
+      return options.map(([value, label]) => `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${label}</option>`).join("");
+    }
+
+    async function managerQuickUpdateFromBreakdown(orderId, quickValue){
+      const o = ordersCache[orderId];
+      if (!o || !ordersWorkDate) return;
+
+      const nextValue = String(quickValue || "").trim() || getManagerBreakdownQuickStatusValue(o);
+      const patch = {
+        ...buildAuditFields("lastEditedBy")
+      };
+
+      if (nextValue === "delivered_pending" || nextValue === "delivered_collected") {
+        let defaultAmount = null;
+        if (o.deliveredCash != null && Number.isFinite(Number(o.deliveredCash))) defaultAmount = Number(o.deliveredCash);
+        else if (o.adminInvoiceAmount != null && Number.isFinite(Number(o.adminInvoiceAmount))) defaultAmount = Number(o.adminInvoiceAmount);
+        else defaultAmount = 0;
+
+        const deliveredInput = prompt(
+          "مبلغ الاستلام الفعلي لهذا الطلب:",
+          String(defaultAmount)
+        );
+        if (deliveredInput == null) return;
+
+        const deliveredCash = parseIQD(deliveredInput);
+        if (deliveredCash == null || !Number.isFinite(deliveredCash)) {
+          alert("مبلغ التسليم غير صحيح.");
+          return;
+        }
+
+        patch.status = "delivered";
+        patch.deliveredCash = deliveredCash;
+        if (!o.deliveredAt || String(o.status || "") !== "delivered") patch.deliveredAt = SERVER_TS;
+        patch.returnReason = null;
+        patch.returnedAt = null;
+
+        const isCollected = (nextValue === "delivered_collected");
+        patch.cashCollected = isCollected;
+        patch.cashCollectedAt = isCollected ? SERVER_TS : null;
+        if (isCollected) {
+          Object.assign(patch, buildAuditFields("cashCollectedBy"));
+        } else {
+          patch.cashCollectedById = null;
+          patch.cashCollectedByName = null;
+          patch.cashCollectedByRole = null;
+          patch.cashCollectedByRoleLabel = null;
+          patch.cashCollectedFromPage = null;
+        }
+      } else if (nextValue === "returned") {
+        const reasonInput = prompt("سبب الراجع:", o.returnReason || "");
+        if (reasonInput == null) return;
+
+        patch.status = "returned";
+        patch.returnReason = String(reasonInput || "").trim() || null;
+        if (!o.returnedAt || String(o.status || "") !== "returned") patch.returnedAt = SERVER_TS;
+        patch.cashCollected = false;
+        patch.cashCollectedAt = null;
+        patch.cashCollectedById = null;
+        patch.cashCollectedByName = null;
+        patch.cashCollectedByRole = null;
+        patch.cashCollectedByRoleLabel = null;
+        patch.cashCollectedFromPage = null;
+        patch.deliveredCash = null;
+        patch.deliveredAt = null;
+      } else {
+        patch.status = (nextValue === "nearby") ? "nearby" : "registered";
+        patch.cashCollected = false;
+        patch.cashCollectedAt = null;
+        patch.cashCollectedById = null;
+        patch.cashCollectedByName = null;
+        patch.cashCollectedByRole = null;
+        patch.cashCollectedByRoleLabel = null;
+        patch.cashCollectedFromPage = null;
+        patch.deliveredCash = null;
+        patch.deliveredAt = null;
+        patch.returnReason = null;
+        patch.returnedAt = null;
+      }
+
+      await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
+      alert(`تم تحديث الطلب إلى: ${getManagerBreakdownQuickStatusLabel(nextValue)} ✅`);
+    }
+
     async function managerEditOrder(orderId){
       const o = ordersCache[orderId];
       if (!o) return;
@@ -4360,23 +4498,17 @@ function subscribeEmployees(){
 
       if (headDate) headDate.textContent = workDate || "—";
 
-      // Safety
       if (!theadEl || !tbodyEl){
-        // fallback: keep old behavior if table skeleton missing
         managerDriverBreakdownList.innerHTML = `<div class="small">⚠️ table not ready.</div>`;
         return;
       }
 
-      // --------------------------------------------------
-      // ✅ (A) إذا مختار مندوب → جدول تفصيلي للطلبات
-      // --------------------------------------------------
       if (filterDriver){
         const driverId = String(filterDriver);
         const driverName = driverNameById(driverId) || driverId;
 
         if (headName) headName.textContent = driverName;
 
-        // Table head (مثل التصميم اللي أرسلته)
         theadEl.innerHTML = `
           <tr>
             <th>اسم الزبون</th>
@@ -4384,6 +4516,7 @@ function subscribeEmployees(){
             <th>المبلغ المستلم</th>
             <th>التفاصيل</th>
             <th>مستلم البيانات</th>
+            <th>تعديل الاستلام</th>
           </tr>
         `;
 
@@ -4399,7 +4532,7 @@ function subscribeEmployees(){
         tbodyEl.innerHTML = "";
 
         if (!list.length){
-          tbodyEl.innerHTML = `<tr><td colspan="5">لا يوجد بيانات.</td></tr>`;
+          tbodyEl.innerHTML = `<tr><td colspan="6">لا يوجد بيانات.</td></tr>`;
           if (footerEl) footerEl.textContent = "";
           return;
         }
@@ -4411,7 +4544,6 @@ function subscribeEmployees(){
           const st = String(o.status || "registered");
           const clientName = o.clientName || "—";
 
-          // Amounts
           let invoiceTxt = "—";
           let gotTxt = "—";
           let details = "";
@@ -4426,7 +4558,7 @@ function subscribeEmployees(){
               else sumUncollected += v;
             }
 
-            gotTxt = (isCollected && Number.isFinite(v)) ? formatIQD(v) : (isCollected ? "✅" : "0");
+            gotTxt = Number.isFinite(v) ? formatIQD(v) : (isCollected ? "✅" : "0");
             details =
               (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
               ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
@@ -4443,7 +4575,6 @@ function subscribeEmployees(){
               `📍 قريب` +
               ` <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
           } else {
-            // registered / any other
             const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
             invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
             const pr = normalizePriority(o.priority);
@@ -4453,6 +4584,7 @@ function subscribeEmployees(){
           }
 
           const actorHtml = describeOrderDataActor(o);
+          const quickValue = getManagerBreakdownQuickStatusValue(o);
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td>${escapeHtml(clientName)}</td>
@@ -4460,8 +4592,36 @@ function subscribeEmployees(){
             <td>${escapeHtml(gotTxt)}</td>
             <td style="text-align:right">${details}</td>
             <td style="text-align:right">${actorHtml}</td>
+            <td class="btn-cell">
+              <select class="report-inline-control" data-role="breakdown-status" data-order-id="${escapeHtml(o.id)}">
+                ${buildManagerBreakdownQuickStatusOptions(quickValue)}
+              </select>
+              <button class="secondary report-inline-save-btn" data-role="breakdown-save" data-order-id="${escapeHtml(o.id)}">حفظ</button>
+              <span class="report-inline-note">بدّل الحالة مباشرة من هذا الجدول.</span>
+            </td>
           `;
           tbodyEl.appendChild(tr);
+        });
+
+        tbodyEl.querySelectorAll('[data-role="breakdown-save"]').forEach(btn => {
+          btn.onclick = async () => {
+            const orderId = String(btn.getAttribute('data-order-id') || '');
+            const row = btn.closest('tr');
+            const selectEl = row ? row.querySelector('[data-role="breakdown-status"]') : null;
+            const nextValue = selectEl ? selectEl.value : '';
+            btn.disabled = true;
+            const oldText = btn.textContent;
+            btn.textContent = 'جاري...';
+            try {
+              await managerQuickUpdateFromBreakdown(orderId, nextValue);
+            } catch (err) {
+              console.error(err);
+              alert('تعذر تحديث الطلب.');
+            } finally {
+              btn.disabled = false;
+              btn.textContent = oldText;
+            }
+          };
         });
 
         if (footerEl){
@@ -4471,13 +4631,9 @@ function subscribeEmployees(){
         return;
       }
 
-      // --------------------------------------------------
-      // ✅ (B) ماكو فلتر → لازم تختار مندوب
-      // --------------------------------------------------
       if (headName) headName.textContent = "—";
       if (footerEl) footerEl.textContent = "";
 
-      // نفس أعمدة الجدول التفصيلي
       theadEl.innerHTML = `
         <tr>
           <th>اسم الزبون</th>
@@ -4485,13 +4641,13 @@ function subscribeEmployees(){
           <th>المبلغ المستلم</th>
           <th>التفاصيل</th>
           <th>مستلم البيانات</th>
+          <th>تعديل الاستلام</th>
         </tr>
       `;
 
-      tbodyEl.innerHTML = `<tr><td colspan="5">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
+      tbodyEl.innerHTML = `<tr><td colspan="6">اختر مندوب من الفلتر حتى يظهر جدول التحصيل والفواتير الخاص به.</td></tr>`;
       return;
-}
-
+    }
 
 
 
