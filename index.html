@@ -488,6 +488,10 @@ background:#fff;
             <div class="driver-report-foot small" id="driver-report-footer"></div>
           </div>
 
+          <div style="margin-top:8px;text-align:center">
+            <button id="manager-breakdown-add-row-btn" class="secondary">+ إضافة صف جديد</button>
+          </div>
+
 <!-- ✅ قائمة كاملة للطلبات الراجعة لكل المندوبين -->
           <hr style="border-color:#111827;margin:10px 0;" />
           <h4>كل الطلبات الراجعة (لكل المندوبين)</h4>
@@ -5017,62 +5021,7 @@ function subscribeEmployees(){
           <div class="print-wrap">${html}</div>
           <script>window.onload=function(){setTimeout(function(){window.print();},150);};<\/script>
         
-<script>
-document.addEventListener("DOMContentLoaded",function(){
 
-function applyRowRules(row){
-  const status=row.querySelector("select");
-  const received=row.querySelector(".received-input,input[name*=receive],input[data-receive]");
-  if(status){
-    if(!status.value) status.value="مسجل";
-    if(received){
-      if(status.value==="المندوب استلم المبلغ"||status.value==="تم استلامها"){
-        received.disabled=false;
-      }else{
-        received.value="";
-        received.disabled=true;
-      }
-    }
-    status.addEventListener("change",()=>applyRowRules(row));
-  }
-
-  row.querySelectorAll("input,select").forEach(el=>{
-    el.addEventListener("keydown",e=>{
-      if(e.key==="Enter"){
-        e.preventDefault();
-        const tbody=row.parentElement;
-        if(row===tbody.lastElementChild){
-          const clone=row.cloneNode(true);
-          clone.querySelectorAll("input").forEach(i=>{i.value="";});
-          const st=clone.querySelector("select");
-          if(st) st.value="مسجل";
-          const r=clone.querySelector("input[type=number]");
-          if(r) r.disabled=true;
-          tbody.appendChild(clone);
-          applyRowRules(clone);
-          clone.querySelector("input,select")?.focus();
-        }else{
-          const inputs=[...tbody.querySelectorAll("input,select")];
-          const idx=inputs.indexOf(e.target);
-          if(idx>-1 && inputs[idx+1]) inputs[idx+1].focus();
-        }
-      }
-    });
-  });
-}
-
-const tbody=document.getElementById("manager-driver-breakdown-tbody");
-if(tbody){
-  const observer=new MutationObserver(()=>{
-    const rows=[...tbody.querySelectorAll("tr")];
-    rows.forEach(r=>applyRowRules(r));
-  });
-  observer.observe(tbody,{childList:true});
-  [...tbody.querySelectorAll("tr")].forEach(r=>applyRowRules(r));
-}
-
-});
-</script>
 
 </body>
         </html>
@@ -6932,60 +6881,106 @@ ref.update(payload).then(() => {
 }
 </script>
 
+
 <script>
 document.addEventListener("DOMContentLoaded",function(){
-
-function applyRowRules(row){
-  const status=row.querySelector("select");
-  const received=row.querySelector(".received-input,input[name*=receive],input[data-receive]");
-  if(status){
-    if(!status.value) status.value="مسجل";
-    if(received){
-      if(status.value==="المندوب استلم المبلغ"||status.value==="تم استلامها"){
-        received.disabled=false;
-      }else{
-        received.value="";
-        received.disabled=true;
-      }
-    }
-    status.addEventListener("change",()=>applyRowRules(row));
+  function isBlankValue(v){
+    return String(v || "").trim() === "";
   }
 
-  row.querySelectorAll("input,select").forEach(el=>{
-    el.addEventListener("keydown",e=>{
-      if(e.key==="Enter"){
-        e.preventDefault();
-        const tbody=row.parentElement;
-        if(row===tbody.lastElementChild){
-          const clone=row.cloneNode(true);
-          clone.querySelectorAll("input").forEach(i=>{i.value="";});
-          const st=clone.querySelector("select");
-          if(st) st.value="مسجل";
-          const r=clone.querySelector("input[type=number]");
-          if(r) r.disabled=true;
-          tbody.appendChild(clone);
-          applyRowRules(clone);
-          clone.querySelector("input,select")?.focus();
-        }else{
-          const inputs=[...tbody.querySelectorAll("input,select")];
-          const idx=inputs.indexOf(e.target);
-          if(idx>-1 && inputs[idx+1]) inputs[idx+1].focus();
-        }
+  function applyRowRules(row){
+    if(!row) return;
+    const status = row.querySelector('[data-role="breakdown-status"], [data-role="breakdown-status-new"], select');
+    const received = row.querySelector(".edit-got, .received-input, input[name*=receive], input[data-receive]");
+    if(status && !status.value) status.value = "registered";
+
+    if(status && received){
+      const allowReceive = (status.value === "delivered_uncollected" || status.value === "delivered_collected" || status.value === "المندوب استلم المبلغ" || status.value === "تم استلامها");
+      if(allowReceive){
+        received.disabled = false;
+      }else{
+        received.value = "";
+        received.disabled = true;
       }
+    }
+  }
+
+  function focusNewBreakdownRow(){
+    const row = document.querySelector('#manager-driver-breakdown-tbody tr[data-kind="new"]');
+    if(!row) return false;
+    applyRowRules(row);
+    const input = row.querySelector('.edit-client, input, select');
+    if(input){
+      row.scrollIntoView({behavior:'smooth', block:'center'});
+      input.focus();
+      input.select && input.select();
+      return true;
+    }
+    return false;
+  }
+
+  async function submitNewBreakdownRow(row){
+    const btn = row && row.querySelector('[data-role="breakdown-create"]');
+    if(!btn || btn.disabled) return;
+    btn.click();
+  }
+
+  document.addEventListener('click', function(e){
+    const addBtn = e.target.closest('#manager-breakdown-add-row-btn');
+    if(addBtn){
+      e.preventDefault();
+      const focused = focusNewBreakdownRow();
+      if(!focused){
+        alert('اختر مندوب من الفلتر أولاً.');
+      }
+    }
+  });
+
+  document.addEventListener('input', function(e){
+    const row = e.target && e.target.closest ? e.target.closest('#manager-driver-breakdown-tbody tr') : null;
+    if(row) applyRowRules(row);
+  });
+
+  document.addEventListener('change', function(e){
+    const row = e.target && e.target.closest ? e.target.closest('#manager-driver-breakdown-tbody tr') : null;
+    if(row) applyRowRules(row);
+  });
+
+  document.addEventListener('keydown', function(e){
+    if(e.key !== 'Enter') return;
+    const el = e.target;
+    const row = el && el.closest ? el.closest('#manager-driver-breakdown-tbody tr') : null;
+    if(!row) return;
+
+    e.preventDefault();
+    const controls = [...row.querySelectorAll('input,select,textarea,button')].filter(x => !x.disabled && x.offsetParent !== null);
+    const idx = controls.indexOf(el);
+
+    if(row.getAttribute('data-kind') === 'new'){
+      if(idx >= 0 && idx < controls.length - 1){
+        controls[idx + 1].focus();
+        return;
+      }
+      submitNewBreakdownRow(row);
+      return;
+    }
+
+    if(idx >= 0 && idx < controls.length - 1){
+      controls[idx + 1].focus();
+      return;
+    }
+    const saveBtn = row.querySelector('[data-role="breakdown-save"]');
+    if(saveBtn && !saveBtn.disabled) saveBtn.click();
+  });
+
+  const tbody = document.getElementById("manager-driver-breakdown-tbody");
+  if(tbody){
+    const observer = new MutationObserver(()=>{
+      [...tbody.querySelectorAll("tr")].forEach(r=>applyRowRules(r));
     });
-  });
-}
-
-const tbody=document.getElementById("manager-driver-breakdown-tbody");
-if(tbody){
-  const observer=new MutationObserver(()=>{
-    const rows=[...tbody.querySelectorAll("tr")];
-    rows.forEach(r=>applyRowRules(r));
-  });
-  observer.observe(tbody,{childList:true});
-  [...tbody.querySelectorAll("tr")].forEach(r=>applyRowRules(r));
-}
-
+    observer.observe(tbody,{childList:true, subtree:true});
+    [...tbody.querySelectorAll("tr")].forEach(r=>applyRowRules(r));
+  }
 });
 </script>
 
