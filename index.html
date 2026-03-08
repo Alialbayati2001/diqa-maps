@@ -222,7 +222,7 @@ background:#fff;
       top:calc(100% + 4px);
       right:0;
       left:0;
-      max-height:220px;
+      max-height:260px; overflow-y:auto; z-index:999999;
       overflow-y:auto;
       background:#ffffff;
       border:1px solid #cbd5e1;
@@ -4850,85 +4850,9 @@ function subscribeEmployees(){
     // =========================
     // ✅ NEW: Breakdown per driver (collection + invoices)
     // =========================
-
-    function getBreakdownFocusSnapshot(){
-      const tbodyEl = document.getElementById('manager-driver-breakdown-tbody');
-      const active = document.activeElement;
-      if (!tbodyEl || !active || !tbodyEl.contains(active)) return null;
-      const row = active.closest('tr');
-      if (!row) return null;
-      const snapshot = {
-        kind: row.getAttribute('data-kind') || '',
-        orderId: row.getAttribute('data-order-id') || '',
-        field: '',
-        selectionStart: null,
-        selectionEnd: null,
-        scrollTop: null
-      };
-      if (active.classList.contains('edit-client')) snapshot.field = 'client';
-      else if (active.classList.contains('edit-invoice')) snapshot.field = 'invoice';
-      else if (active.classList.contains('edit-got')) snapshot.field = 'got';
-      else if (active.matches('[data-role="breakdown-status"]')) snapshot.field = 'status';
-      else if (active.matches('[data-role="breakdown-status-new"]')) snapshot.field = 'status-new';
-      else if (active.matches('[data-role="breakdown-save"]')) snapshot.field = 'save';
-      else if (active.matches('[data-role="breakdown-create"]')) snapshot.field = 'create';
-      else if (active.matches('[data-role="breakdown-delete"]')) snapshot.field = 'delete';
-      else if (active.matches('[data-role="breakdown-clear"]')) snapshot.field = 'clear';
-      else return null;
-
-      if (typeof active.selectionStart === 'number') snapshot.selectionStart = active.selectionStart;
-      if (typeof active.selectionEnd === 'number') snapshot.selectionEnd = active.selectionEnd;
-      if (typeof active.scrollTop === 'number') snapshot.scrollTop = active.scrollTop;
-      return snapshot;
-    }
-
-    function restoreBreakdownFocusSnapshot(snapshot){
-      if (!snapshot || !snapshot.field) return;
-      const tbodyEl = document.getElementById('manager-driver-breakdown-tbody');
-      if (!tbodyEl) return;
-      let row = null;
-      if (snapshot.kind === 'new') {
-        row = tbodyEl.querySelector('tr[data-kind="new"]');
-      } else if (snapshot.orderId) {
-        row = tbodyEl.querySelector(`tr[data-order-id="${cssEscapeSafe(snapshot.orderId)}"]`);
-      }
-      if (!row) return;
-
-      let target = null;
-      if (snapshot.field === 'client') target = row.querySelector('.edit-client');
-      else if (snapshot.field === 'invoice') target = row.querySelector('.edit-invoice');
-      else if (snapshot.field === 'got') target = row.querySelector('.edit-got');
-      else if (snapshot.field === 'status') target = row.querySelector('[data-role="breakdown-status"]');
-      else if (snapshot.field === 'status-new') target = row.querySelector('[data-role="breakdown-status-new"]');
-      else if (snapshot.field === 'save') target = row.querySelector('[data-role="breakdown-save"]');
-      else if (snapshot.field === 'create') target = row.querySelector('[data-role="breakdown-create"]');
-      else if (snapshot.field === 'delete') target = row.querySelector('[data-role="breakdown-delete"]');
-      else if (snapshot.field === 'clear') target = row.querySelector('[data-role="breakdown-clear"]');
-      if (!target) return;
-
-      try { target.focus({ preventScroll:true }); }
-      catch(_){ target.focus(); }
-
-      if (typeof snapshot.scrollTop === 'number' && typeof target.scrollTop === 'number') {
-        try { target.scrollTop = snapshot.scrollTop; } catch(_){ }
-      }
-      if (typeof snapshot.selectionStart === 'number' && typeof target.setSelectionRange === 'function') {
-        const valueLen = String(target.value || '').length;
-        const start = Math.max(0, Math.min(snapshot.selectionStart, valueLen));
-        const end = Math.max(start, Math.min(snapshot.selectionEnd == null ? start : snapshot.selectionEnd, valueLen));
-        try { target.setSelectionRange(start, end); } catch(_){ }
-      }
-
-      if (target.classList && target.classList.contains('edit-client')) {
-        const suggestBox = target.closest('.client-name-cell')?.querySelector('.breakdown-client-suggest');
-        if (suggestBox && suggestBox.innerHTML.trim()) suggestBox.classList.add('show');
-      }
-    }
-
     function renderManagerDriverBreakdown(){
       if (!managerDriverBreakdownList) return;
 
-      const focusSnapshot = getBreakdownFocusSnapshot();
       const filterDriver = getManagerSelectedDriverId();
       const workDate = ordersWorkDate || getActiveWorkDate();
 
@@ -5058,7 +4982,6 @@ function subscribeEmployees(){
         tbodyEl.appendChild(newRow);
 
         tbodyEl.querySelectorAll('.client-name-input').forEach(input => ensureBreakdownClientAutocomplete(input));
-        restoreBreakdownFocusSnapshot(focusSnapshot);
 
         tbodyEl.querySelectorAll('[data-role="breakdown-save"]').forEach(btn => {
           btn.onclick = async () => {
