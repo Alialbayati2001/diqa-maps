@@ -219,36 +219,34 @@ background:#fff;
     }
     .breakdown-client-suggest{
       position:absolute;
-      top:100%;
+      top:calc(100% + 4px);
       right:0;
       left:0;
-      margin-top:2px;
-      min-width:260px;
-      max-height:320px;
+      max-height:220px;
       overflow-y:auto;
       background:#ffffff;
-      border:1px solid #94a3b8;
-      border-radius:14px;
-      box-shadow:0 14px 36px rgba(0,0,0,.22);
+      border:1px solid #cbd5e1;
+      border-radius:12px;
+      box-shadow:0 12px 30px rgba(0,0,0,.18);
       z-index:99999;
       display:none;
     }
     .breakdown-client-suggest.show{display:block;}
     .breakdown-client-suggest-item{
-      padding:12px 14px;
+      padding:10px 12px;
       cursor:pointer;
       text-align:right;
-      font-weight:800;
-      font-size:15px;
-      line-height:1.45;
+      font-weight:700;
+      font-size:13px;
+      line-height:1.35;
       color:#111827;
       background:#fff;
       border-bottom:1px solid #eef2f7;
     }
     .breakdown-client-suggest-item:last-child{border-bottom:none;}
     .breakdown-client-suggest-item:hover{background:#f8fafc;}
-    .breakdown-client-suggest-item-main{display:flex;align-items:center;justify-content:space-between;gap:10px;}
-    .breakdown-client-suggest-item-amount{font-size:13px;color:#475569;white-space:nowrap;}
+    .breakdown-client-suggest-item-main{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+    .breakdown-client-suggest-item-amount{font-size:12px;color:#475569;white-space:nowrap;}
     .breakdown-client-suggest-item-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     .report-inline-save-btn{
       width:100%;
@@ -3553,16 +3551,6 @@ function initMap() {
         cell.appendChild(box);
       }
 
-      box.addEventListener('mousedown', function(e){
-        e.preventDefault();
-      });
-      box.addEventListener('mouseenter', function(){
-        box.dataset.hovering = '1';
-      });
-      box.addEventListener('mouseleave', function(){
-        box.dataset.hovering = '0';
-      });
-
       const render = () => {
         const suggestions = getBreakdownClientSuggestionNames(inputEl.value);
         box.innerHTML = '';
@@ -3604,10 +3592,7 @@ function initMap() {
       inputEl.addEventListener('click', render);
       inputEl.addEventListener('input', render);
       inputEl.addEventListener('blur', () => {
-        setTimeout(() => {
-          if (box.dataset.hovering === '1' || box.matches(':hover')) return;
-          box.classList.remove('show');
-        }, 350);
+        setTimeout(() => box.classList.remove('show'), 180);
       });
     }
 
@@ -4865,9 +4850,85 @@ function subscribeEmployees(){
     // =========================
     // ✅ NEW: Breakdown per driver (collection + invoices)
     // =========================
+
+    function getBreakdownFocusSnapshot(){
+      const tbodyEl = document.getElementById('manager-driver-breakdown-tbody');
+      const active = document.activeElement;
+      if (!tbodyEl || !active || !tbodyEl.contains(active)) return null;
+      const row = active.closest('tr');
+      if (!row) return null;
+      const snapshot = {
+        kind: row.getAttribute('data-kind') || '',
+        orderId: row.getAttribute('data-order-id') || '',
+        field: '',
+        selectionStart: null,
+        selectionEnd: null,
+        scrollTop: null
+      };
+      if (active.classList.contains('edit-client')) snapshot.field = 'client';
+      else if (active.classList.contains('edit-invoice')) snapshot.field = 'invoice';
+      else if (active.classList.contains('edit-got')) snapshot.field = 'got';
+      else if (active.matches('[data-role="breakdown-status"]')) snapshot.field = 'status';
+      else if (active.matches('[data-role="breakdown-status-new"]')) snapshot.field = 'status-new';
+      else if (active.matches('[data-role="breakdown-save"]')) snapshot.field = 'save';
+      else if (active.matches('[data-role="breakdown-create"]')) snapshot.field = 'create';
+      else if (active.matches('[data-role="breakdown-delete"]')) snapshot.field = 'delete';
+      else if (active.matches('[data-role="breakdown-clear"]')) snapshot.field = 'clear';
+      else return null;
+
+      if (typeof active.selectionStart === 'number') snapshot.selectionStart = active.selectionStart;
+      if (typeof active.selectionEnd === 'number') snapshot.selectionEnd = active.selectionEnd;
+      if (typeof active.scrollTop === 'number') snapshot.scrollTop = active.scrollTop;
+      return snapshot;
+    }
+
+    function restoreBreakdownFocusSnapshot(snapshot){
+      if (!snapshot || !snapshot.field) return;
+      const tbodyEl = document.getElementById('manager-driver-breakdown-tbody');
+      if (!tbodyEl) return;
+      let row = null;
+      if (snapshot.kind === 'new') {
+        row = tbodyEl.querySelector('tr[data-kind="new"]');
+      } else if (snapshot.orderId) {
+        row = tbodyEl.querySelector(`tr[data-order-id="${cssEscapeSafe(snapshot.orderId)}"]`);
+      }
+      if (!row) return;
+
+      let target = null;
+      if (snapshot.field === 'client') target = row.querySelector('.edit-client');
+      else if (snapshot.field === 'invoice') target = row.querySelector('.edit-invoice');
+      else if (snapshot.field === 'got') target = row.querySelector('.edit-got');
+      else if (snapshot.field === 'status') target = row.querySelector('[data-role="breakdown-status"]');
+      else if (snapshot.field === 'status-new') target = row.querySelector('[data-role="breakdown-status-new"]');
+      else if (snapshot.field === 'save') target = row.querySelector('[data-role="breakdown-save"]');
+      else if (snapshot.field === 'create') target = row.querySelector('[data-role="breakdown-create"]');
+      else if (snapshot.field === 'delete') target = row.querySelector('[data-role="breakdown-delete"]');
+      else if (snapshot.field === 'clear') target = row.querySelector('[data-role="breakdown-clear"]');
+      if (!target) return;
+
+      try { target.focus({ preventScroll:true }); }
+      catch(_){ target.focus(); }
+
+      if (typeof snapshot.scrollTop === 'number' && typeof target.scrollTop === 'number') {
+        try { target.scrollTop = snapshot.scrollTop; } catch(_){ }
+      }
+      if (typeof snapshot.selectionStart === 'number' && typeof target.setSelectionRange === 'function') {
+        const valueLen = String(target.value || '').length;
+        const start = Math.max(0, Math.min(snapshot.selectionStart, valueLen));
+        const end = Math.max(start, Math.min(snapshot.selectionEnd == null ? start : snapshot.selectionEnd, valueLen));
+        try { target.setSelectionRange(start, end); } catch(_){ }
+      }
+
+      if (target.classList && target.classList.contains('edit-client')) {
+        const suggestBox = target.closest('.client-name-cell')?.querySelector('.breakdown-client-suggest');
+        if (suggestBox && suggestBox.innerHTML.trim()) suggestBox.classList.add('show');
+      }
+    }
+
     function renderManagerDriverBreakdown(){
       if (!managerDriverBreakdownList) return;
 
+      const focusSnapshot = getBreakdownFocusSnapshot();
       const filterDriver = getManagerSelectedDriverId();
       const workDate = ordersWorkDate || getActiveWorkDate();
 
@@ -4997,6 +5058,7 @@ function subscribeEmployees(){
         tbodyEl.appendChild(newRow);
 
         tbodyEl.querySelectorAll('.client-name-input').forEach(input => ensureBreakdownClientAutocomplete(input));
+        restoreBreakdownFocusSnapshot(focusSnapshot);
 
         tbodyEl.querySelectorAll('[data-role="breakdown-save"]').forEach(btn => {
           btn.onclick = async () => {
