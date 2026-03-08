@@ -4965,7 +4965,7 @@ function subscribeEmployees(){
         newRow.className = "breakdown-new-row";
         newRow.setAttribute("data-kind", "new");
         newRow.innerHTML = `
-          <td class='client-name-cell'><textarea class='edit-client client-name-input' rows='2' placeholder='اسم الزبون الجديد' style='width:100%' title='${escapeHtml(draft.clientName || )}' oninput='this.title=this.value'>${escapeHtml(draft.clientName || )}</textarea></td>
+          <td class='client-name-cell'><textarea class='edit-client client-name-input' rows='2' placeholder='اسم الزبون الجديد' style='width:100%' title='${escapeHtml(draft.clientName || "")}' oninput='this.title=this.value'>${escapeHtml(draft.clientName || "")}</textarea></td>
           <td><input class='edit-invoice' value='${escapeHtml(draft.invoice || "")}' placeholder='مبلغ الفاتورة' style='width:90px'></td>
           <td><input class='edit-got' value='${escapeHtml(draft.got || "")}' placeholder='مبلغ الاستلام' style='width:90px'></td>
           <td style="text-align:right"><div class="small">سطر جديد فارغ — ينحفظ كطلب جديد على هذا المندوب.</div></td>
