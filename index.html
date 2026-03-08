@@ -3482,6 +3482,7 @@ function initMap() {
 
         if (!deduped.has(norm)) {
           deduped.set(norm, {
+            id: id,
             name: rawName,
             nameNorm: norm
           });
@@ -3565,9 +3566,53 @@ function initMap() {
       return Number.isFinite(Number(hinted)) ? Number(hinted) : null;
     }
 
+
+    function resolveBreakdownClientInfo(rawValue, preferredClientId){
+      const typedName = String(rawValue || '').trim();
+      const preferredId = String(preferredClientId || '').trim();
+
+      let clientId = null;
+      let clientName = typedName || null;
+
+      if (preferredId && clientsCache[preferredId]) {
+        clientId = preferredId;
+        const c = clientsCache[preferredId] || {};
+        clientName = String(c.name || typedName || preferredId).trim() || preferredId;
+      }
+
+      if (!clientId) {
+        const parsed = parseClientPickValue(typedName);
+        if (parsed && parsed.clientId && clientsCache[parsed.clientId]) {
+          clientId = parsed.clientId;
+          clientName = String(parsed.clientName || typedName || parsed.clientId).trim() || parsed.clientId;
+        }
+      }
+
+      let lat = null;
+      let lng = null;
+      if (clientId && clientsCache[clientId]) {
+        const c = clientsCache[clientId] || {};
+        const la = Number(c.lat);
+        const ln = Number(c.lng);
+        if (Number.isFinite(la) && Number.isFinite(ln)) {
+          lat = la;
+          lng = ln;
+        }
+      }
+
+      return {
+        clientId: clientId || null,
+        clientName: clientName || null,
+        lat,
+        lng,
+        hasLocation: Number.isFinite(lat) && Number.isFinite(lng)
+      };
+    }
+
     function clearManagerBreakdownDraft(driverId){
       const draft = getManagerBreakdownDraft(driverId);
       draft.clientName = '';
+      draft.clientId = '';
       draft.invoice = '';
       draft.got = '';
       draft.status = 'registered';
@@ -3577,9 +3622,9 @@ function initMap() {
 
     function getManagerBreakdownDraft(driverId){
       const id = String(driverId || '').trim();
-      if (!id) return { clientName:'', invoice:'', got:'', status:'registered' };
+      if (!id) return { clientName:'', clientId:'', invoice:'', got:'', status:'registered' };
       if (!managerBreakdownDraftByDriver[id]) {
-        managerBreakdownDraftByDriver[id] = { clientName:'', invoice:'', got:'', status:'registered' };
+        managerBreakdownDraftByDriver[id] = { clientName:'', clientId:'', invoice:'', got:'', status:'registered' };
       }
       return managerBreakdownDraftByDriver[id];
     }
@@ -3595,6 +3640,7 @@ function initMap() {
       const gotEl = row.querySelector('.edit-got');
       const statusEl = row.querySelector('[data-role="breakdown-status-new"]');
       draft.clientName = String(clientEl && clientEl.value || '');
+      draft.clientId = String(clientEl && clientEl.dataset && clientEl.dataset.selectedClientId || '');
       draft.invoice = String(invoiceEl && invoiceEl.value || '');
       draft.got = String(gotEl && gotEl.value || '');
       draft.status = String(statusEl && statusEl.value || 'registered') || 'registered';
@@ -3637,6 +3683,8 @@ function initMap() {
         const frag = document.createDocumentFragment();
 
         suggestions.forEach(name => {
+          const match = clientsSearchIndex.find(item => String(item.name || '').trim() === String(name || '').trim());
+          const suggestedClientId = match && match.id ? String(match.id) : '';
           const item = document.createElement('div');
           item.className = 'breakdown-client-suggest-item';
           const amount = getBreakdownSuggestedInvoiceForClient(name);
@@ -3651,6 +3699,7 @@ function initMap() {
             e.stopPropagation();
             inputEl.value = name;
             inputEl.title = name;
+            if (suggestedClientId) inputEl.dataset.selectedClientId = suggestedClientId;
             const row = inputEl.closest('tr');
             const invoiceEl = row ? row.querySelector('.edit-invoice') : null;
             if (invoiceEl && !String(invoiceEl.value || '').trim() && amount != null) {
@@ -3672,7 +3721,17 @@ function initMap() {
 
       inputEl.addEventListener('focus', renderNow);
       inputEl.addEventListener('click', renderNow);
-      inputEl.addEventListener('input', renderDebounced);
+      inputEl.addEventListener('input', function(){
+        const pickedId = String(inputEl.dataset.selectedClientId || '').trim();
+        if (pickedId) {
+          const c = clientsCache[pickedId] || {};
+          const exactName = String(c.name || '').trim();
+          if (!exactName || String(inputEl.value || '').trim() !== exactName) {
+            delete inputEl.dataset.selectedClientId;
+          }
+        }
+        renderDebounced();
+      });
       inputEl.addEventListener('blur', () => {
         setTimeout(() => box.classList.remove('show'), 180);
       });
@@ -4352,8 +4411,17 @@ function subscribeEmployees(){
       if (!form) throw new Error('row_missing');
       if (!form.clientName) throw new Error('client_required');
 
+      const clientEl = row.querySelector('.edit-client');
+      const resolvedClient = resolveBreakdownClientInfo(form.clientName, clientEl && clientEl.dataset ? clientEl.dataset.selectedClientId : '');
+      if (!resolvedClient.clientId || !resolvedClient.hasLocation) throw new Error('client_pick_required');
+      if (clientEl && clientEl.dataset) clientEl.dataset.selectedClientId = resolvedClient.clientId;
+
       const patch = {
-        clientName: form.clientName,
+        type: 'order',
+        clientId: resolvedClient.clientId,
+        clientName: resolvedClient.clientName,
+        lat: resolvedClient.lat,
+        lng: resolvedClient.lng,
         adminInvoiceAmount: (form.invoiceAmount != null && Number.isFinite(form.invoiceAmount)) ? form.invoiceAmount : null,
         ...buildAuditFields("lastEditedBy")
       };
@@ -4421,6 +4489,14 @@ function subscribeEmployees(){
           alert('اكتب اسم الزبون أولاً.');
           return;
         }
+        if (String(err && err.message || err) === 'client_pick_required') {
+          alert('اختر الزبون الصحيح من القائمة حتى ينحفظ الطلب مع الموقع ويظهر بصفحة المندوب.');
+          return;
+        }
+        if (String(err && err.message || err) === 'client_pick_required') {
+          alert('اختر الزبون الصحيح من القائمة حتى ينحفظ الطلب مع الموقع ويظهر بصفحة المندوب.');
+          return;
+        }
         throw err;
       }
       await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
@@ -4449,15 +4525,15 @@ function subscribeEmployees(){
 
       const payload = {
         workDate: ordersWorkDate,
-        type: 'manual_breakdown_entry',
+        type: 'order',
         assignedDriverId: driverIdText,
         assignedDriverName: driverNameById(driverIdText),
-        clientId: null,
+        clientId: patch.clientId,
         clientName: patch.clientName,
-        lat: null,
-        lng: null,
+        lat: patch.lat,
+        lng: patch.lng,
         priority: maxP + 1,
-        priorityManual: true,
+        priorityManual: false,
         createdAt: SERVER_TS,
         ...buildAuditFields('createdBy'),
         ...patch
@@ -4468,6 +4544,7 @@ function subscribeEmployees(){
 
       const draft = getManagerBreakdownDraft(driverIdText);
       draft.clientName = '';
+      draft.clientId = '';
       draft.invoice = '';
       draft.got = '';
       draft.status = 'registered';
@@ -5104,7 +5181,7 @@ function subscribeEmployees(){
           tr.setAttribute("data-kind", "existing");
           tr.setAttribute("data-order-id", String(o.id || ""));
           tr.innerHTML = `
-            <td class='client-name-cell'><textarea class='edit-client client-name-input' rows='2' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'>${escapeHtml(clientName)}</textarea></td>
+            <td class='client-name-cell'><textarea class='edit-client client-name-input' data-selected-client-id='${escapeHtml(o.clientId || "")}' rows='2' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'>${escapeHtml(clientName)}</textarea></td>
             <td><input class='edit-invoice' value='${escapeHtml(invoiceTxt)}' placeholder='0' style='width:90px'></td>
             <td><input class='edit-got' value='${escapeHtml(gotTxt)}' placeholder='0' style='width:90px'></td>
             <td style="text-align:right">${details}</td>
@@ -5126,7 +5203,7 @@ function subscribeEmployees(){
         newRow.className = "breakdown-new-row";
         newRow.setAttribute("data-kind", "new");
         newRow.innerHTML = `
-          <td class='client-name-cell'><textarea class='edit-client client-name-input' rows='2' placeholder='اسم الزبون الجديد' style='width:100%' title='${escapeHtml(draft.clientName || "")}' oninput='this.title=this.value'>${escapeHtml(draft.clientName || "")}</textarea></td>
+          <td class='client-name-cell'><textarea class='edit-client client-name-input' data-selected-client-id='${escapeHtml(draft.clientId || "")}' rows='2' placeholder='اسم الزبون الجديد' style='width:100%' title='${escapeHtml(draft.clientName || "")}' oninput='this.title=this.value'>${escapeHtml(draft.clientName || "")}</textarea></td>
           <td><input class='edit-invoice' value='${escapeHtml(draft.invoice || "")}' placeholder='مبلغ الفاتورة' style='width:90px'></td>
           <td><input class='edit-got' value='${escapeHtml(draft.got || "")}' placeholder='مبلغ الاستلام' style='width:90px'></td>
           <td style="text-align:right"><div class="small">سطر جديد فارغ — ينحفظ كطلب جديد على هذا المندوب.</div></td>
@@ -5213,7 +5290,7 @@ function subscribeEmployees(){
             const invoiceEl = row.querySelector('.edit-invoice');
             const gotEl = row.querySelector('.edit-got');
             const statusEl = row.querySelector('[data-role="breakdown-status-new"]');
-            if (clientEl) { clientEl.value = ''; clientEl.title = ''; }
+            if (clientEl) { clientEl.value = ''; clientEl.title = ''; delete clientEl.dataset.selectedClientId; }
             if (invoiceEl) invoiceEl.value = '';
             if (gotEl) gotEl.value = '';
             if (statusEl) statusEl.value = 'registered';
