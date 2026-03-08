@@ -252,6 +252,24 @@ background:#fff;
     .breakdown-client-suggest-item-main{display:flex;align-items:center;justify-content:space-between;gap:8px;}
     .breakdown-client-suggest-item-amount{font-size:12px;color:#475569;white-space:nowrap;}
     .breakdown-client-suggest-item-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .legacy-return-modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.72);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:1000000;padding:16px;}
+    .legacy-return-modal{width:min(680px,100%);max-height:min(88vh,900px);overflow:hidden;display:flex;flex-direction:column;background:#0b1120;color:#e5e7eb;border:1px solid #1f2937;border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.45);}
+    .legacy-return-modal-head{padding:16px 16px 8px;border-bottom:1px solid #1f2937;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+    .legacy-return-modal-body{padding:16px;overflow:auto;}
+    .legacy-return-close{background:#111827;color:#e5e7eb;border:1px solid #374151;padding:6px 12px;border-radius:999px;font-size:13px;}
+    .legacy-return-search-wrap{position:relative;}
+    .legacy-return-search{margin-bottom:6px;}
+    .legacy-return-picked{margin:6px 0 10px;font-size:12px;color:#93c5fd;min-height:18px;}
+    .legacy-return-suggest{max-height:320px;overflow:auto;border:1px solid #1f2937;border-radius:14px;background:#020617;}
+    .legacy-return-item{padding:10px 12px;border-bottom:1px solid #111827;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+    .legacy-return-item:last-child{border-bottom:none;}
+    .legacy-return-item:hover,.legacy-return-item.active{background:#111827;}
+    .legacy-return-item-main{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;}
+    .legacy-return-item-name{font-weight:800;color:#e5e7eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .legacy-return-item-meta{font-size:11px;color:#9ca3af;display:flex;gap:6px;flex-wrap:wrap;}
+    .legacy-return-badge-near{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#14532d;color:#bbf7d0;border:1px solid #166534;font-size:11px;font-weight:800;}
+    .legacy-return-empty{padding:14px;text-align:center;color:#9ca3af;font-size:12px;}
+    .legacy-return-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px;}
     .report-inline-save-btn{
       width:100%;
       margin:0;
@@ -3746,6 +3764,244 @@ function initMap() {
       });
     }
 
+    function getDriverCurrentLatLng(){
+      if (driverSelfLatLng && Number.isFinite(Number(driverSelfLatLng.lat)) && Number.isFinite(Number(driverSelfLatLng.lng))) {
+        return { lat:Number(driverSelfLatLng.lat), lng:Number(driverSelfLatLng.lng) };
+      }
+      if (currentDriverId && driversLocationsCache && driversLocationsCache[currentDriverId]) {
+        const loc = driversLocationsCache[currentDriverId] || {};
+        const lat = Number(loc.lat), lng = Number(loc.lng);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+      }
+      return null;
+    }
+
+    function getLegacyReturnClientSuggestions(keyword, limit){
+      const q = normalizeArabicSearchText(keyword);
+      const max = Math.max(1, Number(limit) || 12);
+      const driverLoc = getDriverCurrentLatLng();
+      const items = [];
+
+      Object.entries(clientsCache || {}).forEach(([id, c]) => {
+        const name = String((c && c.name) ? c.name : id || '').trim();
+        if (!name) return;
+        const nameNorm = normalizeArabicSearchText(name);
+        if (q && !(nameNorm.startsWith(q) || nameNorm.includes(q))) return;
+
+        let distanceMeters = null;
+        const lat = Number(c && c.lat);
+        const lng = Number(c && c.lng);
+        if (driverLoc && Number.isFinite(lat) && Number.isFinite(lng)) {
+          distanceMeters = haversineMeters(driverLoc.lat, driverLoc.lng, lat, lng);
+        }
+
+        items.push({
+          id,
+          name,
+          nameNorm,
+          lat: Number.isFinite(lat) ? lat : null,
+          lng: Number.isFinite(lng) ? lng : null,
+          distanceMeters: Number.isFinite(distanceMeters) ? distanceMeters : null
+        });
+      });
+
+      items.sort((a, b) => {
+        const aNear = Number.isFinite(a.distanceMeters);
+        const bNear = Number.isFinite(b.distanceMeters);
+        if (aNear && bNear && a.distanceMeters !== b.distanceMeters) return a.distanceMeters - b.distanceMeters;
+        if (aNear !== bNear) return aNear ? -1 : 1;
+        const aStarts = q ? a.nameNorm.startsWith(q) : false;
+        const bStarts = q ? b.nameNorm.startsWith(q) : false;
+        if (aStarts !== bStarts) return aStarts ? -1 : 1;
+        return String(a.name || '').localeCompare(String(b.name || ''), 'ar');
+      });
+
+      return items.slice(0, max);
+    }
+
+    function formatLegacyReturnDistance(distanceMeters){
+      const n = Number(distanceMeters);
+      if (!Number.isFinite(n)) return 'الموقع غير متوفر';
+      if (n < 1000) return `${Math.round(n)} م`;
+      return `${(n / 1000).toFixed(2)} كم`;
+    }
+
+    function openLegacyReturnDialog(){
+      return new Promise((resolve) => {
+        const previous = document.querySelector('.legacy-return-modal-backdrop');
+        if (previous) previous.remove();
+
+        const backdrop = document.createElement('div');
+        backdrop.className = 'legacy-return-modal-backdrop';
+        backdrop.innerHTML = `
+          <div class="legacy-return-modal" role="dialog" aria-modal="true" aria-label="تسجيل راجع سابق">
+            <div class="legacy-return-modal-head">
+              <div>
+                <h3 style="margin:0 0 6px;">تسجيل راجع سابق</h3>
+                <div class="small">ابحث عن الزبون من كل الزبائن. الأقرب إلى موقعك يظهر أولاً إن توفر موقعك الحالي.</div>
+              </div>
+              <button type="button" class="legacy-return-close">إغلاق</button>
+            </div>
+            <div class="legacy-return-modal-body">
+              <label>اسم الزبون</label>
+              <div class="legacy-return-search-wrap">
+                <input type="text" class="legacy-return-search" placeholder="اكتب اسم الزبون..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              </div>
+              <div class="legacy-return-picked">لم يتم اختيار زبون بعد</div>
+              <div class="legacy-return-suggest"></div>
+              <label style="margin-top:12px;">سبب الراجع</label>
+              <textarea class="legacy-return-reason" rows="3" placeholder="اكتب سبب الراجع حتى يظهر للأدمن"></textarea>
+              <div class="legacy-return-actions">
+                <button type="button" class="secondary legacy-return-cancel">إلغاء</button>
+                <button type="button" class="legacy-return-save">حفظ الراجع السابق</button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        document.body.appendChild(backdrop);
+
+        const modal = backdrop.querySelector('.legacy-return-modal');
+        const closeBtn = backdrop.querySelector('.legacy-return-close');
+        const cancelBtn = backdrop.querySelector('.legacy-return-cancel');
+        const saveBtn = backdrop.querySelector('.legacy-return-save');
+        const searchInput = backdrop.querySelector('.legacy-return-search');
+        const suggestBox = backdrop.querySelector('.legacy-return-suggest');
+        const pickedEl = backdrop.querySelector('.legacy-return-picked');
+        const reasonEl = backdrop.querySelector('.legacy-return-reason');
+
+        let selected = null;
+        let activeIndex = -1;
+        let currentSuggestions = [];
+
+        const cleanup = (result) => {
+          backdrop.remove();
+          resolve(result || null);
+        };
+
+        const setSelected = (item) => {
+          selected = item || null;
+          if (selected) {
+            searchInput.value = selected.name || '';
+            pickedEl.innerHTML = `الزبون المختار: <b>${escapeHtml(selected.name || '')}</b>${Number.isFinite(selected.distanceMeters) ? ` <span class="legacy-return-badge-near">يبعد ${escapeHtml(formatLegacyReturnDistance(selected.distanceMeters))}</span>` : ''}`;
+          } else {
+            pickedEl.textContent = 'لم يتم اختيار زبون بعد';
+          }
+        };
+
+        const renderSuggestions = () => {
+          currentSuggestions = getLegacyReturnClientSuggestions(searchInput.value, 18);
+          suggestBox.innerHTML = '';
+          activeIndex = currentSuggestions.length ? 0 : -1;
+
+          if (!currentSuggestions.length) {
+            suggestBox.innerHTML = '<div class="legacy-return-empty">لا توجد نتائج مطابقة.</div>';
+            return;
+          }
+
+          const frag = document.createDocumentFragment();
+          currentSuggestions.forEach((item, idx) => {
+            const row = document.createElement('div');
+            row.className = 'legacy-return-item' + (idx === activeIndex ? ' active' : '');
+            const nearBadge = Number.isFinite(item.distanceMeters)
+              ? `<span class="legacy-return-badge-near">قريب: ${escapeHtml(formatLegacyReturnDistance(item.distanceMeters))}</span>`
+              : '';
+            row.innerHTML = `
+              <div class="legacy-return-item-main">
+                <div class="legacy-return-item-name">${escapeHtml(item.name || '')}</div>
+                <div class="legacy-return-item-meta">
+                  <span>${nearBadge || 'زبون محفوظ'}</span>
+                </div>
+              </div>
+            `;
+            row.addEventListener('mousedown', (e) => {
+              e.preventDefault();
+              setSelected(item);
+            });
+            row.addEventListener('dblclick', (e) => {
+              e.preventDefault();
+              setSelected(item);
+              saveBtn.click();
+            });
+            frag.appendChild(row);
+          });
+          suggestBox.appendChild(frag);
+        };
+
+        const refreshActive = () => {
+          Array.from(suggestBox.querySelectorAll('.legacy-return-item')).forEach((el, idx) => {
+            el.classList.toggle('active', idx === activeIndex);
+          });
+        };
+
+        const save = () => {
+          if (!selected) {
+            const exact = getLegacyReturnClientSuggestions(searchInput.value, 1).find(x => normalizeArabicSearchText(x.name) === normalizeArabicSearchText(searchInput.value));
+            if (exact) setSelected(exact);
+          }
+          if (!selected) {
+            alert('اختر زبوناً من القائمة أولاً.');
+            searchInput.focus();
+            return;
+          }
+          cleanup({
+            clientId: selected.id || null,
+            clientName: selected.name || '',
+            lat: Number.isFinite(Number(selected.lat)) ? Number(selected.lat) : null,
+            lng: Number.isFinite(Number(selected.lng)) ? Number(selected.lng) : null,
+            reason: String(reasonEl.value || '').trim()
+          });
+        };
+
+        closeBtn.addEventListener('click', () => cleanup(null));
+        cancelBtn.addEventListener('click', () => cleanup(null));
+        backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) cleanup(null); });
+        searchInput.addEventListener('input', () => {
+          const typed = normalizeArabicSearchText(searchInput.value);
+          if (selected && typed !== normalizeArabicSearchText(selected.name || '')) selected = null;
+          if (!selected) pickedEl.textContent = 'لم يتم اختيار زبون بعد';
+          renderSuggestions();
+        });
+        searchInput.addEventListener('keydown', (e) => {
+          if (!currentSuggestions.length) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex = Math.min(currentSuggestions.length - 1, activeIndex + 1);
+            refreshActive();
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex = Math.max(0, activeIndex - 1);
+            refreshActive();
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const item = currentSuggestions[Math.max(0, activeIndex)] || currentSuggestions[0];
+            if (item) setSelected(item);
+          }
+        });
+        reasonEl.addEventListener('keydown', (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            save();
+          }
+        });
+        saveBtn.addEventListener('click', save);
+        document.addEventListener('keydown', function escHandler(e){
+          if (!document.body.contains(backdrop)) {
+            document.removeEventListener('keydown', escHandler);
+            return;
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            document.removeEventListener('keydown', escHandler);
+            cleanup(null);
+          }
+        });
+
+        renderSuggestions();
+        setTimeout(() => searchInput.focus(), 0);
+      });
+    }
+
     function parseClientPickValue(v){
       const s = String(v || "").trim();
       if (!s) return { clientId:null, clientName:null };
@@ -4109,34 +4365,37 @@ function subscribeEmployees(){
       const workDate = getWorkDateByKey(driverDaySelect.value || "today");
       const ref = db.ref(`orders/${workDate}`).push();
 
-      // اختيار زبون: نفس datalist الخاص بالأدمن، نستخدم clientsCache
-      const clientPick = prompt("اكتب اسم الزبون (يفضل: الاسم — ID) أو اكتب الاسم فقط:", "");
-      if (clientPick == null) return;
+      const chosen = await openLegacyReturnDialog();
+      if (!chosen) return;
 
-      const parsed = parseClientPickValue(clientPick);
-      let clientId = parsed.clientId;
-      let clientName = parsed.clientName;
+      let clientId = chosen.clientId || null;
+      let clientName = String(chosen.clientName || '').trim();
+      let lat = Number.isFinite(Number(chosen.lat)) ? Number(chosen.lat) : null;
+      let lng = Number.isFinite(Number(chosen.lng)) ? Number(chosen.lng) : null;
 
-      // إذا ما قدرنا نطابق، نخليه اسم نصّي فقط
-      if (!clientName) clientName = String(clientPick || "").trim() || "زبون";
-
-      let lat = null, lng = null;
-      if (clientId && clientsCache[clientId] && typeof clientsCache[clientId].lat === "number" && typeof clientsCache[clientId].lng === "number") {
-        lat = clientsCache[clientId].lat;
-        lng = clientsCache[clientId].lng;
-      } else {
-        // fallback: اطلب إحداثيات
-        const latStr = prompt("Latitude (اختياري إذا ما اخترت من القائمة):", "");
-        const lngStr = prompt("Longitude (اختياري إذا ما اخترت من القائمة):", "");
-        const la = Number(normalizeNumberText(latStr));
-        const ln = Number(normalizeNumberText(lngStr));
-        if (Number.isFinite(la) && Number.isFinite(ln)) { lat = la; lng = ln; }
+      if ((!clientId || !clientName) && clientName) {
+        const parsed = parseClientPickValue(clientName);
+        clientId = parsed.clientId || clientId;
+        clientName = parsed.clientName || clientName;
       }
 
-      const reason = prompt("سبب الراجع (اكتبه حتى يظهر للأدمن):", "");
+      if (!clientId || !clientName) {
+        alert('اختر زبوناً من القائمة حتى يتم تسجيل الراجع السابق بشكل صحيح.');
+        return;
+      }
+
+      if (clientId && clientsCache[clientId]) {
+        const c = clientsCache[clientId] || {};
+        const la = Number(c.lat), ln = Number(c.lng);
+        if (Number.isFinite(la) && Number.isFinite(ln)) {
+          lat = la;
+          lng = ln;
+        }
+      }
+
       const payload = {
         workDate,
-        type: "legacy_return",            // ✅ تمييز
+        type: "legacy_return",
         assignedDriverId: currentDriverId,
         assignedDriverName: currentDriverNameLabel.textContent || driverNameById(currentDriverId),
         clientId: clientId || null,
@@ -4144,7 +4403,7 @@ function subscribeEmployees(){
         lat: (typeof lat === "number" ? lat : null),
         lng: (typeof lng === "number" ? lng : null),
         status: "returned",
-        returnReason: (reason || "").trim() || null,
+        returnReason: String(chosen.reason || '').trim() || null,
         returnedAt: SERVER_TS,
         cashCollected: false,
         createdAt: SERVER_TS,
@@ -7614,4 +7873,3 @@ document.addEventListener("DOMContentLoaded",function(){
 
 </body>
 </html>
-
