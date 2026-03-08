@@ -270,6 +270,8 @@ background:#fff;
     .legacy-return-badge-near{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#14532d;color:#bbf7d0;border:1px solid #166534;font-size:11px;font-weight:800;}
     .legacy-return-empty{padding:14px;text-align:center;color:#9ca3af;font-size:12px;}
     .legacy-return-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px;}
+    .legacy-payment-amount{margin-top:12px;}
+    .legacy-payment-amount input{width:100%;margin-bottom:0;}
     .report-inline-save-btn{
       width:100%;
       margin:0;
@@ -709,6 +711,12 @@ background:#fff;
           <div class="hint">إذا الزبون رجّع قطعة قديمة مو من طلب اليوم، سجّلها هنا حتى تظهر عند الأدمن ضمن الرواجع.</div>
           <button class="secondary" id="legacy-return-btn">+ إضافة راجع سابق</button>
           <p class="small" id="legacy-return-msg"></p>
+
+          <hr style="border-color:#111827;margin:10px 0;" />
+          <h4>استحصال تسديد</h4>
+          <div class="hint">يسجّل المندوب تسديد مباشر من زبون، مع ترشيح الزبائن الأقرب إلى موقعه الحالي أولاً ثم إدخال مبلغ التسديد.</div>
+          <button class="secondary" id="legacy-payment-btn">+ تسجيل استحصال تسديد</button>
+          <p class="small" id="legacy-payment-msg"></p>
         </div>
       </div>
 
@@ -1264,6 +1272,8 @@ nextDrivers[key] = {
     // ✅ زر راجع سابق
     const legacyReturnBtn = document.getElementById("legacy-return-btn");
     const legacyReturnMsg = document.getElementById("legacy-return-msg");
+    const legacyPaymentBtn = document.getElementById("legacy-payment-btn");
+    const legacyPaymentMsg = document.getElementById("legacy-payment-msg");
     const driverBuildRouteBtn = document.getElementById("driver-build-route-btn");
     const driverOpenAllGoogleBtn = document.getElementById("driver-open-all-google-btn");
     const driverClearRouteBtn = document.getElementById("driver-clear-route-btn");
@@ -4002,6 +4012,194 @@ function initMap() {
       });
     }
 
+    function openLegacyPaymentDialog(){
+      return new Promise((resolve) => {
+        const previous = document.querySelector('.legacy-return-modal-backdrop');
+        if (previous) previous.remove();
+
+        const backdrop = document.createElement('div');
+        backdrop.className = 'legacy-return-modal-backdrop';
+        backdrop.innerHTML = `
+          <div class="legacy-return-modal" role="dialog" aria-modal="true" aria-label="تسجيل استحصال تسديد">
+            <div class="legacy-return-modal-head">
+              <div>
+                <h3 style="margin:0 0 6px;">استحصال تسديد</h3>
+                <div class="small">ابحث عن الزبون من كل الزبائن. الأقرب إلى موقعك يظهر أولاً إن توفر موقعك الحالي.</div>
+              </div>
+              <button type="button" class="legacy-return-close">إغلاق</button>
+            </div>
+            <div class="legacy-return-modal-body">
+              <label>اسم الزبون</label>
+              <div class="legacy-return-search-wrap">
+                <input type="text" class="legacy-return-search" placeholder="اكتب اسم الزبون..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              </div>
+              <div class="legacy-return-picked">لم يتم اختيار زبون بعد</div>
+              <div class="legacy-return-suggest"></div>
+              <label style="margin-top:12px;">مبلغ التسديد</label>
+              <div class="legacy-payment-amount">
+                <input type="text" class="legacy-payment-amount-input" inputmode="numeric" placeholder="مثال: 25000 أو 25,000 د.ع" />
+              </div>
+              <div class="legacy-return-actions">
+                <button type="button" class="secondary legacy-return-cancel">إلغاء</button>
+                <button type="button" class="legacy-return-save">حفظ استحصال التسديد</button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        document.body.appendChild(backdrop);
+
+        const closeBtn = backdrop.querySelector('.legacy-return-close');
+        const cancelBtn = backdrop.querySelector('.legacy-return-cancel');
+        const saveBtn = backdrop.querySelector('.legacy-return-save');
+        const searchInput = backdrop.querySelector('.legacy-return-search');
+        const suggestBox = backdrop.querySelector('.legacy-return-suggest');
+        const pickedEl = backdrop.querySelector('.legacy-return-picked');
+        const amountEl = backdrop.querySelector('.legacy-payment-amount-input');
+
+        let selected = null;
+        let activeIndex = -1;
+        let currentSuggestions = [];
+
+        const cleanup = (result) => {
+          backdrop.remove();
+          resolve(result || null);
+        };
+
+        const setSelected = (item) => {
+          selected = item || null;
+          if (selected) {
+            searchInput.value = selected.name || '';
+            pickedEl.innerHTML = `الزبون المختار: <b>${escapeHtml(selected.name || '')}</b>${Number.isFinite(selected.distanceMeters) ? ` <span class="legacy-return-badge-near">يبعد ${escapeHtml(formatLegacyReturnDistance(selected.distanceMeters))}</span>` : ''}`;
+          } else {
+            pickedEl.textContent = 'لم يتم اختيار زبون بعد';
+          }
+        };
+
+        const renderSuggestions = () => {
+          currentSuggestions = getLegacyReturnClientSuggestions(searchInput.value, 18);
+          suggestBox.innerHTML = '';
+          activeIndex = currentSuggestions.length ? 0 : -1;
+
+          if (!currentSuggestions.length) {
+            suggestBox.innerHTML = '<div class="legacy-return-empty">لا توجد نتائج مطابقة.</div>';
+            return;
+          }
+
+          const frag = document.createDocumentFragment();
+          currentSuggestions.forEach((item, idx) => {
+            const row = document.createElement('div');
+            row.className = 'legacy-return-item' + (idx === activeIndex ? ' active' : '');
+            const nearBadge = Number.isFinite(item.distanceMeters)
+              ? `<span class="legacy-return-badge-near">قريب: ${escapeHtml(formatLegacyReturnDistance(item.distanceMeters))}</span>`
+              : '';
+            row.innerHTML = `
+              <div class="legacy-return-item-main">
+                <div class="legacy-return-item-name">${escapeHtml(item.name || '')}</div>
+                <div class="legacy-return-item-meta">
+                  <span>${nearBadge || 'زبون محفوظ'}</span>
+                </div>
+              </div>
+            `;
+            row.addEventListener('mousedown', (e) => {
+              e.preventDefault();
+              setSelected(item);
+            });
+            row.addEventListener('dblclick', (e) => {
+              e.preventDefault();
+              setSelected(item);
+              saveBtn.click();
+            });
+            frag.appendChild(row);
+          });
+          suggestBox.appendChild(frag);
+        };
+
+        const refreshActive = () => {
+          Array.from(suggestBox.querySelectorAll('.legacy-return-item')).forEach((el, idx) => {
+            el.classList.toggle('active', idx === activeIndex);
+          });
+        };
+
+        const save = () => {
+          if (!selected) {
+            const exact = getLegacyReturnClientSuggestions(searchInput.value, 1).find(x => normalizeArabicSearchText(x.name) === normalizeArabicSearchText(searchInput.value));
+            if (exact) setSelected(exact);
+          }
+          if (!selected) {
+            alert('اختر زبوناً من القائمة أولاً.');
+            searchInput.focus();
+            return;
+          }
+
+          const amount = parseIQD(amountEl.value);
+          if (amount == null || !Number.isFinite(amount)) {
+            alert('اكتب مبلغ تسديد صحيح.');
+            amountEl.focus();
+            return;
+          }
+
+          cleanup({
+            clientId: selected.id || null,
+            clientName: selected.name || '',
+            lat: Number.isFinite(Number(selected.lat)) ? Number(selected.lat) : null,
+            lng: Number.isFinite(Number(selected.lng)) ? Number(selected.lng) : null,
+            amount
+          });
+        };
+
+        closeBtn.addEventListener('click', () => cleanup(null));
+        cancelBtn.addEventListener('click', () => cleanup(null));
+        backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) cleanup(null); });
+        searchInput.addEventListener('input', () => {
+          const typed = normalizeArabicSearchText(searchInput.value);
+          if (selected && typed !== normalizeArabicSearchText(selected.name || '')) selected = null;
+          if (!selected) pickedEl.textContent = 'لم يتم اختيار زبون بعد';
+          renderSuggestions();
+        });
+        searchInput.addEventListener('keydown', (e) => {
+          if (!currentSuggestions.length) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex = Math.min(currentSuggestions.length - 1, activeIndex + 1);
+            refreshActive();
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex = Math.max(0, activeIndex - 1);
+            refreshActive();
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const item = currentSuggestions[Math.max(0, activeIndex)] || currentSuggestions[0];
+            if (item) {
+              setSelected(item);
+              amountEl.focus();
+            }
+          }
+        });
+        amountEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || ((e.ctrlKey || e.metaKey) && e.key === 'Enter')) {
+            e.preventDefault();
+            save();
+          }
+        });
+        saveBtn.addEventListener('click', save);
+        document.addEventListener('keydown', function escHandler(e){
+          if (!document.body.contains(backdrop)) {
+            document.removeEventListener('keydown', escHandler);
+            return;
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            document.removeEventListener('keydown', escHandler);
+            cleanup(null);
+          }
+        });
+
+        renderSuggestions();
+        setTimeout(() => searchInput.focus(), 0);
+      });
+    }
+
     function parseClientPickValue(v){
       const s = String(v || "").trim();
       if (!s) return { clientId:null, clientName:null };
@@ -4421,6 +4619,84 @@ function subscribeEmployees(){
       } catch(e) {
         console.error(e);
         alert("فشل تسجيل راجع سابق (Rules).");
+      }
+    }
+
+    async function driverLegacyPaymentFlow(){
+      if (!currentDriverId) return;
+
+      const workDate = getWorkDateByKey(driverDaySelect.value || "today");
+      const ref = db.ref(`orders/${workDate}`).push();
+
+      const chosen = await openLegacyPaymentDialog();
+      if (!chosen) return;
+
+      let clientId = chosen.clientId || null;
+      let clientName = String(chosen.clientName || '').trim();
+      let lat = Number.isFinite(Number(chosen.lat)) ? Number(chosen.lat) : null;
+      let lng = Number.isFinite(Number(chosen.lng)) ? Number(chosen.lng) : null;
+      const amount = Number(chosen.amount);
+
+      if ((!clientId || !clientName) && clientName) {
+        const parsed = parseClientPickValue(clientName);
+        clientId = parsed.clientId || clientId;
+        clientName = parsed.clientName || clientName;
+      }
+
+      if (!clientId || !clientName) {
+        alert('اختر زبوناً من القائمة حتى يتم تسجيل التسديد بشكل صحيح.');
+        return;
+      }
+
+      if (!Number.isFinite(amount)) {
+        alert('مبلغ التسديد غير صحيح.');
+        return;
+      }
+
+      if (clientId && clientsCache[clientId]) {
+        const c = clientsCache[clientId] || {};
+        const la = Number(c.lat), ln = Number(c.lng);
+        if (Number.isFinite(la) && Number.isFinite(ln)) {
+          lat = la;
+          lng = ln;
+        }
+      }
+
+      const payload = {
+        workDate,
+        type: "payment_collection",
+        assignedDriverId: currentDriverId,
+        assignedDriverName: currentDriverNameLabel.textContent || driverNameById(currentDriverId),
+        clientId: clientId || null,
+        clientName: clientName,
+        lat: (typeof lat === "number" ? lat : null),
+        lng: (typeof lng === "number" ? lng : null),
+        status: "delivered",
+        nearbyAt: SERVER_TS,
+        deliveredCash: amount,
+        deliveredAt: SERVER_TS,
+        cashCollected: false,
+        cashCollectedById: null,
+        cashCollectedByName: null,
+        cashCollectedByRole: null,
+        cashCollectedByRoleLabel: null,
+        cashCollectedFromPage: null,
+        returnReason: null,
+        createdAt: SERVER_TS,
+        ...buildAuditFields("createdBy"),
+        ...buildAuditFields("lastEditedBy")
+      };
+
+      try {
+        await ref.set(payload);
+        if (legacyPaymentMsg) {
+          legacyPaymentMsg.textContent = "✅ تم تسجيل استحصال التسديد";
+          setTimeout(()=>legacyPaymentMsg.textContent="", 2500);
+        }
+        alert("تم تسجيل استحصال التسديد ✅");
+      } catch(e) {
+        console.error(e);
+        alert("فشل تسجيل استحصال التسديد (Rules).");
       }
     }
 
@@ -7424,6 +7700,11 @@ logoutDriverBtn.onclick = () => {
     if (legacyReturnBtn) {
       legacyReturnBtn.addEventListener("click", async ()=>{
         await driverLegacyReturnFlow();
+      });
+    }
+    if (legacyPaymentBtn) {
+      legacyPaymentBtn.addEventListener("click", async ()=>{
+        await driverLegacyPaymentFlow();
       });
     }
 
