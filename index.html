@@ -4757,10 +4757,6 @@ function subscribeEmployees(){
           ...buildAuditFields("lastEditedBy")
         });
 
-        // ✅ بعد التسليم: إذا عنده راجع سابق يسجله
-        const legacy = confirm("هل استلمت قطعة راجعة قديمة (مو من طلب اليوم)؟");
-        if (legacy) await driverLegacyReturnFlow();
-
         alert("تم تسجيل (تم التسليم) ✅");
       } else if (String(choice).trim() === "2") {
         if (!canDeliverHere && liveOrder.status !== "nearby") {
