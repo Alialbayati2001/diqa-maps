@@ -4545,6 +4545,47 @@ function subscribeEmployees(){
       });
     }
 
+    async function driverEditDeliveredAmount(orderId){
+      if (!currentDriverId || !orderId || !ordersWorkDate) return;
+
+      const liveOrder = ordersCache[orderId];
+      if (!liveOrder) {
+        alert("الطلب غير موجود.");
+        return;
+      }
+      if (String(liveOrder.assignedDriverId || "") !== String(currentDriverId)) {
+        alert("لا يمكنك تعديل مبلغ طلب غير تابع لك.");
+        return;
+      }
+      if (String(liveOrder.status || "") !== "delivered") {
+        alert("يمكن تعديل المبلغ فقط للطلبات المسلّمة.");
+        return;
+      }
+      if (liveOrder.cashCollected === true) {
+        alert("لا يمكن تعديل المبلغ بعد استلامه من الشركة.");
+        return;
+      }
+
+      const currentAmount = (liveOrder.deliveredCash != null && Number.isFinite(Number(liveOrder.deliveredCash)))
+        ? String(Number(liveOrder.deliveredCash))
+        : "0";
+      const amountStr = prompt("عدّل مبلغ الاستلام من الزبون:", currentAmount);
+      if (amountStr == null) return;
+
+      const amount = parseIQD(amountStr);
+      if (amount == null || !Number.isFinite(amount)) {
+        alert("المبلغ غير صحيح.");
+        return;
+      }
+
+      await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
+        deliveredCash: amount,
+        ...buildAuditFields("lastEditedBy")
+      });
+
+      alert("تم تعديل المبلغ ✅");
+    }
+
     // =========================
     // ✅ Manager edit/delete orders
     // =========================
@@ -6318,6 +6359,14 @@ function subscribeEmployees(){
             go.className = "secondary";
             go.onclick = ()=>openInGoogleMaps(x.lat, x.lng);
             right.appendChild(go);
+          }
+
+          if (x.cashCollected !== true) {
+            const editBtn = document.createElement("button");
+            editBtn.textContent = "تعديل المبلغ";
+            editBtn.className = "secondary";
+            editBtn.onclick = ()=>driverEditDeliveredAmount(x.id);
+            right.appendChild(editBtn);
           }
 
           item.appendChild(left);
