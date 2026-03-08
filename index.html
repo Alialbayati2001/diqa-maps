@@ -112,7 +112,9 @@
       border-radius:12px;
       padding:10px;
       margin-top:8px;
-      overflow:hidden;
+      overflow:visible;
+      position:relative;
+      z-index:1;
     }
     .driver-report-head{
       display:flex;
@@ -194,6 +196,7 @@ background:#fff;
       position:relative;
       overflow:visible !important;
       min-width:0;
+      z-index:10;
     }
     .client-name-input{
       display:block;
@@ -222,14 +225,15 @@ background:#fff;
       top:calc(100% + 4px);
       right:0;
       left:0;
-      max-height:260px; overflow-y:auto; z-index:999999;
+      max-height:260px;
       overflow-y:auto;
       background:#ffffff;
       border:1px solid #cbd5e1;
       border-radius:12px;
       box-shadow:0 12px 30px rgba(0,0,0,.18);
-      z-index:99999;
+      z-index:999999;
       display:none;
+      overscroll-behavior:contain;
     }
     .breakdown-client-suggest.show{display:block;}
     .breakdown-client-suggest-item{
@@ -1183,6 +1187,8 @@ nextDrivers[key] = {
     let driversLocationsCache = {};
     let employeesLocationsCache = {};
     let clientsCache = {};
+    let clientsSearchIndex = [];
+    let clientInvoiceHintMap = {};
 
     let clientSearchTextManager = "";
     let clientSearchTextDriver = "";
@@ -3440,54 +3446,123 @@ function initMap() {
     function renderClientsDatalist(){
       if (!clientsDatalist) return;
       clientsDatalist.innerHTML = "";
+      const frag = document.createDocumentFragment();
       Object.entries(clientsCache || {}).forEach(([id, c]) => {
         const name = (c && c.name) ? c.name : id;
         const opt = document.createElement("option");
         opt.value = `${name} — ${id}`;
-        clientsDatalist.appendChild(opt);
+        frag.appendChild(opt);
       });
+      clientsDatalist.appendChild(frag);
     }
 
     // استخراج clientId من قيمة input: "name — id"
 
-    function getBreakdownClientSuggestionNames(keyword){
-      const q = String(keyword || '').trim().toLowerCase();
-      const names = Object.entries(clientsCache || {}).map(([id, c]) => {
-        const name = (c && c.name) ? String(c.name).trim() : String(id || '').trim();
-        return name;
-      }).filter(Boolean);
+    function normalizeArabicSearchText(str){
+      return String(str || '')
+        .toLowerCase()
+        .trim()
+        .replace(/[أإآٱ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/[ىي]/g, 'ي')
+        .replace(/ؤ/g, 'و')
+        .replace(/ئ/g, 'ي')
+        .replace(/\s+/g, ' ');
+    }
 
-      const unique = [...new Set(names)];
-      unique.sort((a,b)=>a.localeCompare(b, 'ar'));
+    function rebuildClientsSearchIndex(){
+      const entries = Object.entries(clientsCache || {});
+      const deduped = new Map();
 
-      if (!q) return unique.slice(0, 30);
+      entries.forEach(([id, c]) => {
+        const rawName = (c && c.name) ? String(c.name).trim() : String(id || '').trim();
+        if (!rawName) return;
+        const norm = normalizeArabicSearchText(rawName);
+        if (!norm) return;
 
-      const starts = unique.filter(name => name.toLowerCase().startsWith(q));
-      const contains = unique.filter(name => !name.toLowerCase().startsWith(q) && name.toLowerCase().includes(q));
-      return starts.concat(contains).slice(0, 30);
+        if (!deduped.has(norm)) {
+          deduped.set(norm, {
+            name: rawName,
+            nameNorm: norm
+          });
+        }
+      });
+
+      clientsSearchIndex = Array.from(deduped.values()).sort((a, b) => {
+        return String(a.name || '').localeCompare(String(b.name || ''), 'ar');
+      });
+    }
+
+    function rebuildClientInvoiceHintMap(){
+      const grouped = new Map();
+
+      Object.values(ordersCache || {}).forEach(o => {
+        const rawName = String((o && o.clientName) || '').trim();
+        const norm = normalizeArabicSearchText(rawName);
+        if (!norm) return;
+        if (!grouped.has(norm)) grouped.set(norm, []);
+        grouped.get(norm).push(o);
+      });
+
+      clientInvoiceHintMap = {};
+      grouped.forEach((pool, norm) => {
+        pool.sort((a,b)=>{
+          const ta = tsToMs((a && (a.updatedAt || a.createdAt)) || 0);
+          const tb = tsToMs((b && (b.updatedAt || b.createdAt)) || 0);
+          return tb - ta;
+        });
+
+        let picked = null;
+        for (const o of pool) {
+          const candidates = [o.adminInvoiceAmount, o.invoiceAmount, o.amount];
+          for (const v of candidates) {
+            const n = Number(v);
+            if (Number.isFinite(n)) {
+              picked = n;
+              break;
+            }
+          }
+          if (picked != null) break;
+        }
+
+        clientInvoiceHintMap[norm] = picked;
+      });
+    }
+
+    function debounce(fn, wait){
+      let timer = null;
+      return function(...args){
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), Number(wait) || 120);
+      };
+    }
+
+    function getBreakdownClientSuggestionNames(keyword, limit){
+      const q = normalizeArabicSearchText(keyword);
+      const max = Math.max(1, Number(limit) || 8);
+
+      if (!q) return clientsSearchIndex.slice(0, max).map(item => item.name);
+
+      const starts = [];
+      const contains = [];
+
+      for (const item of clientsSearchIndex) {
+        if (item.nameNorm.startsWith(q)) {
+          starts.push(item.name);
+        } else if (item.nameNorm.includes(q)) {
+          contains.push(item.name);
+        }
+        if ((starts.length + contains.length) >= max) break;
+      }
+
+      return starts.concat(contains).slice(0, max);
     }
 
     function getBreakdownSuggestedInvoiceForClient(clientName){
-      const target = String(clientName || '').trim().toLowerCase();
+      const target = normalizeArabicSearchText(clientName);
       if (!target) return null;
-      const pool = Object.values(ordersCache || {}).filter(o => {
-        const nm = String((o && o.clientName) || '').trim().toLowerCase();
-        return nm === target;
-      });
-      if (!pool.length) return null;
-      pool.sort((a,b)=>{
-        const ta = new Date((a && (a.updatedAt || a.createdAt)) || 0).getTime() || 0;
-        const tb = new Date((b && (b.updatedAt || b.createdAt)) || 0).getTime() || 0;
-        return tb - ta;
-      });
-      for (const o of pool) {
-        const candidates = [o.adminInvoiceAmount, o.invoiceAmount, o.amount];
-        for (const v of candidates) {
-          const n = Number(v);
-          if (Number.isFinite(n)) return n;
-        }
-      }
-      return null;
+      const hinted = clientInvoiceHintMap[target];
+      return Number.isFinite(Number(hinted)) ? Number(hinted) : null;
     }
 
     function clearManagerBreakdownDraft(driverId){
@@ -3551,13 +3626,16 @@ function initMap() {
         cell.appendChild(box);
       }
 
-      const render = () => {
-        const suggestions = getBreakdownClientSuggestionNames(inputEl.value);
+      const renderNow = () => {
+        const suggestions = getBreakdownClientSuggestionNames(inputEl.value, 8);
         box.innerHTML = '';
         if (!suggestions.length) {
           box.classList.remove('show');
           return;
         }
+
+        const frag = document.createDocumentFragment();
+
         suggestions.forEach(name => {
           const item = document.createElement('div');
           item.className = 'breakdown-client-suggest-item';
@@ -3582,15 +3660,19 @@ function initMap() {
             box.classList.remove('show');
             inputEl.dispatchEvent(new Event('change', { bubbles:true }));
           });
-          box.appendChild(item);
+          frag.appendChild(item);
         });
+
+        box.appendChild(frag);
         closeBreakdownClientSuggests(inputEl);
         box.classList.add('show');
       };
 
-      inputEl.addEventListener('focus', render);
-      inputEl.addEventListener('click', render);
-      inputEl.addEventListener('input', render);
+      const renderDebounced = debounce(renderNow, 120);
+
+      inputEl.addEventListener('focus', renderNow);
+      inputEl.addEventListener('click', renderNow);
+      inputEl.addEventListener('input', renderDebounced);
       inputEl.addEventListener('blur', () => {
         setTimeout(() => box.classList.remove('show'), 180);
       });
@@ -3680,6 +3762,7 @@ function subscribeEmployees(){
     function subscribeClients() {
       db.ref("clients").on("value", snap => {
         clientsCache = snap.val() || {};
+        rebuildClientsSearchIndex();
         renderClientsLists();
         updateClientMarkers();
 
@@ -3698,6 +3781,7 @@ function subscribeEmployees(){
       ordersUnsubRef = null;
       ordersCache = {};
       ordersWorkDate = "";
+      rebuildClientInvoiceHintMap();
       refreshOrdersUIAndMap();
     }
 
@@ -3713,6 +3797,7 @@ function subscribeEmployees(){
 
       ref.on("value", snap => {
         ordersCache = snap.val() || {};
+        rebuildClientInvoiceHintMap();
         refreshOrdersUIAndMap();
       });
     }
@@ -4850,9 +4935,85 @@ function subscribeEmployees(){
     // =========================
     // ✅ NEW: Breakdown per driver (collection + invoices)
     // =========================
+
+    function getBreakdownFocusSnapshot(){
+      const tbodyEl = document.getElementById('manager-driver-breakdown-tbody');
+      const active = document.activeElement;
+      if (!tbodyEl || !active || !tbodyEl.contains(active)) return null;
+      const row = active.closest('tr');
+      if (!row) return null;
+      const snapshot = {
+        kind: row.getAttribute('data-kind') || '',
+        orderId: row.getAttribute('data-order-id') || '',
+        field: '',
+        selectionStart: null,
+        selectionEnd: null,
+        scrollTop: null
+      };
+      if (active.classList.contains('edit-client')) snapshot.field = 'client';
+      else if (active.classList.contains('edit-invoice')) snapshot.field = 'invoice';
+      else if (active.classList.contains('edit-got')) snapshot.field = 'got';
+      else if (active.matches('[data-role="breakdown-status"]')) snapshot.field = 'status';
+      else if (active.matches('[data-role="breakdown-status-new"]')) snapshot.field = 'status-new';
+      else if (active.matches('[data-role="breakdown-save"]')) snapshot.field = 'save';
+      else if (active.matches('[data-role="breakdown-create"]')) snapshot.field = 'create';
+      else if (active.matches('[data-role="breakdown-delete"]')) snapshot.field = 'delete';
+      else if (active.matches('[data-role="breakdown-clear"]')) snapshot.field = 'clear';
+      else return null;
+
+      if (typeof active.selectionStart === 'number') snapshot.selectionStart = active.selectionStart;
+      if (typeof active.selectionEnd === 'number') snapshot.selectionEnd = active.selectionEnd;
+      if (typeof active.scrollTop === 'number') snapshot.scrollTop = active.scrollTop;
+      return snapshot;
+    }
+
+    function restoreBreakdownFocusSnapshot(snapshot){
+      if (!snapshot || !snapshot.field) return;
+      const tbodyEl = document.getElementById('manager-driver-breakdown-tbody');
+      if (!tbodyEl) return;
+      let row = null;
+      if (snapshot.kind === 'new') {
+        row = tbodyEl.querySelector('tr[data-kind="new"]');
+      } else if (snapshot.orderId) {
+        row = tbodyEl.querySelector(`tr[data-order-id="${cssEscapeSafe(snapshot.orderId)}"]`);
+      }
+      if (!row) return;
+
+      let target = null;
+      if (snapshot.field === 'client') target = row.querySelector('.edit-client');
+      else if (snapshot.field === 'invoice') target = row.querySelector('.edit-invoice');
+      else if (snapshot.field === 'got') target = row.querySelector('.edit-got');
+      else if (snapshot.field === 'status') target = row.querySelector('[data-role="breakdown-status"]');
+      else if (snapshot.field === 'status-new') target = row.querySelector('[data-role="breakdown-status-new"]');
+      else if (snapshot.field === 'save') target = row.querySelector('[data-role="breakdown-save"]');
+      else if (snapshot.field === 'create') target = row.querySelector('[data-role="breakdown-create"]');
+      else if (snapshot.field === 'delete') target = row.querySelector('[data-role="breakdown-delete"]');
+      else if (snapshot.field === 'clear') target = row.querySelector('[data-role="breakdown-clear"]');
+      if (!target) return;
+
+      try { target.focus({ preventScroll:true }); }
+      catch(_){ target.focus(); }
+
+      if (typeof snapshot.scrollTop === 'number' && typeof target.scrollTop === 'number') {
+        try { target.scrollTop = snapshot.scrollTop; } catch(_){ }
+      }
+      if (typeof snapshot.selectionStart === 'number' && typeof target.setSelectionRange === 'function') {
+        const valueLen = String(target.value || '').length;
+        const start = Math.max(0, Math.min(snapshot.selectionStart, valueLen));
+        const end = Math.max(start, Math.min(snapshot.selectionEnd == null ? start : snapshot.selectionEnd, valueLen));
+        try { target.setSelectionRange(start, end); } catch(_){ }
+      }
+
+      if (target.classList && target.classList.contains('edit-client')) {
+        const suggestBox = target.closest('.client-name-cell')?.querySelector('.breakdown-client-suggest');
+        if (suggestBox && suggestBox.innerHTML.trim()) suggestBox.classList.add('show');
+      }
+    }
+
     function renderManagerDriverBreakdown(){
       if (!managerDriverBreakdownList) return;
 
+      const focusSnapshot = getBreakdownFocusSnapshot();
       const filterDriver = getManagerSelectedDriverId();
       const workDate = ordersWorkDate || getActiveWorkDate();
 
@@ -4982,6 +5143,7 @@ function subscribeEmployees(){
         tbodyEl.appendChild(newRow);
 
         tbodyEl.querySelectorAll('.client-name-input').forEach(input => ensureBreakdownClientAutocomplete(input));
+        restoreBreakdownFocusSnapshot(focusSnapshot);
 
         tbodyEl.querySelectorAll('[data-role="breakdown-save"]').forEach(btn => {
           btn.onclick = async () => {
