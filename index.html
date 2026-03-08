@@ -3661,6 +3661,16 @@ function initMap() {
     function ensureBreakdownClientAutocomplete(inputEl){
       if (!inputEl || inputEl.dataset.breakdownAutocompleteReady === '1') return;
       inputEl.dataset.breakdownAutocompleteReady = '1';
+      try {
+        inputEl.setAttribute('autocomplete','off');
+        inputEl.setAttribute('autocorrect','off');
+        inputEl.setAttribute('autocapitalize','off');
+        inputEl.setAttribute('spellcheck','false');
+        inputEl.setAttribute('data-form-type','other');
+        if (!inputEl.getAttribute('name')) {
+          inputEl.setAttribute('name', 'breakdown_client_' + Math.random().toString(36).slice(2, 10));
+        }
+      } catch(_){}
       if (!inputEl.dataset.breakdownInputId) {
         inputEl.dataset.breakdownInputId = 'bci_' + Math.random().toString(36).slice(2, 10);
       }
@@ -3692,11 +3702,9 @@ function initMap() {
           const suggestedClientId = match && match.id ? String(match.id) : '';
           const item = document.createElement('div');
           item.className = 'breakdown-client-suggest-item';
-          const amount = getBreakdownSuggestedInvoiceForClient(name);
           item.innerHTML = `
             <div class="breakdown-client-suggest-item-main">
               <span class="breakdown-client-suggest-item-name">${escapeHtml(name)}</span>
-              <span class="breakdown-client-suggest-item-amount"></span>
             </div>
           `;
           item.addEventListener('mousedown', function(e){
@@ -3706,10 +3714,6 @@ function initMap() {
             inputEl.title = name;
             if (suggestedClientId) inputEl.dataset.selectedClientId = suggestedClientId;
             const row = inputEl.closest('tr');
-            const invoiceEl = row ? row.querySelector('.edit-invoice') : null;
-            if (invoiceEl && !String(invoiceEl.value || '').trim() && amount != null) {
-              invoiceEl.value = String(amount);
-            }
             if (row && row.getAttribute('data-kind') === 'new') syncManagerBreakdownDraftFromRow(row);
             box.classList.remove('show');
             inputEl.dispatchEvent(new Event('change', { bubbles:true }));
