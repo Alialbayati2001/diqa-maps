@@ -267,58 +267,6 @@ background:#fff;
       color:#374151;
       line-height:1.35;
     }
-    .breakdown-got-cell{
-      min-width:0;
-    }
-    .breakdown-got-box{
-      position:relative;
-      min-height:44px;
-      padding-top:18px;
-    }
-    .breakdown-got-edit-btn{
-      position:absolute;
-      top:0;
-      left:0;
-      min-width:24px;
-      height:24px;
-      padding:0 6px;
-      margin:0;
-      border-radius:999px;
-      font-size:12px;
-      line-height:24px;
-    }
-    .breakdown-got-badge{
-      display:inline-block;
-      padding:3px 8px;
-      border-radius:999px;
-      border:1px solid #16a34a;
-      color:#166534;
-      background:#f0fdf4;
-      font-size:11px;
-      font-weight:900;
-      margin-bottom:4px;
-    }
-    .breakdown-got-amount{
-      display:block;
-      font-size:11px;
-      line-height:1.4;
-      color:#374151;
-      font-weight:900;
-      margin-top:3px;
-    }
-    .breakdown-got-mark-btn{
-      padding:5px 10px;
-      font-size:11px;
-      font-weight:900;
-      border-radius:999px;
-      margin:0;
-    }
-    .breakdown-got-input{
-      width:100%;
-      margin-top:6px;
-      margin-bottom:0;
-      text-align:center;
-    }
     .driver-report-foot{
       margin-top:10px;
       padding-top:8px;
@@ -4451,53 +4399,6 @@ function subscribeEmployees(){
       alert(`تم تحديث الطلب إلى: ${getManagerBreakdownQuickStatusLabel(nextValue)} ✅`);
     }
 
-    function buildBreakdownCollectedAmountCell(o, gotTxt){
-      const st = String((o && o.status) || "registered");
-      const safeGotTxt = escapeHtml(gotTxt || "");
-      if (st !== "delivered") {
-        return `<input class='edit-got' value='${safeGotTxt}' placeholder='0' style='width:90px'>`;
-      }
-
-      const isCollected = (o && o.cashCollected === true);
-      const amountText = safeGotTxt || escapeHtml(formatIQD(0));
-
-      if (isCollected) {
-        return `
-          <div class="breakdown-got-box">
-            <button type="button" class="secondary breakdown-got-edit-btn" data-role="breakdown-toggle-got-edit" title="تعديل مبلغ الاستلام">✎</button>
-            <div class="breakdown-got-badge">✅ تم الاستلام</div>
-            <span class="breakdown-got-amount">${amountText}</span>
-            <input class='edit-got breakdown-got-input hidden' value='${safeGotTxt}' placeholder='0'>
-            <div class="small hidden" data-role="breakdown-got-note">بعد تعديل المبلغ اضغط حفظ.</div>
-          </div>
-        `;
-      }
-
-      return `
-        <div class="breakdown-got-box">
-          <button type="button" class="breakdown-got-mark-btn" data-role="breakdown-mark-collected">تم الاستلام</button>
-          <input class='edit-got breakdown-got-input hidden' value='${safeGotTxt}' placeholder='0'>
-          <div class="small">لن يظهر المبلغ هنا إلا بعد الضغط على تم الاستلام.</div>
-        </div>
-      `;
-    }
-
-    async function managerMarkBreakdownCollected(orderId, row){
-      if (!orderId || !row) return;
-      const statusEl = row.querySelector('[data-role="breakdown-status"]');
-      if (statusEl) statusEl.value = 'delivered_collected';
-      const gotEl = row.querySelector('.edit-got');
-      if (gotEl && !String(gotEl.value || '').trim()) {
-        const invoiceEl = row.querySelector('.edit-invoice');
-        const order = ordersCache[orderId] || {};
-        const fallback = (order.deliveredCash != null && Number.isFinite(Number(order.deliveredCash)))
-          ? Number(order.deliveredCash)
-          : ((invoiceEl && parseIQD(invoiceEl.value) != null) ? parseIQD(invoiceEl.value) : ((order.adminInvoiceAmount != null && Number.isFinite(Number(order.adminInvoiceAmount))) ? Number(order.adminInvoiceAmount) : 0));
-        gotEl.value = formatIQD(fallback || 0);
-      }
-      await managerSaveBreakdownRow(orderId, row);
-    }
-
 
     function getBreakdownRowFormData(row){
       if (!row) return null;
@@ -4585,6 +4486,44 @@ function subscribeEmployees(){
       }
 
       return patch;
+    }
+
+
+    async function managerMarkBreakdownCollected(orderId){
+      const o = ordersCache[orderId];
+      if (!o || !ordersWorkDate) return;
+      if (String(o.status || '') !== 'delivered') return;
+      const patch = {
+        cashCollected: true,
+        cashCollectedAt: o.cashCollectedAt || SERVER_TS,
+        ...buildAuditFields('cashCollectedBy'),
+        ...buildAuditFields('lastEditedBy')
+      };
+      await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
+    }
+
+    async function managerQuickEditBreakdownGotAmount(orderId, row){
+      const o = ordersCache[orderId];
+      if (!o || !ordersWorkDate) return;
+      const currentValue = (o.deliveredCash != null && Number.isFinite(Number(o.deliveredCash)))
+        ? String(o.deliveredCash)
+        : ((o.adminInvoiceAmount != null && Number.isFinite(Number(o.adminInvoiceAmount))) ? String(o.adminInvoiceAmount) : '0');
+      const input = prompt('اكتب المبلغ المستلم الصحيح:', currentValue);
+      if (input == null) return;
+      const amount = parseIQD(input);
+      if (amount == null || !Number.isFinite(amount)) {
+        alert('المبلغ غير صحيح.');
+        return;
+      }
+      const patch = {
+        status: 'delivered',
+        deliveredCash: amount,
+        deliveredAt: o.deliveredAt || SERVER_TS,
+        returnReason: null,
+        returnedAt: null,
+        ...buildAuditFields('lastEditedBy')
+      };
+      await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
     }
 
     async function managerSaveBreakdownRow(orderId, row){
@@ -5254,8 +5193,8 @@ function subscribeEmployees(){
           let invoiceTxt = invoiceNumber != null ? formatIQD(invoiceNumber) : "";
           let gotNumber = null;
           let gotTxt = "";
-          let gotSmallHtml = "";
           let details = "";
+          let gotCellHtml = `<input class='edit-got' value='' placeholder='0' style='width:90px'>`;
 
           if (st === "delivered"){
             const v = Number(o.deliveredCash);
@@ -5268,13 +5207,22 @@ function subscribeEmployees(){
               else sumUncollected += v;
             }
 
-            if (isCollected && gotNumber != null){
-              gotSmallHtml = `<div class="small">${escapeHtml(formatIQD(gotNumber))}</div>`;
-            }
+            const amountLabel = gotTxt || formatIQD(0);
+            const amountStateLabel = isCollected ? "✅ تم استلامها" : "💰 المندوب استلم المبلغ";
+            gotCellHtml = `
+              <div style="position:relative;min-height:58px;padding-top:2px">
+                <button class="secondary" data-role="breakdown-edit-got" data-order-id="${escapeHtml(o.id)}" title="تعديل المبلغ" style="position:absolute;top:-4px;left:-2px;padding:2px 8px;min-width:auto;line-height:1;font-size:12px;border-radius:999px">✏️</button>
+                <div style="padding-top:14px">
+                  <div class="small" style="font-weight:800;color:${isCollected ? '#166534' : '#92400e'};margin-bottom:4px">${amountStateLabel}</div>
+                  <div class="small" style="font-size:12px;font-weight:900;color:#111827">${amountLabel}</div>
+                </div>
+                <input class='edit-got hidden' value='${escapeHtml(gotTxt)}' placeholder='0' style='width:90px'>
+              </div>
+            `;
 
-            details =
-              (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
-              ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
+            details = isCollected
+              ? `✅ تم استلامها <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`
+              : `<button class="secondary" data-role="breakdown-mark-collected" data-order-id="${escapeHtml(o.id)}" style="padding:6px 10px;font-size:12px">تم الاستلام</button><div class="small">الحالة الحالية: المندوب استلم المبلغ</div><div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
           } else if (st === "returned"){
             details =
               `❌ راجع` +
@@ -5296,7 +5244,7 @@ function subscribeEmployees(){
           tr.innerHTML = `
             <td class='client-name-cell'><textarea class='edit-client client-name-input' data-selected-client-id='${escapeHtml(o.clientId || "")}' rows='2' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'>${escapeHtml(clientName)}</textarea></td>
             <td><input class='edit-invoice' value='${escapeHtml(invoiceTxt)}' placeholder='0' style='width:90px'></td>
-            <td class="breakdown-got-cell">${buildBreakdownCollectedAmountCell(o, gotTxt)}</td>
+            <td>${gotCellHtml}</td>
             <td style="text-align:right">${details}</td>
             <td style="text-align:right">${actorHtml}</td>
             <td class="btn-cell">
@@ -5354,38 +5302,6 @@ function subscribeEmployees(){
           };
         });
 
-        tbodyEl.querySelectorAll('[data-role="breakdown-toggle-got-edit"]').forEach(btn => {
-          btn.onclick = () => {
-            const row = btn.closest('tr');
-            const input = row && row.querySelector('.breakdown-got-input');
-            const note = row && row.querySelector('[data-role="breakdown-got-note"]');
-            if (!input) return;
-            input.classList.toggle('hidden');
-            if (note) note.classList.toggle('hidden');
-            if (!input.classList.contains('hidden')) input.focus();
-          };
-        });
-
-        tbodyEl.querySelectorAll('[data-role="breakdown-mark-collected"]').forEach(btn => {
-          btn.onclick = async () => {
-            const row = btn.closest('tr');
-            const orderId = row ? String(row.getAttribute('data-order-id') || '') : '';
-            if (!orderId) return;
-            btn.disabled = true;
-            const oldText = btn.textContent;
-            btn.textContent = 'جاري...';
-            try {
-              await managerMarkBreakdownCollected(orderId, row);
-            } catch (err) {
-              console.error(err);
-              alert('تعذر تثبيت الاستلام.');
-            } finally {
-              btn.disabled = false;
-              btn.textContent = oldText;
-            }
-          };
-        });
-
         tbodyEl.querySelectorAll('[data-role="breakdown-delete"]').forEach(btn => {
           btn.onclick = async () => {
             const orderId = String(btn.getAttribute('data-order-id') || '');
@@ -5401,6 +5317,42 @@ function subscribeEmployees(){
             } finally {
               btn.disabled = false;
               btn.textContent = oldText;
+            }
+          };
+        });
+
+        tbodyEl.querySelectorAll('[data-role="breakdown-mark-collected"]').forEach(btn => {
+          btn.onclick = async () => {
+            const orderId = String(btn.getAttribute('data-order-id') || '');
+            if (!orderId) return;
+            btn.disabled = true;
+            const oldText = btn.textContent;
+            btn.textContent = 'جاري...';
+            try {
+              await managerMarkBreakdownCollected(orderId);
+            } catch (err) {
+              console.error(err);
+              alert('تعذر تأكيد الاستلام.');
+            } finally {
+              btn.disabled = false;
+              btn.textContent = oldText;
+            }
+          };
+        });
+
+        tbodyEl.querySelectorAll('[data-role="breakdown-edit-got"]').forEach(btn => {
+          btn.onclick = async () => {
+            const orderId = String(btn.getAttribute('data-order-id') || '');
+            const row = btn.closest('tr');
+            if (!orderId || !row) return;
+            btn.disabled = true;
+            try {
+              await managerQuickEditBreakdownGotAmount(orderId, row);
+            } catch (err) {
+              console.error(err);
+              alert('تعذر تعديل المبلغ.');
+            } finally {
+              btn.disabled = false;
             }
           };
         });
@@ -5512,9 +5464,7 @@ function subscribeEmployees(){
             else sumUncollected += v;
           }
 
-          gotTxt = isCollected
-            ? `<div class="breakdown-got-badge">✅ تم الاستلام</div><div class="small">${escapeHtml(formatIQD(Number.isFinite(v) ? v : 0))}</div>`
-            : `<div class="small">بانتظار الضغط على تم الاستلام</div>`;
+          gotTxt = (isCollected && Number.isFinite(v)) ? formatIQD(v) : (isCollected ? "✅" : "0");
           detailsHtml =
             (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
             ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
