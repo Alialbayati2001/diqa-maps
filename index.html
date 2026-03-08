@@ -4184,7 +4184,7 @@ function subscribeEmployees(){
       }
 
       const choice = prompt(
-        "اكتب رقم الخيار:\n1) تم التسليم\n2) الطلب راجع (هذا الطلب)\n3) استلام راجع سابق (قطعة قديمة)",
+        "اكتب رقم الخيار:\n1) تم التسليم\n2) الطلب راجع (هذا الطلب)\n3) استبدال",
         "1"
       );
       if (!choice) return;
@@ -4249,7 +4249,26 @@ function subscribeEmployees(){
         });
         alert("تم تسجيل (راجع) ✅");
       } else if (String(choice).trim() === "3") {
-        await driverLegacyReturnFlow();
+        if (!canDeliverHere && liveOrder.status !== "nearby") {
+          alert(`أنت بعيد عن الزبون حالياً (${Math.round(distanceMeters)}م). يسمح بتحديث الطلب ضمن ${DELIVERY_ALLOWED_METERS}م.`);
+          return;
+        }
+        await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
+          status: "returned",
+          returnedAt: SERVER_TS,
+          returnReason: "استبدال",
+          returnType: "replacement",
+          deliveredCash: 0,
+          cashCollected: false,
+          cashCollectedById: null,
+          cashCollectedByName: null,
+          cashCollectedByRole: null,
+          cashCollectedByRoleLabel: null,
+          cashCollectedFromPage: null,
+          ...buildAuditFields("lastEditedBy"),
+          assignedDriverName: currentDriverNameLabel.textContent || driverNameById(currentDriverId)
+        });
+        alert("تم تسجيل (استبدال) ✅");
       }
     }
 
