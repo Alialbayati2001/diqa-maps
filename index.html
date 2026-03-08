@@ -3447,10 +3447,15 @@ function initMap() {
       if (!clientsDatalist) return;
       clientsDatalist.innerHTML = "";
       const frag = document.createDocumentFragment();
+      const seen = new Set();
       Object.entries(clientsCache || {}).forEach(([id, c]) => {
-        const name = (c && c.name) ? c.name : id;
+        const name = String((c && c.name) ? c.name : id || '').trim();
+        if (!name) return;
+        const norm = normalizeArabicSearchText(name);
+        if (seen.has(norm)) return;
+        seen.add(norm);
         const opt = document.createElement("option");
-        opt.value = `${name} — ${id}`;
+        opt.value = name;
         frag.appendChild(opt);
       });
       clientsDatalist.appendChild(frag);
@@ -3691,7 +3696,7 @@ function initMap() {
           item.innerHTML = `
             <div class="breakdown-client-suggest-item-main">
               <span class="breakdown-client-suggest-item-name">${escapeHtml(name)}</span>
-              <span class="breakdown-client-suggest-item-amount">${amount != null ? ('فاتورة: ' + escapeHtml(formatIQD(amount))) : ''}</span>
+              <span class="breakdown-client-suggest-item-amount"></span>
             </div>
           `;
           item.addEventListener('mousedown', function(e){
@@ -3747,7 +3752,7 @@ function initMap() {
         return { clientId: s, clientName: (c && c.name) ? c.name : s };
       }
 
-      // صيغة datalist: الاسم — ID
+      // صيغة قديمة مدعومة للتوافق: الاسم — ID
       const parts = s.split("—").map(x=>x.trim());
       if (parts.length >= 2) {
         const id = parts[parts.length-1];
