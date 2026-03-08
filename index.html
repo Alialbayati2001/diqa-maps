@@ -653,7 +653,7 @@ background:#fff;
       <div class="hint">
         ✅ إذا اقتربت من الطلب (≤ 150 متر) يظهر لك خيار: تم التسليم أو راجع.
         <br/>
-        ✅ (3) تقدر تسجّل "استبدال" أيضاً.
+        ✅ (3) تقدر تسجّل "راجع سابق" أيضاً.
         <br/>
         ✅ NEW: تظهر نقطة موقعك + مسار حركتك (لنفسك فقط).
         <br/>
@@ -1813,7 +1813,7 @@ function openInGoogleMaps(lat, lng) {
         const manualTxt = hasManualPriority(o) ? "يدوية" : "تلقائية";
         const popupHtml =
           `<b>${escapeHtml(o.clientName || "زبون")}</b>` +
-          `<br/>الحالة: <b>${statusLabel(o.status, o)}</b>` +
+          `<br/>الحالة: <b>${statusLabel(o.status)}</b>` +
           `<br/>الأولوية: <b>${pr || "-"}</b> (${manualTxt})` +
           `<br/><button class="secondary" onclick="openOrderInGoogleMaps(${Number(o.lat)}, ${Number(o.lng)})">Google Maps</button>` +
           ` <button class="secondary" onclick="openOrderInWaze(${Number(o.lat)}, ${Number(o.lng)})">Waze</button>`;
@@ -3921,7 +3921,7 @@ function subscribeEmployees(){
         const popupHtml =
           `طلب: <b>${o.clientName || "زبون"}</b><br/>` +
           prTxt +
-          `الحالة: <b>${statusLabel(o.status, o)}</b><br/>` +
+          `الحالة: <b>${statusLabel(o.status)}</b><br/>` +
           `مندوب: <b>${o.assignedDriverName || driverNameById(o.assignedDriverId)}</b><br/>` +
           (o.status === "delivered" ? `المبلغ: <b>${formatIQD(o.deliveredCash)}</b><br/>` : "") +
           (o.status === "returned" ? `سبب: <b>${escapeHtml(o.returnReason || "-")}</b><br/>` : "") +
@@ -4001,7 +4001,7 @@ function subscribeEmployees(){
 
         const popupHtml =
           `طلب: <b>${o.clientName || "زبون"}</b><br/>` +
-          `الحالة: <b>${statusLabel(o.status, o)}</b>` +
+          `الحالة: <b>${statusLabel(o.status)}</b>` +
           (distanceMeters != null ? `<br/>المسافة: <b>${Math.round(distanceMeters)}م</b>` : "") +
           actionsHint +
           prTxt +
@@ -4030,29 +4030,12 @@ function subscribeEmployees(){
       });
     }
 
-    function isReplacementReturn(order){
-      const o = order || {};
-      return String(o.status || "") === "returned" && String(o.returnType || "") === "replacement";
-    }
-
-    function returnedDisplayLabel(order){
-      if (isReplacementReturn(order)) return "استبدال";
-      if (order && order.type === "legacy_return") return "راجع سابق";
-      return "راجع";
-    }
-
-    function returnedDisplayTag(order){
-      if (isReplacementReturn(order)) return " | (استبدال)";
-      if (order && order.type === "legacy_return") return " | (راجع سابق)";
-      return "";
-    }
-
-    function statusLabel(st, order){
+    function statusLabel(st){
       const s = String(st || "registered");
       if (s === "registered") return "مسجل";
       if (s === "nearby") return "قريب";
       if (s === "delivered") return "تم التسليم";
-      if (s === "returned") return returnedDisplayLabel(order);
+      if (s === "returned") return "راجع";
       return s;
     }
 
@@ -4201,7 +4184,7 @@ function subscribeEmployees(){
       }
 
       const choice = prompt(
-        "اكتب رقم الخيار:\n1) تم التسليم\n2) الطلب راجع (هذا الطلب)\n3) استبدال",
+        "اكتب رقم الخيار:\n1) تم التسليم\n2) الطلب راجع (هذا الطلب)\n3) استلام راجع سابق (قطعة قديمة)",
         "1"
       );
       if (!choice) return;
@@ -4266,27 +4249,7 @@ function subscribeEmployees(){
         });
         alert("تم تسجيل (راجع) ✅");
       } else if (String(choice).trim() === "3") {
-        if (!canDeliverHere && liveOrder.status !== "nearby") {
-          alert(`أنت بعيد عن الزبون حالياً (${Math.round(distanceMeters)}م). يسمح بتحديث الطلب ضمن ${DELIVERY_ALLOWED_METERS}م.`);
-          return;
-        }
-        const reason = prompt("ملاحظة الاستبدال (اختياري):", "استبدال قطعة مع استلام القديمة");
-        await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
-          status: "returned",
-          returnType: "replacement",
-          returnedAt: SERVER_TS,
-          deliveredCash: 0,
-          returnReason: (reason || "").trim() || "استبدال",
-          cashCollected: false,
-          cashCollectedById: null,
-          cashCollectedByName: null,
-          cashCollectedByRole: null,
-          cashCollectedByRoleLabel: null,
-          cashCollectedFromPage: null,
-          ...buildAuditFields("lastEditedBy"),
-          assignedDriverName: currentDriverNameLabel.textContent || driverNameById(currentDriverId)
-        });
-        alert("تم تسجيل (استبدال) ✅");
+        await driverLegacyReturnFlow();
       }
     }
 
@@ -4523,6 +4486,44 @@ function subscribeEmployees(){
       }
 
       return patch;
+    }
+
+
+    async function managerMarkBreakdownCollected(orderId){
+      const o = ordersCache[orderId];
+      if (!o || !ordersWorkDate) return;
+      if (String(o.status || '') !== 'delivered') return;
+      const patch = {
+        cashCollected: true,
+        cashCollectedAt: o.cashCollectedAt || SERVER_TS,
+        ...buildAuditFields('cashCollectedBy'),
+        ...buildAuditFields('lastEditedBy')
+      };
+      await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
+    }
+
+    async function managerQuickEditBreakdownGotAmount(orderId, row){
+      const o = ordersCache[orderId];
+      if (!o || !ordersWorkDate) return;
+      const currentValue = (o.deliveredCash != null && Number.isFinite(Number(o.deliveredCash)))
+        ? String(o.deliveredCash)
+        : ((o.adminInvoiceAmount != null && Number.isFinite(Number(o.adminInvoiceAmount))) ? String(o.adminInvoiceAmount) : '0');
+      const input = prompt('اكتب المبلغ المستلم الصحيح:', currentValue);
+      if (input == null) return;
+      const amount = parseIQD(input);
+      if (amount == null || !Number.isFinite(amount)) {
+        alert('المبلغ غير صحيح.');
+        return;
+      }
+      const patch = {
+        status: 'delivered',
+        deliveredCash: amount,
+        deliveredAt: o.deliveredAt || SERVER_TS,
+        returnReason: null,
+        returnedAt: null,
+        ...buildAuditFields('lastEditedBy')
+      };
+      await db.ref(`orders/${ordersWorkDate}/${orderId}`).update(patch);
     }
 
     async function managerSaveBreakdownRow(orderId, row){
@@ -4980,7 +4981,7 @@ function subscribeEmployees(){
           // ✅ (4) السبب + اسم المندوب
           extra += ` | سبب: ${x.returnReason ? x.returnReason : "-"}`;
           extra += ` | من: ${drv}`;
-          extra += returnedDisplayTag(x);
+          if (x.type === "legacy_return") extra += " | (راجع سابق)";
         }
         if (x.status === "nearby") {
           extra += ` | قريب ✅`;
@@ -5005,7 +5006,7 @@ function subscribeEmployees(){
         } else if (tab === "returned") {
           const pill = document.createElement("span");
           pill.className = "pill";
-          pill.innerHTML = `↩️ <b>${escapeHtml(returnedDisplayLabel(x))}</b>`;
+          pill.innerHTML = `↩️ <b>راجع</b>`;
           right.appendChild(pill);
         } else if (tab === "registered") {
           // ✅ Priority controls
@@ -5193,6 +5194,7 @@ function subscribeEmployees(){
           let gotNumber = null;
           let gotTxt = "";
           let details = "";
+          let gotCellHtml = `<input class='edit-got' value='' placeholder='0' style='width:90px'>`;
 
           if (st === "delivered"){
             const v = Number(o.deliveredCash);
@@ -5205,12 +5207,25 @@ function subscribeEmployees(){
               else sumUncollected += v;
             }
 
-            details =
-              (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
-              ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
+            const amountLabel = gotTxt || formatIQD(0);
+            const amountStateLabel = isCollected ? "✅ تم استلامها" : "💰 المندوب استلم المبلغ";
+            gotCellHtml = `
+              <div style="position:relative;min-height:58px;padding-top:2px">
+                <button class="secondary" data-role="breakdown-edit-got" data-order-id="${escapeHtml(o.id)}" title="تعديل المبلغ" style="position:absolute;top:-4px;left:-2px;padding:2px 8px;min-width:auto;line-height:1;font-size:12px;border-radius:999px">✏️</button>
+                <div style="padding-top:14px">
+                  <div class="small" style="font-weight:800;color:${isCollected ? '#166534' : '#92400e'};margin-bottom:4px">${amountStateLabel}</div>
+                  <div class="small" style="font-size:12px;font-weight:900;color:#111827">${amountLabel}</div>
+                </div>
+                <input class='edit-got hidden' value='${escapeHtml(gotTxt)}' placeholder='0' style='width:90px'>
+              </div>
+            `;
+
+            details = isCollected
+              ? `✅ تم استلامها <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`
+              : `<button class="secondary" data-role="breakdown-mark-collected" data-order-id="${escapeHtml(o.id)}" style="padding:6px 10px;font-size:12px">تم الاستلام</button><div class="small">الحالة الحالية: المندوب استلم المبلغ</div><div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
           } else if (st === "returned"){
             details =
-              `❌ ${escapeHtml(returnedDisplayLabel(o))}` +
+              `❌ راجع` +
               ` <div class="small">سبب: ${escapeHtml(o.returnReason || "-")}</div>` +
               ` <div class="small">وقت: ${escapeHtml(formatTime(o.returnedAt || o.updatedAt || o.createdAt || ""))}</div>`;
           } else if (st === "nearby"){
@@ -5229,7 +5244,7 @@ function subscribeEmployees(){
           tr.innerHTML = `
             <td class='client-name-cell'><textarea class='edit-client client-name-input' data-selected-client-id='${escapeHtml(o.clientId || "")}' rows='2' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'>${escapeHtml(clientName)}</textarea></td>
             <td><input class='edit-invoice' value='${escapeHtml(invoiceTxt)}' placeholder='0' style='width:90px'></td>
-            <td><input class='edit-got' value='${escapeHtml(gotTxt)}' placeholder='0' style='width:90px'></td>
+            <td>${gotCellHtml}</td>
             <td style="text-align:right">${details}</td>
             <td style="text-align:right">${actorHtml}</td>
             <td class="btn-cell">
@@ -5302,6 +5317,42 @@ function subscribeEmployees(){
             } finally {
               btn.disabled = false;
               btn.textContent = oldText;
+            }
+          };
+        });
+
+        tbodyEl.querySelectorAll('[data-role="breakdown-mark-collected"]').forEach(btn => {
+          btn.onclick = async () => {
+            const orderId = String(btn.getAttribute('data-order-id') || '');
+            if (!orderId) return;
+            btn.disabled = true;
+            const oldText = btn.textContent;
+            btn.textContent = 'جاري...';
+            try {
+              await managerMarkBreakdownCollected(orderId);
+            } catch (err) {
+              console.error(err);
+              alert('تعذر تأكيد الاستلام.');
+            } finally {
+              btn.disabled = false;
+              btn.textContent = oldText;
+            }
+          };
+        });
+
+        tbodyEl.querySelectorAll('[data-role="breakdown-edit-got"]').forEach(btn => {
+          btn.onclick = async () => {
+            const orderId = String(btn.getAttribute('data-order-id') || '');
+            const row = btn.closest('tr');
+            if (!orderId || !row) return;
+            btn.disabled = true;
+            try {
+              await managerQuickEditBreakdownGotAmount(orderId, row);
+            } catch (err) {
+              console.error(err);
+              alert('تعذر تعديل المبلغ.');
+            } finally {
+              btn.disabled = false;
             }
           };
         });
@@ -5419,7 +5470,7 @@ function subscribeEmployees(){
             ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
         } else if (st === "returned") {
           detailsHtml =
-            `❌ ${escapeHtml(returnedDisplayLabel(o))}` +
+            `❌ راجع` +
             ` <div class="small">سبب: ${escapeHtml(o.returnReason || "-")}</div>` +
             ` <div class="small">وقت: ${escapeHtml(formatTime(o.returnedAt || o.updatedAt || o.createdAt || ""))}</div>`;
         } else if (st === "nearby") {
@@ -5678,7 +5729,7 @@ function subscribeEmployees(){
 
         const drv = x.assignedDriverName || driverNameById(x.assignedDriverId);
         const reason = x.returnReason ? x.returnReason : "-";
-        const tag = returnedDisplayTag(x);
+        const tag = (x.type === "legacy_return") ? " | (راجع سابق)" : "";
 
         meta.textContent = `مندوب: ${drv} | سبب: ${reason} | ${formatTime(x.returnedAt)}${tag}`;
 
@@ -5767,7 +5818,7 @@ function subscribeEmployees(){
           stTxt = `تم التسليم ✅ | المبلغ: ${formatIQD(x.deliveredCash || 0)} | ${formatTime(x.deliveredAt)}`;
         } else if (x.status === "returned"){
           const reason = x.returnReason ? x.returnReason : "-";
-          stTxt = `${returnedDisplayLabel(x)} 🔴 | يم: ${drv} | سبب: ${reason} | ${formatTime(x.returnedAt)}`;
+          stTxt = `راجع 🔴 | يم: ${drv} | سبب: ${reason} | ${formatTime(x.returnedAt)}`;
         } else {
           stTxt = `يم المندوب: ${drv} | الحالة: ${statusLabel(x.status)} | ${formatTime(x.nearbyAt || x.createdAt)}`;
           if (typeof x.lat === "number" && typeof x.lng === "number") {
@@ -5841,7 +5892,7 @@ function subscribeEmployees(){
 
         const drv = x.assignedDriverName || driverNameById(x.assignedDriverId);
         const reason = x.returnReason ? x.returnReason : "-";
-        const tag = returnedDisplayTag(x);
+        const tag = (x.type === "legacy_return") ? " | (راجع سابق)" : "";
         meta.textContent = `مندوب: ${drv} | سبب: ${reason} | ${formatTime(x.returnedAt)}${tag}`;
 
         left.appendChild(title);
@@ -6017,8 +6068,8 @@ function subscribeEmployees(){
 
             const meta = document.createElement("div");
             meta.className = "small";
-            const tag = returnedDisplayTag(x);
-            meta.textContent = `${returnedDisplayLabel(x)} | سبب: ${x.returnReason ? x.returnReason : "-"}${tag}`;
+            const tag = (x.type === "legacy_return") ? " | (راجع سابق)" : "";
+            meta.textContent = `راجع | سبب: ${x.returnReason ? x.returnReason : "-"}${tag}`;
 
             left.appendChild(title);
             left.appendChild(meta);
@@ -6420,7 +6471,7 @@ function getClientOrdersHtml(clientId){
         return `
           <div style="padding-top:6px;margin-top:6px;border-top:1px solid #e5e7eb;">
             <div><b>طلب:</b> ${escapeHtml(o.clientName || "زبون")}</div>
-            <div><b>الحالة:</b> ${escapeHtml(statusLabel(o.status, o))}</div>
+            <div><b>الحالة:</b> ${escapeHtml(statusLabel(o.status))}</div>
             <div><b>المندوب:</b> ${escapeHtml(o.assignedDriverName || driverNameById(o.assignedDriverId))}</div>
             ${pr != null ? `<div><b>الأولوية:</b> ${pr}</div>` : ``}
             ${o.status === "delivered" ? `<div><b>المبلغ:</b> ${escapeHtml(formatIQD(o.deliveredCash))}</div>` : ``}
@@ -7544,3 +7595,4 @@ document.addEventListener("DOMContentLoaded",function(){
 
 </body>
 </html>
+
