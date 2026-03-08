@@ -5155,6 +5155,7 @@ function subscribeEmployees(){
           let invoiceTxt = invoiceNumber != null ? formatIQD(invoiceNumber) : "";
           let gotNumber = null;
           let gotTxt = "";
+          let gotSmallHtml = "";
           let details = "";
 
           if (st === "delivered"){
@@ -5166,6 +5167,10 @@ function subscribeEmployees(){
             if (Number.isFinite(v)){
               if (isCollected) sumCollected += v;
               else sumUncollected += v;
+            }
+
+            if (isCollected && gotNumber != null){
+              gotSmallHtml = `<div class="small">${escapeHtml(formatIQD(gotNumber))}</div>`;
             }
 
             details =
@@ -5192,7 +5197,7 @@ function subscribeEmployees(){
           tr.innerHTML = `
             <td class='client-name-cell'><textarea class='edit-client client-name-input' data-selected-client-id='${escapeHtml(o.clientId || "")}' rows='2' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'>${escapeHtml(clientName)}</textarea></td>
             <td><input class='edit-invoice' value='${escapeHtml(invoiceTxt)}' placeholder='0' style='width:90px'></td>
-            <td><input class='edit-got' value='${escapeHtml(gotTxt)}' placeholder='0' style='width:90px'></td>
+            <td><input class='edit-got' value='${escapeHtml(gotTxt)}' placeholder='0' style='width:90px'>${gotSmallHtml}</td>
             <td style="text-align:right">${details}</td>
             <td style="text-align:right">${actorHtml}</td>
             <td class="btn-cell">
@@ -5376,7 +5381,9 @@ function subscribeEmployees(){
             else sumUncollected += v;
           }
 
-          gotTxt = (isCollected && Number.isFinite(v)) ? formatIQD(v) : (isCollected ? "✅" : "0");
+          gotTxt = (isCollected && Number.isFinite(v))
+            ? `<div class="small">${escapeHtml(formatIQD(v))}</div>`
+            : (isCollected ? "✅" : "0");
           detailsHtml =
             (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
             ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
