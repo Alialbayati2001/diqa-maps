@@ -188,22 +188,35 @@ background:#fff;
     #manager-driver-breakdown-table th:nth-child(1),
     #manager-driver-breakdown-table td:nth-child(1){
       width:24%;
-      min-width:220px;
+      min-width:0;
+    }
+    .client-name-cell{
+      position:relative;
+      overflow:visible !important;
+      min-width:0;
     }
     .client-name-input{
+      display:block;
       width:100% !important;
-      min-width:220px !important;
+      min-width:0 !important;
+      max-width:100%;
+      box-sizing:border-box;
+      resize:none;
       font-size:14px !important;
-      padding:6px 10px !important;
-      white-space:normal;
-      overflow:visible;
-      text-overflow:unset;
-      line-height:1.3;
-      min-height:38px;
+      padding:8px 10px !important;
+      line-height:1.25;
+      min-height:44px;
+      height:44px;
+      max-height:44px;
       direction:rtl;
+      text-align:right;
+      white-space:pre-wrap;
+      word-break:break-word;
+      overflow-y:auto;
+      overflow-x:hidden;
+      border-radius:12px;
+      scrollbar-width:thin;
     }
-
-    .client-name-cell{position:relative;overflow:visible !important;}
     .breakdown-client-suggest{
       position:absolute;
       top:calc(100% + 4px);
@@ -4930,7 +4943,7 @@ function subscribeEmployees(){
           tr.setAttribute("data-kind", "existing");
           tr.setAttribute("data-order-id", String(o.id || ""));
           tr.innerHTML = `
-            <td class='client-name-cell'><input class='edit-client client-name-input' value='${escapeHtml(clientName)}' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'></td>
+            <td class='client-name-cell'><textarea class='edit-client client-name-input' rows='2' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'>${escapeHtml(clientName)}</textarea></td>
             <td><input class='edit-invoice' value='${escapeHtml(invoiceTxt)}' placeholder='0' style='width:90px'></td>
             <td><input class='edit-got' value='${escapeHtml(gotTxt)}' placeholder='0' style='width:90px'></td>
             <td style="text-align:right">${details}</td>
@@ -4952,7 +4965,7 @@ function subscribeEmployees(){
         newRow.className = "breakdown-new-row";
         newRow.setAttribute("data-kind", "new");
         newRow.innerHTML = `
-          <td class='client-name-cell'><input class='edit-client client-name-input' value='${escapeHtml(draft.clientName || "")}' placeholder='اسم الزبون الجديد' style='width:100%' title='${escapeHtml(draft.clientName || "")}' oninput='this.title=this.value'></td>
+          <td class='client-name-cell'><textarea class='edit-client client-name-input' rows='2' placeholder='اسم الزبون الجديد' style='width:100%' title='${escapeHtml(draft.clientName || )}' oninput='this.title=this.value'>${escapeHtml(draft.clientName || )}</textarea></td>
           <td><input class='edit-invoice' value='${escapeHtml(draft.invoice || "")}' placeholder='مبلغ الفاتورة' style='width:90px'></td>
           <td><input class='edit-got' value='${escapeHtml(draft.got || "")}' placeholder='مبلغ الاستلام' style='width:90px'></td>
           <td style="text-align:right"><div class="small">سطر جديد فارغ — ينحفظ كطلب جديد على هذا المندوب.</div></td>
