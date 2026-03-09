@@ -6037,7 +6037,8 @@ function subscribeEmployees(){
 
     function isEligibleDeliveryFeeOrder(order){
       const o = order || {};
-      if (String(o.status || '') !== 'delivered') return false;
+      const status = String(o.status || '').trim();
+      if (!['registered', 'nearby', 'delivered'].includes(status)) return false;
       if (String(o.type || '') === 'legacy_return') return false;
       return true;
     }
