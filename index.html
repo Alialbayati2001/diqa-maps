@@ -6026,6 +6026,34 @@ function subscribeEmployees(){
       return tsToMs(o.deliveredAt || o.updatedAt || o.returnedAt || o.createdAt || 0);
     }
 
+    function getDeliveryFeeGroupingTime(order){
+      const o = order || {};
+      return tsToMs(
+        o.assignedAt ||
+        o.createdAt ||
+        o.registeredAt ||
+        o.updatedAt ||
+        o.deliveredAt ||
+        o.returnedAt ||
+        0
+      );
+    }
+
+    function canMergeDeliveryFeeOrders(a, b){
+      const left = a || {};
+      const right = b || {};
+      if (!left || !right) return false;
+      if (String(left.assignedDriverId || '') !== String(right.assignedDriverId || '')) return false;
+      if (String(left.clientId || '') !== String(right.clientId || '')) return false;
+
+      const leftTime = getDeliveryFeeGroupingTime(left);
+      const rightTime = getDeliveryFeeGroupingTime(right);
+      if (!leftTime || !rightTime) return false;
+
+      const MERGE_WINDOW_MS = 10 * 60 * 1000;
+      return Math.abs(leftTime - rightTime) <= MERGE_WINDOW_MS;
+    }
+
     function buildDriverDeliveryFeeSummary(driverId){
       const id = String(driverId || '');
       const shiftType = inferDriverShiftType(id);
@@ -6041,26 +6069,50 @@ function subscribeEmployees(){
           return String(a.id || '').localeCompare(String(b.id || ''));
         });
 
-      const totalCount = eligibleRows.length;
+      const feeUnits = [];
       let internalCount = 0;
       let externalCount = 0;
-      let totalFee = 0;
       const rowFeeMap = {};
 
-      eligibleRows.forEach((row, index) => {
-        const orderIndex = index + 1;
+      eligibleRows.forEach((row) => {
         const isInternal = isInternalSaydiyaOrder(row);
-        const rate = getDeliveryFeeRateByFinalCount(totalCount, orderIndex, shiftType);
-        const fee = isInternal ? 0 : rate;
+        const lastUnit = feeUnits.length ? feeUnits[feeUnits.length - 1] : null;
+
+        if (lastUnit && (lastUnit.isInternal === isInternal) && canMergeDeliveryFeeOrders(lastUnit.rows[lastUnit.rows.length - 1], row)) {
+          lastUnit.rows.push(row);
+          return;
+        }
+
+        feeUnits.push({
+          isInternal,
+          rows: [row]
+        });
+
         if (isInternal) internalCount += 1;
         else externalCount += 1;
-        totalFee += fee;
-        rowFeeMap[String(row.id || '')] = {
-          countIndex: orderIndex,
-          rate,
-          fee,
-          isInternal
-        };
+      });
+
+      const totalCount = feeUnits.length;
+      let totalFee = 0;
+
+      feeUnits.forEach((unit, index) => {
+        const orderIndex = index + 1;
+        const rate = getDeliveryFeeRateByFinalCount(totalCount, orderIndex, shiftType);
+        const fee = unit.isInternal ? 0 : rate;
+        const mergedCount = unit.rows.length;
+        if (!unit.isInternal) totalFee += fee;
+
+        unit.rows.forEach((row, rowIndex) => {
+          rowFeeMap[String(row.id || '')] = {
+            countIndex: orderIndex,
+            rate,
+            fee,
+            isInternal: !!unit.isInternal,
+            mergedWithSameClientSameTrip: mergedCount > 1,
+            mergedGroupLead: rowIndex === 0,
+            mergedRowsCount: mergedCount
+          };
+        });
       });
 
       return {
@@ -6265,7 +6317,10 @@ function subscribeEmployees(){
             const feeLine = feeInfo.isInternal
               ? `<div class="small">أجر التوصيل: داخلي السيدية — بدون أجر (العدد ${feeInfo.countIndex})</div>`
               : `<div class="small">أجر التوصيل: ${formatIQD(feeInfo.fee)} (العدد ${feeInfo.countIndex})</div>`;
-            details += feeLine;
+            const mergeLine = feeInfo.mergedWithSameClientSameTrip
+              ? `<div class="small">ملاحظة الأجور: ${feeInfo.mergedGroupLead ? 'تم دمج هذا الطلب مع طلبات نفس الزبون بنفس التخريجة ويُحسب كعدد واحد' + (feeInfo.isInternal ? ' بدون أجر لأنه داخل السيدية' : ' وأجر واحد') : 'هذا الطلب مدموج مع طلب آخر لنفس الزبون بنفس التخريجة ويأخذ نفس العدد' + (feeInfo.isInternal ? ' بدون أجر لأنه داخل السيدية' : ' ونفس الأجر')}</div>`
+              : '';
+            details += feeLine + mergeLine;
           }
           const tr = document.createElement("tr");
           tr.setAttribute("data-kind", "existing");
@@ -6538,6 +6593,11 @@ function subscribeEmployees(){
           detailsHtml += feeInfo.isInternal
             ? ` <div class="small">أجر التوصيل: داخلي السيدية — بدون أجر (العدد ${feeInfo.countIndex})</div>`
             : ` <div class="small">أجر التوصيل: ${escapeHtml(formatIQD(feeInfo.fee))} (العدد ${feeInfo.countIndex})</div>`;
+          if (feeInfo.mergedWithSameClientSameTrip){
+            detailsHtml += feeInfo.mergedGroupLead
+              ? ` <div class="small">ملاحظة الأجور: تم دمج هذا الطلب مع طلبات نفس الزبون بنفس التخريجة ويُحسب كعدد واحد${feeInfo.isInternal ? ' بدون أجر لأنه داخل السيدية' : ' وأجر واحد'}</div>`
+              : ` <div class="small">ملاحظة الأجور: هذا الطلب مدموج مع طلب آخر لنفس الزبون بنفس التخريجة ويأخذ نفس العدد${feeInfo.isInternal ? ' بدون أجر لأنه داخل السيدية' : ' ونفس الأجر'}</div>`;
+          }
         }
 
         return {
