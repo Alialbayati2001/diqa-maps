@@ -172,6 +172,10 @@ background:#fff;
       color:#374151;
       margin-top:4px;
     }
+    .payment-label{
+      color:#2563eb;
+      font-weight:900;
+    }
     .report-table .btn-cell button{
       white-space:nowrap;
     }
@@ -5017,7 +5021,7 @@ function subscribeEmployees(){
       if (clientEl && clientEl.dataset) clientEl.dataset.selectedClientId = resolvedClient.clientId;
 
       const patch = {
-        type: 'order',
+        type: (o && o.type) ? String(o.type) : 'order',
         clientId: resolvedClient.clientId,
         clientName: resolvedClient.clientName,
         lat: resolvedClient.lat,
@@ -5779,9 +5783,13 @@ function subscribeEmployees(){
         list.forEach(o=>{
           const st = String(o.status || "registered");
           const clientName = o.clientName || "";
+          const isPaymentCollection = String(o.type || "") === "payment_collection";
 
           let invoiceNumber = (o.adminInvoiceAmount != null && Number.isFinite(Number(o.adminInvoiceAmount))) ? Number(o.adminInvoiceAmount) : null;
-          let invoiceTxt = invoiceNumber != null ? formatIQD(invoiceNumber) : "";
+          let invoiceTxt = isPaymentCollection ? "تسديد" : (invoiceNumber != null ? formatIQD(invoiceNumber) : "");
+          let invoiceCellHtml = isPaymentCollection
+            ? `<div class="payment-label">تسديد</div><input class='edit-invoice hidden' value='' placeholder='0' style='width:90px'>`
+            : `<input class='edit-invoice' value='${escapeHtml(invoiceTxt)}' placeholder='0' style='width:90px'>`;
           let gotNumber = null;
           let gotTxt = "";
           let details = "";
@@ -5842,7 +5850,7 @@ function subscribeEmployees(){
           tr.setAttribute("data-order-id", String(o.id || ""));
           tr.innerHTML = `
             <td class='client-name-cell'><textarea class='edit-client client-name-input' data-selected-client-id='${escapeHtml(o.clientId || "")}' rows='2' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'>${escapeHtml(clientName)}</textarea></td>
-            <td><input class='edit-invoice' value='${escapeHtml(invoiceTxt)}' placeholder='0' style='width:90px'></td>
+            <td>${invoiceCellHtml}</td>
             <td>${gotCellHtml}</td>
             <td style="text-align:right">${details}</td>
             <td style="text-align:right">${actorHtml}</td>
@@ -6051,13 +6059,14 @@ function subscribeEmployees(){
         const st = String(o.status || "registered");
         const createdAtMs = tsToMs(o.createdAt || 0);
         const deliveredAtMs = tsToMs(o.deliveredAt || 0);
+        const isPaymentCollection = String(o.type || "") === "payment_collection";
         let invoiceTxt = "—";
         let gotTxt = "—";
         let detailsHtml = "";
 
         if (st === "delivered") {
           const v = Number(o.deliveredCash);
-          invoiceTxt = Number.isFinite(v) ? formatIQD(v) : "—";
+          invoiceTxt = isPaymentCollection ? '<span class="payment-label">تسديد</span>' : (Number.isFinite(v) ? formatIQD(v) : "—");
 
           const isCollected = (o.cashCollected === true);
           if (Number.isFinite(v)){
@@ -6072,7 +6081,7 @@ function subscribeEmployees(){
 
           gotTxt = (isCollected && Number.isFinite(v)) ? formatIQD(v) : (isCollected ? "✅" : "0");
           detailsHtml =
-            (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
+            ((isPaymentCollection ? "💳 تسديد" : (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ"))) +
             ` <div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div>` +
             ` <div class="small">وقت التسليم: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>` +
             arrivalDurationHtml;
@@ -6119,7 +6128,7 @@ function subscribeEmployees(){
         ? data.rows.map(r => `
             <tr>
               <td>${escapeHtml(r.clientName)}</td>
-              <td>${escapeHtml(r.invoiceTxt)}</td>
+              <td>${r.invoiceTxt}</td>
               <td>${escapeHtml(r.gotTxt)}</td>
               <td style="text-align:right">${r.detailsHtml}</td>
               <td style="text-align:right">${r.actorHtml}</td>
@@ -6196,6 +6205,7 @@ function subscribeEmployees(){
             .report-table th{background:#ffffff;color:#111827;font-size:18px;line-height:1.2}
             .report-table td{font-weight:700;font-size:14px}
             .report-table td .small{font-weight:700;font-size:11px;color:#374151;margin-top:4px}
+            .payment-label{color:#2563eb;font-weight:900}
             .driver-report-foot{margin-top:10px;padding-top:8px;border-top:2px solid #111827;font-weight:900;color:#dc2626;text-align:center}
             .print-page-break{page-break-after:always;break-after:page;height:0}
             @page{size:A4 portrait;margin:10mm}
