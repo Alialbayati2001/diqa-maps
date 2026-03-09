@@ -5910,6 +5910,151 @@ function subscribeEmployees(){
       }
     }
 
+    function normalizeDeliveryShiftType(raw){
+      const v = String(raw || '').trim().toLowerCase();
+      if (!v) return '';
+      if (['full','full_shift','fullshift','morning_evening','double','day_full','complete'].includes(v)) return 'full';
+      if (['half','half_shift','halfshift','evening','evening_only','pm','night','partial'].includes(v)) return 'half';
+      if (v.includes('كامل') || v.includes('صباح') || v.includes('مسائي')) return 'full';
+      if (v.includes('نص')) return 'half';
+      return '';
+    }
+
+    function getDriverAttendanceDoc(driverId){
+      return attendanceCache && driverId ? (attendanceCache[String(driverId)] || null) : null;
+    }
+
+    function inferDriverShiftType(driverId){
+      const id = String(driverId || '');
+      const meta = (driversMetaCache && id) ? (driversMetaCache[id] || {}) : {};
+      const explicit = normalizeDeliveryShiftType(meta.deliveryShiftType || meta.shiftType || meta.shift || meta.workShift || meta.deliveryFeeShiftType);
+      if (explicit) return explicit;
+
+      const doc = getDriverAttendanceDoc(id);
+      const sessions = normalizeSessions(doc || {});
+      const firstIn = tsToMs((sessions[0] || {}).inAt || (doc && doc.checkInAt) || 0);
+      const workedMs = getDocWorkedMs(doc || {});
+      const firstHour = firstIn ? new Date(firstIn).getHours() : null;
+
+      if (Number.isFinite(workedMs) && workedMs >= (8 * 60 * 60 * 1000)) return 'full';
+      if (firstHour != null && firstHour < 14) return 'full';
+      return 'half';
+    }
+
+    function getDeliveryFeeThresholdByShiftType(shiftType){
+      return shiftType === 'full' ? 15 : 10;
+    }
+
+    function getDeliveryFeeRateByFinalCount(totalCount, orderIndex, shiftType){
+      const total = Number(totalCount) || 0;
+      const idx = Number(orderIndex) || 0;
+      if (idx < 1 || total < 1) return 0;
+
+      const threshold = getDeliveryFeeThresholdByShiftType(shiftType);
+      if (total < threshold) return 500;
+      if (idx <= threshold) return 1000;
+
+      const completedBlocks = Math.floor((total - threshold) / 5);
+      const extraBlockIndex = Math.ceil((idx - threshold) / 5);
+      if (completedBlocks <= 0) return 1000;
+      return 1000 + (500 * Math.min(extraBlockIndex, completedBlocks));
+    }
+
+    function isInternalSaydiyaOrder(order){
+      const o = order || {};
+      const client = (o.clientId && clientsCache && clientsCache[o.clientId]) ? (clientsCache[o.clientId] || {}) : {};
+      if (o.isInternalDelivery === true || o.internalDelivery === true || o.isInternalSaydiya === true) return true;
+      if (client.isInternalDelivery === true || client.internalDelivery === true || client.isInternalSaydiya === true) return true;
+      const explicitType = String(o.deliveryAreaType || o.areaType || client.deliveryAreaType || client.areaType || '').trim().toLowerCase();
+      if (['internal','inside','saydiya_internal','داخلي','داخلية'].includes(explicitType)) return true;
+
+      const text = [
+        o.clientName,
+        o.deliveryAreaLabel,
+        o.deliveryAreaName,
+        client.name,
+        client.area,
+        client.notes,
+        client.address,
+        client.locationName
+      ].map(v => String(v || '').trim()).filter(Boolean).join(' ');
+      if (!text) return false;
+
+      const normalized = text.replace(/أ|إ|آ/g, 'ا').replace(/ى/g, 'ي').toLowerCase();
+      return normalized.includes('داخلي') || normalized.includes('داخل السيديه') || normalized.includes('داخل السيدية');
+    }
+
+    function isEligibleDeliveryFeeOrder(order){
+      const o = order || {};
+      if (String(o.status || '') !== 'delivered') return false;
+      if (String(o.type || '') === 'legacy_return') return false;
+      return true;
+    }
+
+    function getDeliveryFeeSequenceTime(order){
+      const o = order || {};
+      return tsToMs(o.deliveredAt || o.updatedAt || o.returnedAt || o.createdAt || 0);
+    }
+
+    function buildDriverDeliveryFeeSummary(driverId){
+      const id = String(driverId || '');
+      const shiftType = inferDriverShiftType(id);
+      const shiftLabel = shiftType === 'full' ? 'شفت كامل' : 'نص شفت مسائي';
+      const eligibleRows = Object.entries(ordersCache || {})
+        .map(([orderId, o]) => ({ id: orderId, ...(o || {}) }))
+        .filter(x => String(x.assignedDriverId || '') === id)
+        .filter(isEligibleDeliveryFeeOrder)
+        .sort((a, b) => {
+          const ta = getDeliveryFeeSequenceTime(a);
+          const tb = getDeliveryFeeSequenceTime(b);
+          if (ta !== tb) return ta - tb;
+          return String(a.id || '').localeCompare(String(b.id || ''));
+        });
+
+      const totalCount = eligibleRows.length;
+      let internalCount = 0;
+      let externalCount = 0;
+      let totalFee = 0;
+      const rowFeeMap = {};
+
+      eligibleRows.forEach((row, index) => {
+        const orderIndex = index + 1;
+        const isInternal = isInternalSaydiyaOrder(row);
+        const rate = getDeliveryFeeRateByFinalCount(totalCount, orderIndex, shiftType);
+        const fee = isInternal ? 0 : rate;
+        if (isInternal) internalCount += 1;
+        else externalCount += 1;
+        totalFee += fee;
+        rowFeeMap[String(row.id || '')] = {
+          countIndex: orderIndex,
+          rate,
+          fee,
+          isInternal
+        };
+      });
+
+      return {
+        driverId: id,
+        shiftType,
+        shiftLabel,
+        threshold: getDeliveryFeeThresholdByShiftType(shiftType),
+        totalCount,
+        internalCount,
+        externalCount,
+        totalFee,
+        rowFeeMap
+      };
+    }
+
+    function buildDriverDeliveryFeeFooterHtml(summary){
+      const s = summary || {};
+      return [
+        `<div>نوع الدوام: ${escapeHtml(s.shiftLabel || '—')}</div>`,
+        `<div>العدد المحتسب: ${escapeHtml(String(s.totalCount || 0))} | داخلي السيدية بدون أجور: ${escapeHtml(String(s.internalCount || 0))} | خارج الداخلي: ${escapeHtml(String(s.externalCount || 0))}</div>`,
+        `<div>مجموع أجور التوصيل: ${escapeHtml(formatIQD(s.totalFee || 0))}</div>`
+      ].join('');
+    }
+
     function renderManagerDriverBreakdown(){
       if (!managerDriverBreakdownList) return;
 
@@ -5962,6 +6107,7 @@ function subscribeEmployees(){
         let sumUncollected = 0;
         let sumCollected = 0;
         let breakdownRowNumber = 1;
+        const deliveryFeeSummary = buildDriverDeliveryFeeSummary(driverId);
 
         list.forEach(o=>{
           const st = String(o.status || "registered");
@@ -6029,6 +6175,13 @@ function subscribeEmployees(){
 
           const actorHtml = describeOrderDataActor(o);
           const quickValue = getManagerBreakdownQuickStatusValue(o);
+          const feeInfo = deliveryFeeSummary.rowFeeMap[String(o.id || '')] || null;
+          if (feeInfo){
+            const feeLine = feeInfo.isInternal
+              ? `<div class="small">أجر التوصيل: داخلي السيدية — بدون أجر (العدد ${feeInfo.countIndex})</div>`
+              : `<div class="small">أجر التوصيل: ${formatIQD(feeInfo.fee)} (العدد ${feeInfo.countIndex})</div>`;
+            details += feeLine;
+          }
           const tr = document.createElement("tr");
           tr.setAttribute("data-kind", "existing");
           tr.setAttribute("data-order-id", String(o.id || ""));
@@ -6189,13 +6342,18 @@ function subscribeEmployees(){
         });
 
         if (!list.length && footerEl){
-          footerEl.textContent = `لا توجد طلبات قديمة لهذا المندوب بعد. يمكنك استخدام السطر الفارغ بالأسفل لإضافة أول طلب.`;
+          footerEl.innerHTML = `
+            <div>لا توجد طلبات قديمة لهذا المندوب بعد. يمكنك استخدام السطر الفارغ بالأسفل لإضافة أول طلب.</div>
+            ${buildDriverDeliveryFeeFooterHtml(deliveryFeeSummary)}
+          `;
           return;
         }
 
         if (footerEl){
-          footerEl.textContent =
-            `مجموع المبالغ غير المستلمة: ${formatIQD(sumUncollected)} | مجموع المبالغ المستلمة: ${formatIQD(sumCollected)}`;
+          footerEl.innerHTML = `
+            <div>مجموع المبالغ غير المستلمة: ${formatIQD(sumUncollected)} | مجموع المبالغ المستلمة: ${formatIQD(sumCollected)}</div>
+            ${buildDriverDeliveryFeeFooterHtml(deliveryFeeSummary)}
+          `;
         }
         return;
       }
@@ -6240,6 +6398,7 @@ function subscribeEmployees(){
       const workDate = ordersWorkDate || getActiveWorkDate();
       let sumUncollected = 0;
       let sumCollected = 0;
+      const deliveryFeeSummary = buildDriverDeliveryFeeSummary(id);
 
       const mappedRows = rows.map((o, idx)=>{
         const st = String(o.status || "registered");
@@ -6289,6 +6448,13 @@ function subscribeEmployees(){
           detailsHtml = `📝 مسجّل <div class="small">أولوية: ${pr ? pr : "-"}</div><div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div>`;
         }
 
+        const feeInfo = deliveryFeeSummary.rowFeeMap[String(o.id || '')] || null;
+        if (feeInfo){
+          detailsHtml += feeInfo.isInternal
+            ? ` <div class="small">أجر التوصيل: داخلي السيدية — بدون أجر (العدد ${feeInfo.countIndex})</div>`
+            : ` <div class="small">أجر التوصيل: ${escapeHtml(formatIQD(feeInfo.fee))} (العدد ${feeInfo.countIndex})</div>`;
+        }
+
         return {
           rowNumber: idx + 1,
           clientName: o.clientName || "—",
@@ -6305,7 +6471,8 @@ function subscribeEmployees(){
         workDate: workDate || "—",
         rows: mappedRows,
         sumUncollected,
-        sumCollected
+        sumCollected,
+        deliveryFeeSummary
       };
     }
 
@@ -6324,9 +6491,12 @@ function subscribeEmployees(){
           `).join("")
         : `<tr><td colspan="6">لا يوجد بيانات.</td></tr>`;
 
-      const footerText = data.rows.length
-        ? `مجموع المبالغ غير المستلمة: ${formatIQD(data.sumUncollected)} | مجموع المبالغ المستلمة: ${formatIQD(data.sumCollected)}`
-        : "";
+      const footerHtml = data.rows.length
+        ? `
+            <div>مجموع المبالغ غير المستلمة: ${escapeHtml(formatIQD(data.sumUncollected))} | مجموع المبالغ المستلمة: ${escapeHtml(formatIQD(data.sumCollected))}</div>
+            ${buildDriverDeliveryFeeFooterHtml(data.deliveryFeeSummary)}
+          `
+        : buildDriverDeliveryFeeFooterHtml(data.deliveryFeeSummary);
 
       return `
         <div class="driver-report print-report-card">
@@ -6349,7 +6519,7 @@ function subscribeEmployees(){
               <tbody>${rowsHtml}</tbody>
             </table>
           </div>
-          <div class="driver-report-foot small">${escapeHtml(footerText)}</div>
+          <div class="driver-report-foot small">${footerHtml}</div>
         </div>
       `;
     }
