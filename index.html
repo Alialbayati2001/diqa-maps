@@ -5798,6 +5798,13 @@ function subscribeEmployees(){
               else sumUncollected += v;
             }
 
+            const createdAtMs = tsToMs(o.createdAt || 0);
+            const deliveredAtMs = tsToMs(o.deliveredAt || o.updatedAt || o.createdAt || 0);
+            let arrivalDurationHtml = "";
+            if (createdAtMs && deliveredAtMs && deliveredAtMs >= createdAtMs){
+              arrivalDurationHtml = `<div class="small">مدة الوصول: ${escapeHtml(formatDuration(deliveredAtMs - createdAtMs))}</div>`;
+            }
+
             const amountLabel = gotTxt || formatIQD(0);
             const amountStateLabel = isCollected ? "✅ تم استلامها" : "💰 المندوب استلم المبلغ";
             gotCellHtml = `
@@ -5812,19 +5819,20 @@ function subscribeEmployees(){
             `;
 
             details = isCollected
-              ? `✅ تم استلامها <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`
-              : `<button class="secondary" data-role="breakdown-mark-collected" data-order-id="${escapeHtml(o.id)}" style="padding:6px 10px;font-size:12px">تم الاستلام</button><div class="small">الحالة الحالية: المندوب استلم المبلغ</div><div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
+              ? `✅ تم استلامها <div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div><div class="small">وقت التسليم: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>${arrivalDurationHtml}`
+              : `<button class="secondary" data-role="breakdown-mark-collected" data-order-id="${escapeHtml(o.id)}" style="padding:6px 10px;font-size:12px">تم الاستلام</button><div class="small">الحالة الحالية: المندوب استلم المبلغ</div><div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div><div class="small">وقت التسليم: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>${arrivalDurationHtml}`;
           } else if (st === "returned"){
             details =
               `❌ راجع` +
+              ` <div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div>` +
               ` <div class="small">سبب: ${escapeHtml(o.returnReason || "-")}</div>` +
-              ` <div class="small">وقت: ${escapeHtml(formatTime(o.returnedAt || o.updatedAt || o.createdAt || ""))}</div>`;
+              ` <div class="small">وقت الراجع: ${escapeHtml(formatTime(o.returnedAt || o.updatedAt || o.createdAt || ""))}</div>`;
           } else if (st === "nearby"){
             const pr = normalizePriority(o.priority);
-            details = `📍 قريب <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+            details = `📍 قريب <div class="small">أولوية: ${pr ? pr : "-"}</div><div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div>`;
           } else {
             const pr = normalizePriority(o.priority);
-            details = `📝 مسجّل <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+            details = `📝 مسجّل <div class="small">أولوية: ${pr ? pr : "-"}</div><div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div>`;
           }
 
           const actorHtml = describeOrderDataActor(o);
