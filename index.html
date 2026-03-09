@@ -714,6 +714,22 @@ background:#fff;
 
             <div class="small" style="margin-top:10px">مجموع المبالغ غير المسلَّمة للأدمن</div>
             <div class="big" id="driver-uncollected-sum">0.000</div>
+
+            <div class="small" style="margin-top:10px">عدد الطلبات المحتسبة</div>
+            <div class="big" id="driver-fee-total-count">0</div>
+
+            <div class="small" style="margin-top:10px">عدد الداخلي</div>
+            <div class="big" id="driver-fee-internal-count">0</div>
+
+            <div class="small" style="margin-top:10px">عدد الخارجي</div>
+            <div class="big" id="driver-fee-external-count">0</div>
+
+            <div class="small" style="margin-top:10px">مجموع أجور التوصيل</div>
+            <div class="big" id="driver-delivery-fee">0</div>
+
+            <div class="small" id="driver-fee-note" style="margin-top:10px;color:#fca5a5;font-weight:800;line-height:1.6">
+              ملاحظة: يجب عليك تسديد كل المبالغ للشركة ليتم احتساب جميع أجورك
+            </div>
           </div>
 
           <!-- ✅ زر سريع لتسجيل راجع سابق -->
@@ -1280,6 +1296,11 @@ nextDrivers[key] = {
     const driverDeliveredList = document.getElementById("driver-delivered-list");
     const driverDeliveredSumEl = document.getElementById("driver-delivered-sum");
     const driverUncollectedSumEl = document.getElementById("driver-uncollected-sum");
+    const driverFeeTotalCountEl = document.getElementById("driver-fee-total-count");
+    const driverFeeInternalCountEl = document.getElementById("driver-fee-internal-count");
+    const driverFeeExternalCountEl = document.getElementById("driver-fee-external-count");
+    const driverDeliveryFeeEl = document.getElementById("driver-delivery-fee");
+    const driverFeeNoteEl = document.getElementById("driver-fee-note");
     const orderSearchDriver = document.getElementById("order-search-driver");
 
     // ✅ زر راجع سابق
@@ -7233,6 +7254,22 @@ function subscribeEmployees(){
 
       driverDeliveredSumEl.textContent = formatIQD(sum);
       if (driverUncollectedSumEl) driverUncollectedSumEl.textContent = formatIQD(pendingSum);
+
+      const deliveryFeeSummary = buildDriverDeliveryFeeSummary(currentDriverId);
+      if (driverFeeTotalCountEl) driverFeeTotalCountEl.textContent = String(deliveryFeeSummary.totalCount || 0);
+      if (driverFeeInternalCountEl) driverFeeInternalCountEl.textContent = String(deliveryFeeSummary.internalCount || 0);
+      if (driverFeeExternalCountEl) driverFeeExternalCountEl.textContent = String(deliveryFeeSummary.externalCount || 0);
+
+      const feesLocked = pendingSum > 0;
+      if (driverDeliveryFeeEl) {
+        driverDeliveryFeeEl.textContent = feesLocked ? formatIQD(0) : formatIQD(deliveryFeeSummary.totalFee || 0);
+      }
+      if (driverFeeNoteEl) {
+        driverFeeNoteEl.textContent = feesLocked
+          ? "ملاحظة: يجب عليك تسديد كل المبالغ للشركة ليتم احتساب جميع أجورك"
+          : "✅ تم تسديد كل المبالغ للشركة، وتم احتساب جميع أجورك";
+        driverFeeNoteEl.style.color = feesLocked ? "#fca5a5" : "#86efac";
+      }
     }
 
     function updateManagerAlertAndNotify() {
