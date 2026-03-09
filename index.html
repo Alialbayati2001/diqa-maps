@@ -1787,7 +1787,10 @@ function openInGoogleMaps(lat, lng) {
           let bestDist = Infinity;
           for (let i=0;i<pool.length;i++){
             const cand = pool[i];
-            const dist = haversineMeters(cur.lat, cur.lng, cand.lat, cand.lng);
+            const roadInfo = getRoadLegInfoForPoints(cur.lat, cur.lng, cand.lat, cand.lng, ETA_FALLBACK_SPEED_KMH);
+            const dist = Number.isFinite(Number(roadInfo && roadInfo.distanceM))
+              ? Number(roadInfo.distanceM)
+              : haversineMeters(cur.lat, cur.lng, cand.lat, cand.lng);
             if (dist < bestDist) {
               bestDist = dist;
               bestIdx = i;
@@ -2006,8 +2009,12 @@ function openInGoogleMaps(lat, lng) {
     const ETA_MAX_REASONABLE_MOTO_SPEED_KMH = 95;
     const GOOGLE_ROUTES_API_KEY = ""; // ضع مفتاح Google Routes API هنا إذا أردت ETA مروري فعلي
     const DRIVER_ROUTE_CACHE_MS = 90 * 1000;
+    const OSRM_ROUTE_API_BASE = 'https://router.project-osrm.org/route/v1/driving';
+    const GENERIC_ROUTE_CACHE_MS = 3 * 60 * 1000;
     const driverRouteEtaCache = {};
     const driverRouteEtaInFlight = {};
+    const genericRouteCache = {};
+    const genericRouteInFlight = {};
 
     function normalizeSpeedKmhFromTraccar(raw){
       const n = Number(raw);
@@ -2102,6 +2109,89 @@ function openInGoogleMaps(lat, lng) {
       const sec = Number(m[1]);
       if (!Number.isFinite(sec) || sec <= 0) return null;
       return Math.max(1, Math.round(sec / 60));
+    }
+
+    function getGenericRouteCacheKey(originLat, originLng, destLat, destLng){
+      return [
+        Number(originLat).toFixed(5),
+        Number(originLng).toFixed(5),
+        Number(destLat).toFixed(5),
+        Number(destLng).toFixed(5)
+      ].join('|');
+    }
+
+    function getCachedGenericRouteInfo(originLat, originLng, destLat, destLng){
+      const key = getGenericRouteCacheKey(originLat, originLng, destLat, destLng);
+      const entry = genericRouteCache[key];
+      if (!entry) return null;
+      if ((Date.now() - Number(entry.fetchedAt || 0)) > GENERIC_ROUTE_CACHE_MS) return null;
+      return entry;
+    }
+
+    async function fetchOsrmRouteInfo(originLat, originLng, destLat, destLng){
+      const url = `${OSRM_ROUTE_API_BASE}/${Number(originLng)},${Number(originLat)};${Number(destLng)},${Number(destLat)}?overview=false&alternatives=false&steps=false&annotations=false`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('osrm route failed: ' + res.status);
+      const json = await res.json();
+      const route = json && Array.isArray(json.routes) ? json.routes[0] : null;
+      if (!route) return null;
+      const distanceM = Number(route.distance);
+      const etaMin = parseGoogleDurationToMinutes(route.duration);
+      return {
+        source: 'osrm',
+        distanceM: Number.isFinite(distanceM) ? distanceM : null,
+        etaMin,
+        staticEtaMin: etaMin,
+        trafficText: 'حسب الطرق الفعلية',
+        usedFallback: false,
+        fetchedAt: Date.now()
+      };
+    }
+
+    function getFallbackLegRouteInfo(originLat, originLng, destLat, destLng, speedKmh){
+      if (!Number.isFinite(Number(originLat)) || !Number.isFinite(Number(originLng)) || !Number.isFinite(Number(destLat)) || !Number.isFinite(Number(destLng))) return null;
+      const distanceM = haversineMeters(Number(originLat), Number(originLng), Number(destLat), Number(destLng));
+      const etaMin = calcEtaMinutes(distanceM, speedKmh, ETA_FALLBACK_SPEED_KMH);
+      return {
+        source: 'fallback',
+        distanceM,
+        etaMin,
+        staticEtaMin: etaMin,
+        trafficText: 'تقريبي',
+        usedFallback: true,
+        fetchedAt: Date.now()
+      };
+    }
+
+    function ensureGenericRouteInfo(originLat, originLng, destLat, destLng){
+      if (!Number.isFinite(Number(originLat)) || !Number.isFinite(Number(originLng)) || !Number.isFinite(Number(destLat)) || !Number.isFinite(Number(destLng))) return;
+      const key = getGenericRouteCacheKey(originLat, originLng, destLat, destLng);
+      const cached = genericRouteCache[key];
+      if (cached && (Date.now() - Number(cached.fetchedAt || 0)) <= GENERIC_ROUTE_CACHE_MS) return;
+      if (genericRouteInFlight[key]) return;
+      genericRouteInFlight[key] = true;
+      const done = (info)=>{
+        if (info) genericRouteCache[key] = info;
+        try { renderDriverOrdersLists(); } catch(_){}
+        try { renderDriversList(); } catch(_){}
+      };
+      const fail = (e)=>{
+        console.error('Generic route fetch failed:', e);
+      };
+      const finish = ()=>{ delete genericRouteInFlight[key]; };
+
+      if (hasGoogleRoutesApiKey()) {
+        fetchGoogleRouteInfo(originLat, originLng, destLat, destLng).then(done).catch(fail).finally(finish);
+        return;
+      }
+      fetchOsrmRouteInfo(originLat, originLng, destLat, destLng).then(done).catch(fail).finally(finish);
+    }
+
+    function getRoadLegInfoForPoints(originLat, originLng, destLat, destLng, speedKmh){
+      const cached = getCachedGenericRouteInfo(originLat, originLng, destLat, destLng);
+      if (cached) return cached;
+      ensureGenericRouteInfo(originLat, originLng, destLat, destLng);
+      return getFallbackLegRouteInfo(originLat, originLng, destLat, destLng, speedKmh);
     }
 
     function getTrafficLabelFromRouteDurations(durationMin, staticDurationMin){
@@ -2265,6 +2355,74 @@ function openInGoogleMaps(lat, lng) {
       return bestOrderId;
     }
 
+    function buildDriverOrdersEtaPlan(orderedOrders){
+      const orders = Array.isArray(orderedOrders) ? orderedOrders : [];
+      const plan = {};
+      if (!orders.length || !currentDriverId) return plan;
+
+      const liveLoc = (driversLocationsCache && driversLocationsCache[String(currentDriverId)]) ? driversLocationsCache[String(currentDriverId)] : null;
+      let curLat = null;
+      let curLng = null;
+      if (driverSelfLatLng && Number.isFinite(Number(driverSelfLatLng.lat)) && Number.isFinite(Number(driverSelfLatLng.lng))) {
+        curLat = Number(driverSelfLatLng.lat);
+        curLng = Number(driverSelfLatLng.lng);
+      } else if (liveLoc && Number.isFinite(Number(liveLoc.lat)) && Number.isFinite(Number(liveLoc.lng))) {
+        curLat = Number(liveLoc.lat);
+        curLng = Number(liveLoc.lng);
+      }
+
+      const baseSpeedKmh = liveLoc ? getPreferredDriverSpeedKmh(liveLoc) : ETA_FALLBACK_SPEED_KMH;
+      let cumulativeMin = 0;
+
+      orders.forEach((order, idx) => {
+        if (!order) return;
+        const lat = Number(order.lat);
+        const lng = Number(order.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          plan[String(order.id || order.orderId || idx)] = {
+            index: idx + 1,
+            legDistanceM: null,
+            legEtaMin: null,
+            cumulativeEtaMin: null,
+            etaText: '—',
+            sequenceText: `الترتيب ${idx + 1}`,
+            source: 'none',
+            routeModeText: 'بدون موقع'
+          };
+          return;
+        }
+
+        let legInfo = null;
+        if (Number.isFinite(curLat) && Number.isFinite(curLng)) {
+          legInfo = getRoadLegInfoForPoints(curLat, curLng, lat, lng, baseSpeedKmh);
+        } else if (idx === 0) {
+          legInfo = getDriverEtaInfoForClient(currentDriverId, lat, lng, order.id || order.orderId || idx);
+        }
+
+        const legDistanceM = legInfo && Number.isFinite(Number(legInfo.distanceM)) ? Number(legInfo.distanceM) : null;
+        const legEtaMin = legInfo && Number.isFinite(Number(legInfo.etaMin)) ? Number(legInfo.etaMin) : null;
+        const cumulativeOk = Number.isFinite(legEtaMin);
+        if (cumulativeOk) cumulativeMin += Number(legEtaMin);
+
+        plan[String(order.id || order.orderId || idx)] = {
+          index: idx + 1,
+          legDistanceM,
+          legEtaMin,
+          cumulativeEtaMin: cumulativeOk ? cumulativeMin : null,
+          etaText: cumulativeOk ? formatEtaMinutes(cumulativeMin) : '—',
+          sequenceText: `الترتيب ${idx + 1}`,
+          source: (legInfo && legInfo.source) ? legInfo.source : 'fallback',
+          trafficText: legInfo && legInfo.trafficText ? legInfo.trafficText : 'تقريبي',
+          routeModeText: (legInfo && legInfo.usedFallback) ? 'تقريبي مباشر' : 'حسب الطرق الفعلية'
+        };
+
+        curLat = lat;
+        curLng = lng;
+      });
+
+      return plan;
+    }
+
     function isNearestActiveOrderForDriver(orderId, driverId){
       if (!orderId || !driverId) return false;
       return String(getNearestActiveOrderIdForDriver(driverId) || '') === String(orderId);
@@ -2307,82 +2465,6 @@ function openInGoogleMaps(lat, lng) {
         trafficText: etaInfo && etaInfo.trafficText ? etaInfo.trafficText : 'تقريبي',
         priority: normalizePriority(order.priority)
       };
-    }
-
-    function buildDriverOrdersEtaPlan(orderedOrders){
-      const orders = Array.isArray(orderedOrders) ? orderedOrders : [];
-      const plan = {};
-      if (!orders.length || !currentDriverId) return plan;
-
-      const liveLoc = (driversLocationsCache && driversLocationsCache[String(currentDriverId)]) ? driversLocationsCache[String(currentDriverId)] : null;
-      let curLat = null;
-      let curLng = null;
-      if (driverSelfLatLng && Number.isFinite(Number(driverSelfLatLng.lat)) && Number.isFinite(Number(driverSelfLatLng.lng))) {
-        curLat = Number(driverSelfLatLng.lat);
-        curLng = Number(driverSelfLatLng.lng);
-      } else if (liveLoc && Number.isFinite(Number(liveLoc.lat)) && Number.isFinite(Number(liveLoc.lng))) {
-        curLat = Number(liveLoc.lat);
-        curLng = Number(liveLoc.lng);
-      }
-
-      const baseSpeedKmh = liveLoc ? getPreferredDriverSpeedKmh(liveLoc) : ETA_FALLBACK_SPEED_KMH;
-      let cumulativeMin = 0;
-
-      orders.forEach((order, idx) => {
-        if (!order) return;
-        const lat = Number(order.lat);
-        const lng = Number(order.lng);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-          plan[String(order.id || order.orderId || idx)] = {
-            index: idx + 1,
-            legDistanceM: null,
-            legEtaMin: null,
-            cumulativeEtaMin: null,
-            etaText: '—',
-            sequenceText: `الترتيب ${idx + 1}`,
-            source: 'none'
-          };
-          return;
-        }
-
-        let legDistanceM = null;
-        let legEtaMin = null;
-        let source = 'fallback';
-
-        if (idx === 0) {
-          const directInfo = getDriverEtaInfoForClient(currentDriverId, lat, lng, order.id || order.orderId || idx);
-          if (directInfo) {
-            if (Number.isFinite(Number(directInfo.distanceM))) legDistanceM = Number(directInfo.distanceM);
-            if (Number.isFinite(Number(directInfo.etaMin))) legEtaMin = Number(directInfo.etaMin);
-            source = directInfo.source || source;
-          }
-        }
-
-        if (!Number.isFinite(legDistanceM) && Number.isFinite(curLat) && Number.isFinite(curLng)) {
-          legDistanceM = haversineMeters(curLat, curLng, lat, lng);
-        }
-        if (!Number.isFinite(legEtaMin) && Number.isFinite(legDistanceM)) {
-          legEtaMin = calcEtaMinutes(legDistanceM, baseSpeedKmh, ETA_FALLBACK_SPEED_KMH);
-        }
-
-        const cumulativeOk = Number.isFinite(Number(legEtaMin));
-        if (cumulativeOk) cumulativeMin += Number(legEtaMin);
-
-        plan[String(order.id || order.orderId || idx)] = {
-          index: idx + 1,
-          legDistanceM,
-          legEtaMin,
-          cumulativeEtaMin: cumulativeOk ? cumulativeMin : null,
-          etaText: cumulativeOk ? formatEtaMinutes(cumulativeMin) : '—',
-          sequenceText: `الترتيب ${idx + 1}`,
-          source
-        };
-
-        curLat = lat;
-        curLng = lng;
-      });
-
-      return plan;
     }
 
 
@@ -6645,7 +6727,7 @@ function subscribeEmployees(){
 
           const title = document.createElement("strong");
           const pr = normalizePriority(x.priority);
-          const etaBag = etaPlan[String(x.id || "") ] || null;
+          const etaBag = etaPlan[String(x.id || "")] || null;
           title.textContent = `${x.clientName || "زبون"}${pr ? ` (أولوية ${pr})` : ""}`;
 
           const meta = document.createElement("div");
@@ -6662,7 +6744,8 @@ function subscribeEmployees(){
             : " | الوصول المتوقع: —";
           const seqText = etaBag ? ` | ${etaBag.sequenceText}` : "";
           const priorityModeText = hasManualPriority(x) ? " | أولوية الأدمن" : " | ترتيب تلقائي حسب الأقرب";
-          meta.textContent = `الحالة: ${statusLabel(x.status)}` + seqText + priorityModeText + etaText + distanceText + routeDistanceText + (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
+          const routeModeText = etaBag ? ` | ${etaBag.routeModeText || 'تقريبي مباشر'}` : "";
+          meta.textContent = `الحالة: ${statusLabel(x.status)}` + seqText + priorityModeText + etaText + distanceText + routeDistanceText + routeModeText + (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
 
           left.appendChild(title);
           left.appendChild(meta);
