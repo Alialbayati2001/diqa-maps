@@ -6038,8 +6038,11 @@ function subscribeEmployees(){
     function isEligibleDeliveryFeeOrder(order){
       const o = order || {};
       const status = String(o.status || '').trim();
-      if (!['registered', 'nearby', 'delivered'].includes(status)) return false;
+      if (!['registered', 'nearby', 'delivered', 'returned'].includes(status)) return false;
+
+      // راجع سابق فقط لا يدخل في أجور التوصيل
       if (String(o.type || '') === 'legacy_return') return false;
+
       return true;
     }
 
