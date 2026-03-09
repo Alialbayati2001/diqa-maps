@@ -6041,6 +6041,8 @@ function subscribeEmployees(){
 
       const mappedRows = rows.map(o=>{
         const st = String(o.status || "registered");
+        const createdAtMs = tsToMs(o.createdAt || 0);
+        const deliveredAtMs = tsToMs(o.deliveredAt || 0);
         let invoiceTxt = "—";
         let gotTxt = "—";
         let detailsHtml = "";
@@ -6055,25 +6057,33 @@ function subscribeEmployees(){
             else sumUncollected += v;
           }
 
+          let arrivalDurationHtml = "";
+          if (createdAtMs && deliveredAtMs && deliveredAtMs >= createdAtMs){
+            arrivalDurationHtml = ` <div class="small">مدة الوصول: ${escapeHtml(formatDuration(deliveredAtMs - createdAtMs))}</div>`;
+          }
+
           gotTxt = (isCollected && Number.isFinite(v)) ? formatIQD(v) : (isCollected ? "✅" : "0");
           detailsHtml =
             (isCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ") +
-            ` <div class="small">وقت: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>`;
+            ` <div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div>` +
+            ` <div class="small">وقت التسليم: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>` +
+            arrivalDurationHtml;
         } else if (st === "returned") {
           detailsHtml =
             `❌ راجع` +
+            ` <div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div>` +
             ` <div class="small">سبب: ${escapeHtml(o.returnReason || "-")}</div>` +
-            ` <div class="small">وقت: ${escapeHtml(formatTime(o.returnedAt || o.updatedAt || o.createdAt || ""))}</div>`;
+            ` <div class="small">وقت الراجع: ${escapeHtml(formatTime(o.returnedAt || o.updatedAt || o.createdAt || ""))}</div>`;
         } else if (st === "nearby") {
           const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
           invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
           const pr = normalizePriority(o.priority);
-          detailsHtml = `📍 قريب <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+          detailsHtml = `📍 قريب <div class="small">أولوية: ${pr ? pr : "-"}</div><div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div>`;
         } else {
           const a = (o.adminInvoiceAmount != null) ? Number(o.adminInvoiceAmount) : NaN;
           invoiceTxt = Number.isFinite(a) ? formatIQD(a) : "—";
           const pr = normalizePriority(o.priority);
-          detailsHtml = `📝 مسجّل <div class="small">أولوية: ${pr ? pr : "-"}</div>`;
+          detailsHtml = `📝 مسجّل <div class="small">أولوية: ${pr ? pr : "-"}</div><div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div>`;
         }
 
         return {
