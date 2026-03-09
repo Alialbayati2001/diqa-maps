@@ -3464,6 +3464,32 @@ function renderDriverAttendanceBox(tickOnly=false){
       alert("تم تغيير PIN ✅");
     }
 
+    function toggleDriverShiftType(id) {
+      const meta = (driversMetaCache && driversMetaCache[id]) ? driversMetaCache[id] : {};
+      const currentShift = normalizeDeliveryShiftType(
+        meta.deliveryShiftType || meta.shiftType || meta.shift || meta.workShift || meta.deliveryFeeShiftType
+      ) || 'half';
+      const nextShift = currentShift === 'full' ? 'half' : 'full';
+      const nextShiftLabel = nextShift === 'full' ? 'شفت كامل' : 'نص شفت';
+      const driverName = meta && meta.name ? meta.name : id;
+
+      if (!confirm(`تحويل ${driverName} إلى ${nextShiftLabel}؟`)) return;
+
+      db.ref(`driversMeta/${id}`).update({
+        deliveryShiftType: nextShift,
+        shiftType: nextShift,
+        updatedAt: SERVER_TS,
+        ...buildAuditFields("lastEditedBy")
+      })
+      .then(() => {
+        alert(`تم تحويل ${driverName} إلى ${nextShiftLabel} ✅`);
+      })
+      .catch(err => {
+        console.error(err);
+        alert("تعذر تحديث نوع الدوام.");
+      });
+    }
+
     function beepOnce() {
       try {
         // ✅ الصوت فقط داخل صفحة الادمن
@@ -7295,6 +7321,15 @@ function renderDriversSelect() {
         left.appendChild(nameEl);
         left.appendChild(statusEl);
 
+        const shiftType = normalizeDeliveryShiftType(
+          d.deliveryShiftType || d.shiftType || d.shift || d.workShift || d.deliveryFeeShiftType
+        ) || 'half';
+        const shiftLabel = shiftType === 'full' ? 'شفت كامل' : 'نص شفت';
+        const shiftEl = document.createElement("div");
+        shiftEl.className = "small";
+        shiftEl.innerHTML = `نوع الدوام: <b>${escapeHtml(shiftLabel)}</b>`;
+        left.appendChild(shiftEl);
+
         const targetInfo = getDriverCurrentTargetInfo(id);
         const targetEl = document.createElement("div");
         targetEl.className = "small";
@@ -7318,6 +7353,11 @@ function renderDriversSelect() {
         editPinBtn.className = "secondary";
         editPinBtn.onclick = () => changeDriverPin(id);
 
+        const shiftBtn = document.createElement("button");
+        shiftBtn.textContent = shiftType === 'full' ? 'تحويل إلى نص شفت' : 'تحويل إلى شفت كامل';
+        shiftBtn.className = "secondary";
+        shiftBtn.onclick = () => toggleDriverShiftType(id);
+
         const delBtn = document.createElement("button");
         delBtn.textContent = "حذف";
         delBtn.className = "danger";
@@ -7325,6 +7365,7 @@ function renderDriversSelect() {
 
         right.appendChild(editNameBtn);
         right.appendChild(editPinBtn);
+        right.appendChild(shiftBtn);
         right.appendChild(delBtn);
 
         item.appendChild(left);
