@@ -193,6 +193,11 @@ background:#fff;
     }
     #manager-driver-breakdown-table th:nth-child(1),
     #manager-driver-breakdown-table td:nth-child(1){
+      width:7%;
+      min-width:0;
+    }
+    #manager-driver-breakdown-table th:nth-child(2),
+    #manager-driver-breakdown-table td:nth-child(2){
       width:24%;
       min-width:0;
     }
@@ -5915,6 +5920,7 @@ function subscribeEmployees(){
 
         theadEl.innerHTML = `
           <tr>
+            <th>ت</th>
             <th>اسم الزبون</th>
             <th>مبلغ الفاتورة</th>
             <th>المبلغ المستلم</th>
@@ -5937,6 +5943,7 @@ function subscribeEmployees(){
 
         let sumUncollected = 0;
         let sumCollected = 0;
+        let breakdownRowNumber = 1;
 
         list.forEach(o=>{
           const st = String(o.status || "registered");
@@ -6007,6 +6014,7 @@ function subscribeEmployees(){
           tr.setAttribute("data-kind", "existing");
           tr.setAttribute("data-order-id", String(o.id || ""));
           tr.innerHTML = `
+            <td>${breakdownRowNumber++}</td>
             <td class='client-name-cell'><textarea class='edit-client client-name-input' data-selected-client-id='${escapeHtml(o.clientId || "")}' rows='2' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'>${escapeHtml(clientName)}</textarea></td>
             <td>${invoiceCellHtml}</td>
             <td>${gotCellHtml}</td>
@@ -6029,6 +6037,7 @@ function subscribeEmployees(){
         newRow.className = "breakdown-new-row";
         newRow.setAttribute("data-kind", "new");
         newRow.innerHTML = `
+          <td>${breakdownRowNumber}</td>
           <td class='client-name-cell'><textarea class='edit-client client-name-input' data-selected-client-id='${escapeHtml(draft.clientId || "")}' rows='2' placeholder='اسم الزبون الجديد' style='width:100%' title='${escapeHtml(draft.clientName || "")}' oninput='this.title=this.value'>${escapeHtml(draft.clientName || "")}</textarea></td>
           <td><input class='edit-invoice' value='${escapeHtml(draft.invoice || "")}' placeholder='مبلغ الفاتورة' style='width:90px'></td>
           <td><input class='edit-got' value='${escapeHtml(draft.got || "")}' placeholder='مبلغ الاستلام' style='width:90px'></td>
@@ -6213,7 +6222,7 @@ function subscribeEmployees(){
       let sumUncollected = 0;
       let sumCollected = 0;
 
-      const mappedRows = rows.map(o=>{
+      const mappedRows = rows.map((o, idx)=>{
         const st = String(o.status || "registered");
         const createdAtMs = tsToMs(o.createdAt || 0);
         const deliveredAtMs = tsToMs(o.deliveredAt || 0);
@@ -6262,6 +6271,7 @@ function subscribeEmployees(){
         }
 
         return {
+          rowNumber: idx + 1,
           clientName: o.clientName || "—",
           invoiceTxt,
           gotTxt,
@@ -6285,6 +6295,7 @@ function subscribeEmployees(){
       const rowsHtml = data.rows.length
         ? data.rows.map(r => `
             <tr>
+              <td>${r.rowNumber}</td>
               <td>${escapeHtml(r.clientName)}</td>
               <td>${r.invoiceTxt}</td>
               <td>${escapeHtml(r.gotTxt)}</td>
@@ -6292,7 +6303,7 @@ function subscribeEmployees(){
               <td style="text-align:right">${r.actorHtml}</td>
             </tr>
           `).join("")
-        : `<tr><td colspan="5">لا يوجد بيانات.</td></tr>`;
+        : `<tr><td colspan="6">لا يوجد بيانات.</td></tr>`;
 
       const footerText = data.rows.length
         ? `مجموع المبالغ غير المستلمة: ${formatIQD(data.sumUncollected)} | مجموع المبالغ المستلمة: ${formatIQD(data.sumCollected)}`
@@ -6308,10 +6319,12 @@ function subscribeEmployees(){
             <table class="report-table">
               <thead>
                 <tr>
+                  <th>ت</th>
                   <th>اسم الزبون</th>
                   <th>مبلغ الفاتورة</th>
                   <th>المبلغ المستلم</th>
                   <th>التفاصيل</th>
+                  <th>مستلم البيانات</th>
                 </tr>
               </thead>
               <tbody>${rowsHtml}</tbody>
@@ -8375,7 +8388,7 @@ document.addEventListener("DOMContentLoaded",function(){
     if(idx >= 0 && idx < controls.length - 1){
       controls[idx + 1].focus();
       return;
-    }
+    }س
     const saveBtn = row.querySelector('[data-role="breakdown-save"]');
     if(saveBtn && !saveBtn.disabled) saveBtn.click();
   });
