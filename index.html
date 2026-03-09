@@ -2309,6 +2309,82 @@ function openInGoogleMaps(lat, lng) {
       };
     }
 
+    function buildDriverOrdersEtaPlan(orderedOrders){
+      const orders = Array.isArray(orderedOrders) ? orderedOrders : [];
+      const plan = {};
+      if (!orders.length || !currentDriverId) return plan;
+
+      const liveLoc = (driversLocationsCache && driversLocationsCache[String(currentDriverId)]) ? driversLocationsCache[String(currentDriverId)] : null;
+      let curLat = null;
+      let curLng = null;
+      if (driverSelfLatLng && Number.isFinite(Number(driverSelfLatLng.lat)) && Number.isFinite(Number(driverSelfLatLng.lng))) {
+        curLat = Number(driverSelfLatLng.lat);
+        curLng = Number(driverSelfLatLng.lng);
+      } else if (liveLoc && Number.isFinite(Number(liveLoc.lat)) && Number.isFinite(Number(liveLoc.lng))) {
+        curLat = Number(liveLoc.lat);
+        curLng = Number(liveLoc.lng);
+      }
+
+      const baseSpeedKmh = liveLoc ? getPreferredDriverSpeedKmh(liveLoc) : ETA_FALLBACK_SPEED_KMH;
+      let cumulativeMin = 0;
+
+      orders.forEach((order, idx) => {
+        if (!order) return;
+        const lat = Number(order.lat);
+        const lng = Number(order.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          plan[String(order.id || order.orderId || idx)] = {
+            index: idx + 1,
+            legDistanceM: null,
+            legEtaMin: null,
+            cumulativeEtaMin: null,
+            etaText: '—',
+            sequenceText: `الترتيب ${idx + 1}`,
+            source: 'none'
+          };
+          return;
+        }
+
+        let legDistanceM = null;
+        let legEtaMin = null;
+        let source = 'fallback';
+
+        if (idx === 0) {
+          const directInfo = getDriverEtaInfoForClient(currentDriverId, lat, lng, order.id || order.orderId || idx);
+          if (directInfo) {
+            if (Number.isFinite(Number(directInfo.distanceM))) legDistanceM = Number(directInfo.distanceM);
+            if (Number.isFinite(Number(directInfo.etaMin))) legEtaMin = Number(directInfo.etaMin);
+            source = directInfo.source || source;
+          }
+        }
+
+        if (!Number.isFinite(legDistanceM) && Number.isFinite(curLat) && Number.isFinite(curLng)) {
+          legDistanceM = haversineMeters(curLat, curLng, lat, lng);
+        }
+        if (!Number.isFinite(legEtaMin) && Number.isFinite(legDistanceM)) {
+          legEtaMin = calcEtaMinutes(legDistanceM, baseSpeedKmh, ETA_FALLBACK_SPEED_KMH);
+        }
+
+        const cumulativeOk = Number.isFinite(Number(legEtaMin));
+        if (cumulativeOk) cumulativeMin += Number(legEtaMin);
+
+        plan[String(order.id || order.orderId || idx)] = {
+          index: idx + 1,
+          legDistanceM,
+          legEtaMin,
+          cumulativeEtaMin: cumulativeOk ? cumulativeMin : null,
+          etaText: cumulativeOk ? formatEtaMinutes(cumulativeMin) : '—',
+          sequenceText: `الترتيب ${idx + 1}`,
+          source
+        };
+
+        curLat = lat;
+        curLng = lng;
+      });
+
+      return plan;
+    }
+
 
     // =========================
     // ✅ Duration helpers
@@ -6559,6 +6635,7 @@ function subscribeEmployees(){
         driverOrdersList.innerHTML = `<div class="small">لا توجد طلبات نشطة.</div>`;
       } else {
         const orderedActive = getDriverActiveOrdersSorted().filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
+        const etaPlan = buildDriverOrdersEtaPlan(orderedActive);
         orderedActive.forEach(x=>{
           const item = document.createElement("div");
           item.className = "list-item";
@@ -6568,16 +6645,24 @@ function subscribeEmployees(){
 
           const title = document.createElement("strong");
           const pr = normalizePriority(x.priority);
+          const etaBag = etaPlan[String(x.id || "") ] || null;
           title.textContent = `${x.clientName || "زبون"}${pr ? ` (أولوية ${pr})` : ""}`;
 
           const meta = document.createElement("div");
           meta.className = "small";
           const orderDistance = getOrderDistanceMeters(x);
           const distanceText = (orderDistance != null)
-            ? ` | المسافة: ${Math.round(orderDistance)}م`
+            ? ` | المسافة المباشرة: ${Math.round(orderDistance)}م`
             : "";
+          const routeDistanceText = (etaBag && Number.isFinite(Number(etaBag.legDistanceM)))
+            ? ` | مسافة هذا المشوار: ${formatMetersSmart(etaBag.legDistanceM)}`
+            : "";
+          const etaText = (etaBag && etaBag.etaText && etaBag.etaText !== '—')
+            ? ` | الوصول المتوقع: ${etaBag.etaText}`
+            : " | الوصول المتوقع: —";
+          const seqText = etaBag ? ` | ${etaBag.sequenceText}` : "";
           const priorityModeText = hasManualPriority(x) ? " | أولوية الأدمن" : " | ترتيب تلقائي حسب الأقرب";
-          meta.textContent = `الحالة: ${statusLabel(x.status)}` + priorityModeText + distanceText + (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
+          meta.textContent = `الحالة: ${statusLabel(x.status)}` + seqText + priorityModeText + etaText + distanceText + routeDistanceText + (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
 
           left.appendChild(title);
           left.appendChild(meta);
