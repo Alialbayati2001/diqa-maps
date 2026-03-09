@@ -567,7 +567,9 @@ background:#fff;
             <button id="print-driver-report-btn" class="secondary">🖨️ طباعة هذا المندوب A4</button>
             <button id="download-driver-report-image-btn" class="secondary">🖼️ تحميل صورة الملخص</button>
             <button id="print-all-drivers-reports-btn">🖨️ طباعة جميع المندوبين A4</button>
+            <button id="show-all-drivers-fees-btn" class="secondary">💰 أجور كل المندوبين</button>
           </div>
+          <div id="all-drivers-fees-box" class="sum-box" style="display:none;margin-bottom:10px"></div>
           <div id="manager-driver-breakdown" class="driver-report">
             <div class="driver-report-head">
               <div class="driver-report-name">اسم المندوب: <span class="mono" id="driver-report-name">—</span></div>
@@ -1259,6 +1261,8 @@ nextDrivers[key] = {
     const printDriverReportBtn = document.getElementById("print-driver-report-btn");
     const downloadDriverReportImageBtn = document.getElementById("download-driver-report-image-btn");
     const printAllDriversReportsBtn = document.getElementById("print-all-drivers-reports-btn");
+    const showAllDriversFeesBtn = document.getElementById("show-all-drivers-fees-btn");
+    const allDriversFeesBox = document.getElementById("all-drivers-fees-box");
 
     const managerReturnedAllList = document.getElementById("manager-returned-all-list");
     // ✅ NEW: Manager client filter (today orders by client)
@@ -6081,6 +6085,61 @@ function subscribeEmployees(){
       ].join('');
     }
 
+    function renderAllDriversFeesBox(){
+      if (!allDriversFeesBox) return;
+
+      const ids = Object.keys(driversMetaCache || {}).filter(id => {
+        return buildDriverDeliveryFeeSummary(id).totalCount > 0;
+      });
+
+      if (!ids.length){
+        allDriversFeesBox.style.display = 'block';
+        allDriversFeesBox.innerHTML = `<div class="small">لا توجد أجور توصيل محتسبة في اليوم المختار حالياً.</div>`;
+        return;
+      }
+
+      const rows = ids.map(id => {
+        const name = driverNameById(id) || id;
+        const summary = buildDriverDeliveryFeeSummary(id);
+        return {
+          id,
+          name,
+          totalFee: Number(summary.totalFee || 0),
+          totalCount: Number(summary.totalCount || 0),
+          internalCount: Number(summary.internalCount || 0),
+          externalCount: Number(summary.externalCount || 0),
+          shiftLabel: summary.shiftLabel || '—'
+        };
+      }).sort((a,b) => {
+        if (b.totalFee !== a.totalFee) return b.totalFee - a.totalFee;
+        if (b.totalCount !== a.totalCount) return b.totalCount - a.totalCount;
+        return String(a.name || '').localeCompare(String(b.name || ''), 'ar');
+      });
+
+      const grandTotal = rows.reduce((sum, row) => sum + Number(row.totalFee || 0), 0);
+      const totalOrders = rows.reduce((sum, row) => sum + Number(row.totalCount || 0), 0);
+      const totalInternal = rows.reduce((sum, row) => sum + Number(row.internalCount || 0), 0);
+      const totalExternal = rows.reduce((sum, row) => sum + Number(row.externalCount || 0), 0);
+      const workDate = ordersWorkDate || getActiveWorkDate() || '—';
+
+      allDriversFeesBox.style.display = 'block';
+      allDriversFeesBox.innerHTML = `
+        <div class="small" style="margin-bottom:8px">أجور كل المندوبين تلقائياً — تاريخ العمل: <span class="mono">${escapeHtml(workDate)}</span></div>
+        <div style="display:grid;gap:8px">
+          ${rows.map((row, index) => `
+            <div style="padding:10px;border:1px solid #1f2937;border-radius:12px;background:#020617">
+              <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+                <div style="font-weight:900;color:#e5e7eb">${index + 1}. ${escapeHtml(row.name)}</div>
+                <div style="font-weight:900;color:#22c55e">${escapeHtml(formatIQD(row.totalFee))}</div>
+              </div>
+              <div class="small" style="margin-top:4px">نوع الدوام: ${escapeHtml(row.shiftLabel)} | العدد المحتسب: ${escapeHtml(String(row.totalCount))} | داخلي السيدية: ${escapeHtml(String(row.internalCount))} | خارج الداخلي: ${escapeHtml(String(row.externalCount))}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="small" style="margin-top:10px;font-weight:900;color:#cbd5e1">المجموع الكلي للأجور: ${escapeHtml(formatIQD(grandTotal))} | العدد الكلي المحتسب: ${escapeHtml(String(totalOrders))} | داخلي السيدية: ${escapeHtml(String(totalInternal))} | خارج الداخلي: ${escapeHtml(String(totalExternal))}</div>
+      `;
+    }
+
     function renderManagerDriverBreakdown(){
       if (!managerDriverBreakdownList) return;
 
@@ -6697,6 +6756,7 @@ function subscribeEmployees(){
     if (printDriverReportBtn) printDriverReportBtn.addEventListener('click', printDriverReport);
     if (downloadDriverReportImageBtn) downloadDriverReportImageBtn.addEventListener('click', downloadDriverReportImage);
     if (printAllDriversReportsBtn) printAllDriversReportsBtn.addEventListener('click', printAllDriversReports);
+    if (showAllDriversFeesBtn) showAllDriversFeesBtn.addEventListener('click', renderAllDriversFeesBox);
 
 
 
