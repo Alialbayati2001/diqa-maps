@@ -1438,6 +1438,22 @@ nextDrivers[key] = {
       return out;
     }
 
+    function getReturnKindKey(order){
+      const o = order || {};
+      const explicit = String(o.returnType || '').trim();
+      if (explicit === 'legacy_return' || explicit === 'delivery_return' || explicit === 'replacement') return explicit;
+      if (String(o.type || '').trim() === 'legacy_return') return 'legacy_return';
+      if (String(o.returnReason || '').trim() === 'استبدال') return 'replacement';
+      return 'delivery_return';
+    }
+
+    function getReturnKindLabel(order){
+      const key = getReturnKindKey(order);
+      if (key === 'legacy_return') return 'راجع سابق';
+      if (key === 'replacement') return 'استبدال';
+      return 'راجع طلب اليوم';
+    }
+
     function describeOrderDataActor(order){
       const o = order || {};
 
@@ -4761,6 +4777,7 @@ function subscribeEmployees(){
       const payload = {
         workDate,
         type: "legacy_return",
+        returnType: "legacy_return",
         assignedDriverId: currentDriverId,
         assignedDriverName: currentDriverNameLabel.textContent || driverNameById(currentDriverId),
         clientId: clientId || null,
@@ -4933,6 +4950,7 @@ function subscribeEmployees(){
         const reason = prompt("سبب الرجوع (مهم حتى يظهر للأدمن):", "");
         await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
           status: "returned",
+          returnType: "delivery_return",
           returnedAt: SERVER_TS,
           returnReason: (reason || "").trim() || null,
           cashCollected: false,
@@ -5737,9 +5755,9 @@ function subscribeEmployees(){
         }
         if (x.status === "returned") {
           // ✅ (4) السبب + اسم المندوب
+          extra += ` | النوع: ${getReturnKindLabel(x)}`;
           extra += ` | سبب: ${x.returnReason ? x.returnReason : "-"}`;
           extra += ` | من: ${drv}`;
-          if (x.type === "legacy_return") extra += " | (راجع سابق)";
         }
         if (x.status === "nearby") {
           extra += ` | قريب ✅`;
@@ -5996,8 +6014,9 @@ function subscribeEmployees(){
               : `<button class="secondary" data-role="breakdown-mark-collected" data-order-id="${escapeHtml(o.id)}" style="padding:6px 10px;font-size:12px">تم الاستلام</button><div class="small">الحالة الحالية: المندوب استلم المبلغ</div><div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div><div class="small">وقت التسليم: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>${arrivalDurationHtml}`;
           } else if (st === "returned"){
             details =
-              `❌ راجع` +
+              `❌ ${escapeHtml(getReturnKindLabel(o))}` +
               ` <div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div>` +
+              ` <div class="small">النوع: ${escapeHtml(getReturnKindLabel(o))}</div>` +
               ` <div class="small">سبب: ${escapeHtml(o.returnReason || "-")}</div>` +
               ` <div class="small">وقت الراجع: ${escapeHtml(formatTime(o.returnedAt || o.updatedAt || o.createdAt || ""))}</div>`;
           } else if (st === "nearby"){
@@ -6519,9 +6538,9 @@ function subscribeEmployees(){
 
         const drv = x.assignedDriverName || driverNameById(x.assignedDriverId);
         const reason = x.returnReason ? x.returnReason : "-";
-        const tag = (x.type === "legacy_return") ? " | (راجع سابق)" : "";
+        const returnLabel = getReturnKindLabel(x);
 
-        meta.textContent = `مندوب: ${drv} | سبب: ${reason} | ${formatTime(x.returnedAt)}${tag}`;
+        meta.textContent = `مندوب: ${drv} | النوع: ${returnLabel} | سبب: ${reason} | ${formatTime(x.returnedAt)}`;
 
         left.appendChild(title);
         left.appendChild(meta);
@@ -6682,8 +6701,8 @@ function subscribeEmployees(){
 
         const drv = x.assignedDriverName || driverNameById(x.assignedDriverId);
         const reason = x.returnReason ? x.returnReason : "-";
-        const tag = (x.type === "legacy_return") ? " | (راجع سابق)" : "";
-        meta.textContent = `مندوب: ${drv} | سبب: ${reason} | ${formatTime(x.returnedAt)}${tag}`;
+        const returnLabel = getReturnKindLabel(x);
+        meta.textContent = `مندوب: ${drv} | النوع: ${returnLabel} | سبب: ${reason} | ${formatTime(x.returnedAt)}`;
 
         left.appendChild(title);
         left.appendChild(meta);
@@ -6876,8 +6895,7 @@ function subscribeEmployees(){
 
             const meta = document.createElement("div");
             meta.className = "small";
-            const tag = (x.type === "legacy_return") ? " | (راجع سابق)" : "";
-            meta.textContent = `راجع | سبب: ${x.returnReason ? x.returnReason : "-"}${tag}`;
+            meta.textContent = `${getReturnKindLabel(x)} | سبب: ${x.returnReason ? x.returnReason : "-"}`;
 
             left.appendChild(title);
             left.appendChild(meta);
