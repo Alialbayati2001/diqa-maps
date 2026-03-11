@@ -8339,6 +8339,10 @@ logoutDriverBtn.onclick = () => {
       console.warn("DB write blocked:", err);
       appStatus.textContent = "⚠️ قواعد Firebase تمنع الكتابة (Rules).";
     });
+
+    // ✅ تنظيف تلقائي للطلبات والتتبع
+    // تم نقل تشغيله إلى أسفل الملف بعد تعريف الدوال لتجنب خطأ initialization.
+
     // =========================
 // ✅ ATTENDANCE FIX (NO DELETE)
 // =========================
@@ -8700,6 +8704,142 @@ ref.update(payload).then(() => {
 });
 
 }
+
+// =========================
+// ✅ Auto cleanup:
+// - orders older than 2 days
+// - driver tracking / routes older than 24 hours
+// =========================
+const AUTO_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // كل ساعة
+const AUTO_CLEANUP_ORDERS_MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000; // يومين
+const AUTO_CLEANUP_TRACKING_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 ساعة
+let autoCleanupTimer = null;
+let cleanupRunning = false;
+
+function parseDateKeyToMs(dateKey){
+  const s = String(dateKey || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return NaN;
+  const t = Date.parse(`${s}T00:00:00`);
+  return Number.isFinite(t) ? t : NaN;
+}
+
+function isOlderThanCutoffByAnyTs(value, cutoffMs){
+  if (!value || typeof value !== 'object') return false;
+  const candidates = [
+    value.updatedAt,
+    value.createdAt,
+    value.time,
+    value.lastUpdated,
+    value.timestamp,
+    value.assignedAt,
+    value.deliveredAt,
+    value.returnedAt,
+    value.nearbyAt
+  ];
+  for (const c of candidates){
+    const ms = tsToMs(c);
+    if (ms && ms < cutoffMs) return true;
+  }
+  return false;
+}
+
+async function cleanupOrdersOlderThan(cutoffMs){
+  const snap = await db.ref('orders').once('value');
+  if (!snap.exists()) return;
+
+  const tasks = [];
+  snap.forEach(dateSnap => {
+    const dateKey = String(dateSnap.key || '');
+    const bucket = dateSnap.val();
+
+    // دعم شكل قديم محتمل: orders/{orderId}
+    if (bucket && typeof bucket === 'object' && (bucket.createdAt || bucket.clientId || bucket.driverId || bucket.status)){
+      if (isOlderThanCutoffByAnyTs(bucket, cutoffMs)) {
+        tasks.push(dateSnap.ref.remove());
+      }
+      return false;
+    }
+
+    // الشكل الحالي: orders/{workDate}/{orderId}
+    if (bucket && typeof bucket === 'object'){
+      dateSnap.forEach(orderSnap => {
+        const order = orderSnap.val() || {};
+        const orderTs = tsToMs(order.createdAt || order.updatedAt || order.assignedAt || 0);
+        if (orderTs && orderTs < cutoffMs) {
+          tasks.push(orderSnap.ref.remove());
+        }
+        return false;
+      });
+
+      // حذف مجلد اليوم إذا كان قديم جداً بالكامل وما عاد نحتاجه
+      const bucketMs = parseDateKeyToMs(dateKey);
+      if (Number.isFinite(bucketMs) && bucketMs < (cutoffMs - 24 * 60 * 60 * 1000)) {
+        tasks.push(dateSnap.ref.remove());
+      }
+    }
+    return false;
+  });
+
+  if (tasks.length) await Promise.allSettled(tasks);
+}
+
+async function cleanupPathOlderThan(pathName, cutoffMs){
+  const snap = await db.ref(pathName).once('value');
+  if (!snap.exists()) return;
+
+  const tasks = [];
+  snap.forEach(child => {
+    const value = child.val() || {};
+
+    if (value && typeof value === 'object' && !Array.isArray(value)){
+      let removedNested = false;
+      Object.keys(value).forEach(key => {
+        const nested = value[key];
+        if (nested && typeof nested === 'object' && isOlderThanCutoffByAnyTs(nested, cutoffMs)) {
+          tasks.push(child.ref.child(key).remove());
+          removedNested = true;
+        }
+      });
+      if (removedNested) return false;
+    }
+
+    if (isOlderThanCutoffByAnyTs(value, cutoffMs)) {
+      tasks.push(child.ref.remove());
+    }
+    return false;
+  });
+
+  if (tasks.length) await Promise.allSettled(tasks);
+}
+
+async function runAutoCleanup(){
+  if (cleanupRunning) return;
+  cleanupRunning = true;
+  try{
+    const now = Date.now();
+    const ordersCutoffMs = now - AUTO_CLEANUP_ORDERS_MAX_AGE_MS;
+    const trackingCutoffMs = now - AUTO_CLEANUP_TRACKING_MAX_AGE_MS;
+
+    await cleanupOrdersOlderThan(ordersCutoffMs);
+    await cleanupPathOlderThan('driversLocations', trackingCutoffMs);
+    await cleanupPathOlderThan('trackingHistory', trackingCutoffMs);
+    await cleanupPathOlderThan('routes', trackingCutoffMs);
+  }catch(err){
+    console.error('Auto cleanup failed:', err);
+  }finally{
+    cleanupRunning = false;
+  }
+}
+
+function startAutoCleanup(){
+  if (autoCleanupTimer) clearInterval(autoCleanupTimer);
+  runAutoCleanup();
+  autoCleanupTimer = setInterval(runAutoCleanup, AUTO_CLEANUP_INTERVAL_MS);
+}
+
+// ✅ تشغيل التنظيف بعد تعريف كل الثوابت والدوال
+startAutoCleanup();
+
 </script>
 
 
