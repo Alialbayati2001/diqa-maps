@@ -4641,12 +4641,34 @@ function subscribeEmployees(){
       return haversineMeters(driverSelfLatLng.lat, driverSelfLatLng.lng, lat, lng);
     }
 
+    function isDriverInsideOrderRect(order){
+      if (!order) return false;
+      if (!driverSelfLatLng || !Number.isFinite(driverSelfLatLng.lat) || !Number.isFinite(driverSelfLatLng.lng)) return false;
+      const lat = Number(order.lat), lng = Number(order.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+
+      const bounds = makeRectBounds(lat, lng);
+      const southWest = bounds && bounds[0] ? bounds[0] : null;
+      const northEast = bounds && bounds[1] ? bounds[1] : null;
+      if (!southWest || !northEast) return false;
+
+      const minLat = Math.min(Number(southWest[0]), Number(northEast[0]));
+      const maxLat = Math.max(Number(southWest[0]), Number(northEast[0]));
+      const minLng = Math.min(Number(southWest[1]), Number(northEast[1]));
+      const maxLng = Math.max(Number(southWest[1]), Number(northEast[1]));
+
+      return driverSelfLatLng.lat >= minLat && driverSelfLatLng.lat <= maxLat &&
+             driverSelfLatLng.lng >= minLng && driverSelfLatLng.lng <= maxLng;
+    }
+
     function isOrderWithinNearby(order){
+      if (isDriverInsideOrderRect(order)) return true;
       const d = getOrderDistanceMeters(order);
       return d != null && d <= NEARBY_METERS;
     }
 
     function isOrderWithinDeliveryRange(order){
+      if (isDriverInsideOrderRect(order)) return true;
       const d = getOrderDistanceMeters(order);
       return d != null && d <= DELIVERY_ALLOWED_METERS;
     }
@@ -4667,8 +4689,9 @@ function subscribeEmployees(){
         if (o.assignedDriverId !== currentDriverId) return;
 
         const distanceMeters = getOrderDistanceMeters(o);
-        const isNearby = distanceMeters != null && distanceMeters <= NEARBY_METERS;
-        const canDeliverHere = distanceMeters != null && distanceMeters <= DELIVERY_ALLOWED_METERS;
+        const isInsideRect = isDriverInsideOrderRect(o);
+        const isNearby = isOrderWithinNearby(o);
+        const canDeliverHere = isOrderWithinDeliveryRange(o);
 
         if ((o.status === "registered" || o.status === "nearby") && isNearby && o.status !== "nearby") {
           db.ref(`orders/${ordersWorkDate}/${orderId}`).update({ status: "nearby", nearbyAt: SERVER_TS }).catch(()=>{});
@@ -4681,7 +4704,7 @@ function subscribeEmployees(){
         const bounds = makeRectBounds(o.lat, o.lng);
 
         const actionsHint = canDeliverHere
-          ? `<br/><b>${distanceMeters != null && distanceMeters <= NEARBY_METERS ? "قريب ✅" : "ضمن مجال التسليم ✅"}</b> (تقدر: تم التسليم / راجع)`
+          ? `<br/><b>${isInsideRect || (distanceMeters != null && distanceMeters <= NEARBY_METERS) ? "قريب ✅" : "ضمن مجال التسليم ✅"}</b> (${isInsideRect ? "داخل المربع" : "تقدر: تم التسليم / راجع"}${!isInsideRect ? "" : " - تقدر: تم التسليم / راجع"})`
           : "";
 
         const pr = (Number.isFinite(Number(o.priority)) ? Number(o.priority) : null);
@@ -8798,4 +8821,3 @@ document.addEventListener("DOMContentLoaded",function(){
 
 </body>
 </html>
-
