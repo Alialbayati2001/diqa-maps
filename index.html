@@ -1318,6 +1318,13 @@ nextDrivers[key] = {
     let ordersWorkDate = "";       // active workDate for subscription
     let ordersUnsubRef = null;
 
+    // ✅ تقليل الداونلودز: منع تكرار الاشتراكات
+    let driversMetaUnsubRef = null;
+    let driversLocationsUnsubRef = null;
+    let employeesMetaUnsubRef = null;
+    let clientsUnsubRef = null;
+    let infoConnectedUnsubRef = null;
+
     let driverMap = null;
     let orderLayersManager = {};   // rectangles on manager map
     let orderLayersDriver  = {};   // rectangles on driver map
@@ -4468,45 +4475,65 @@ function initMap() {
       return { clientId:null, clientName:null };
     }
 
+    function unsubscribeDrivers(){
+      if (driversMetaUnsubRef && typeof driversMetaUnsubRef.off === "function") driversMetaUnsubRef.off();
+      if (driversLocationsUnsubRef && typeof driversLocationsUnsubRef.off === "function") driversLocationsUnsubRef.off();
+      driversMetaUnsubRef = null;
+      driversLocationsUnsubRef = null;
+      stopTraccarPolling();
+    }
+
     function subscribeDrivers() {
-      db.ref("driversMeta").on("value", snap => {
-        driversMetaCache = snap.val() || {};
-        renderDriversSelect();
-        renderDriversList();
-        updateManagerAlertAndNotify();
+      if (!driversMetaUnsubRef) {
+        driversMetaUnsubRef = db.ref("driversMeta");
+        driversMetaUnsubRef.on("value", snap => {
+          driversMetaCache = snap.val() || {};
+          renderDriversSelect();
+          renderDriversList();
+          updateManagerAlertAndNotify();
 
-        renderManagerDriverFilter();
-        renderOrderDriverSelect();
+          renderManagerDriverFilter();
+          renderOrderDriverSelect();
 
-        // حضور: حتى يطلع أسماء المندوبين بالجدول
-        renderManagerAttendanceList();
-      });
+          // حضور: حتى يطلع أسماء المندوبين بالجدول
+          renderManagerAttendanceList();
+        });
+      }
 
-      db.ref("driversLocations").on("value", snap => {
-        if (USE_TRACCAR) return;
-        driversLocationsCache = snap.val() || {};
-        renderDriversList();
-        updateDriverMarkers();
-        updateManagerAlertAndNotify();
+      if (!USE_TRACCAR && !driversLocationsUnsubRef) {
+        driversLocationsUnsubRef = db.ref("driversLocations");
+        driversLocationsUnsubRef.on("value", snap => {
+          driversLocationsCache = snap.val() || {};
+          renderDriversList();
+          updateDriverMarkers();
+          updateManagerAlertAndNotify();
 
-        updateDriverSelfLocationFromCache();
-        refreshOrdersUIAndMap();
+          updateDriverSelfLocationFromCache();
+          refreshOrdersUIAndMap();
 
-        // ✅ NEW: تحديث نقطة/مسار المندوب على خريطة المندوب فقط
-        updateDriverSelfTrackOnMap();
+          // ✅ NEW: تحديث نقطة/مسار المندوب على خريطة المندوب فقط
+          updateDriverSelfTrackOnMap();
 
-        // ✅ NEW: حضور
-        renderDriverAttendanceBox();
-        renderManagerAttendanceList();
-      });
+          // ✅ NEW: حضور
+          renderDriverAttendanceBox();
+          renderManagerAttendanceList();
+        });
+      }
 
       if (USE_TRACCAR) startTraccarPolling();
     }
 // =========================
 // ✅ Employees subscribe
 // =========================
+function unsubscribeEmployees(){
+  if (employeesMetaUnsubRef && typeof employeesMetaUnsubRef.off === "function") employeesMetaUnsubRef.off();
+  employeesMetaUnsubRef = null;
+}
+
 function subscribeEmployees(){
-  db.ref("employeesMeta").on("value", snap => {
+  if (employeesMetaUnsubRef) return;
+  employeesMetaUnsubRef = db.ref("employeesMeta");
+  employeesMetaUnsubRef.on("value", snap => {
     employeesMetaCache = snap.val() || {};
     renderEmployeesSelect();
     renderEmployeesList();
@@ -4515,8 +4542,15 @@ function subscribeEmployees(){
 }
 
 
+    function unsubscribeClients(){
+      if (clientsUnsubRef && typeof clientsUnsubRef.off === "function") clientsUnsubRef.off();
+      clientsUnsubRef = null;
+    }
+
     function subscribeClients() {
-      db.ref("clients").on("value", snap => {
+      if (clientsUnsubRef) return;
+      clientsUnsubRef = db.ref("clients");
+      clientsUnsubRef.on("value", snap => {
         clientsCache = snap.val() || {};
         rebuildClientsSearchIndex();
         renderClientsLists();
@@ -7927,6 +7961,38 @@ function addEmployee(){
     const MIN_SEND_INTERVAL_MS = 3000;
     const MAX_BAD_ACCURACY = 1500;
 
+    async function saveDriverTrackingPoint(driverId, point) {
+      try {
+        if (!driverId || !point) return;
+        const ref = db.ref(`trackingHistory/${driverId}`);
+        const newRef = ref.push();
+        await newRef.set({
+          lat: Number(point.lat),
+          lng: Number(point.lng),
+          accuracy: point.accuracy != null ? Number(point.accuracy) : null,
+          speedKmh: point.speedKmh != null ? Number(point.speedKmh) : null,
+          createdAt: SERVER_TS
+        });
+
+        const snap = await ref.orderByChild('createdAt').once('value');
+        const data = snap.val() || {};
+        const entries = Object.entries(data).sort((a, b) => {
+          const ams = tsToMs(a && a[1] ? a[1].createdAt : 0);
+          const bms = tsToMs(b && b[1] ? b[1].createdAt : 0);
+          return ams - bms;
+        });
+
+        const extra = entries.length - 20;
+        if (extra > 0) {
+          const updates = {};
+          for (let i = 0; i < extra; i++) updates[entries[i][0]] = null;
+          await ref.update(updates);
+        }
+      } catch (err) {
+        console.warn('saveDriverTrackingPoint failed:', err);
+      }
+    }
+
     function startTrackingMandatory() {
       if (USE_TRACCAR) {
         trackingStatus.textContent = "✅ التتبع يتم عبر تطبيق Traccar Client على هاتفك. افتحه وتأكد أنه شغال.";
@@ -7942,7 +8008,9 @@ function addEmployee(){
 
       const locRef = db.ref(`driversLocations/${currentDriverId}`);
 
-      db.ref(".info/connected").on("value", (snap) => {
+      if (infoConnectedUnsubRef && typeof infoConnectedUnsubRef.off === "function") infoConnectedUnsubRef.off();
+      infoConnectedUnsubRef = db.ref(".info/connected");
+      infoConnectedUnsubRef.on("value", (snap) => {
         if (snap.val() === true) {
           locRef.onDisconnect().update({ active:false, updatedAt: SERVER_TS });
         }
@@ -7975,6 +8043,13 @@ function addEmployee(){
             gpsError: null,
             active: true,
             updatedAt: SERVER_TS
+          });
+
+          saveDriverTrackingPoint(currentDriverId, {
+            lat,
+            lng,
+            accuracy: acc,
+            speedKmh: null
           });
 
           trackingStatus.textContent =
@@ -8011,6 +8086,10 @@ function addEmployee(){
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
+      }
+      if (infoConnectedUnsubRef && typeof infoConnectedUnsubRef.off === "function") {
+        infoConnectedUnsubRef.off();
+        infoConnectedUnsubRef = null;
       }
       if (currentDriverId) {
         db.ref(`driversLocations/${currentDriverId}`).update({
@@ -8060,6 +8139,9 @@ function addEmployee(){
       stopTraccarPolling();
       unsubscribeOrders();
       unsubscribeAttendance();
+      unsubscribeClients();
+      unsubscribeDrivers();
+      unsubscribeEmployees();
       show(loginCard);
       hide(managerCard);
       hide(driverCard);
@@ -8197,6 +8279,10 @@ logoutEmployeeBtn && (logoutEmployeeBtn.onclick = () => {
   hide(employeeCard);
   show(loginCard);
   unsubscribeEmpAttendance(true);
+  unsubscribeOrders();
+  unsubscribeClients();
+  unsubscribeDrivers();
+  unsubscribeEmployees();
 });
 
 logoutDriverBtn.onclick = () => {
@@ -8210,6 +8296,9 @@ logoutDriverBtn.onclick = () => {
 
       unsubscribeOrders();
       unsubscribeAttendance();
+      unsubscribeClients();
+      unsubscribeDrivers();
+      unsubscribeEmployees();
 
       if (autoCheckoutTimer) { clearInterval(autoCheckoutTimer); autoCheckoutTimer = null; }
 
@@ -8790,6 +8879,28 @@ async function cleanupPathOlderThan(pathName, cutoffMs){
   const tasks = [];
   snap.forEach(child => {
     const value = child.val() || {};
+
+    if (pathName === 'trackingHistory') {
+      const entries = Object.entries(value || {}).filter(([, nested]) => nested && typeof nested === 'object');
+      entries.sort((a, b) => {
+        const ams = tsToMs(a && a[1] ? (a[1].createdAt || a[1].updatedAt || a[1].time || 0) : 0);
+        const bms = tsToMs(b && b[1] ? (b[1].createdAt || b[1].updatedAt || b[1].time || 0) : 0);
+        return ams - bms;
+      });
+
+      const extra = entries.length - 20;
+      for (let i = 0; i < extra; i++) {
+        tasks.push(child.ref.child(entries[i][0]).remove());
+      }
+
+      entries.forEach(([key, nested], idx) => {
+        if (idx < extra) return;
+        if (nested && typeof nested === 'object' && isOlderThanCutoffByAnyTs(nested, cutoffMs)) {
+          tasks.push(child.ref.child(key).remove());
+        }
+      });
+      return false;
+    }
 
     if (value && typeof value === 'object' && !Array.isArray(value)){
       let removedNested = false;
