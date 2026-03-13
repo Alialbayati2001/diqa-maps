@@ -340,6 +340,44 @@ background:#fff;
     .area-tools .danger-outline{background:#111827;color:#fee2e2;border:1px solid #7f1d1d}
     .area-tools .vertex-hint{font-size:11px;color:#9ca3af;margin-top:4px}
 
+
+    .area-orders-box{
+      margin-top:12px;
+      padding:12px;
+      border:1px solid #1f2937;
+      border-radius:14px;
+      background:#020617;
+    }
+    .area-orders-table{
+      width:100%;
+      border-collapse:collapse;
+      overflow:hidden;
+      border-radius:12px;
+    }
+    .area-orders-table th,
+    .area-orders-table td{
+      border:1px solid #1f2937;
+      padding:10px 12px;
+      text-align:center;
+      font-size:14px;
+    }
+    .area-orders-table th{
+      background:#111827;
+      color:#e5e7eb;
+      font-weight:800;
+    }
+    .area-orders-table td{
+      background:#0b1120;
+      color:#e5e7eb;
+    }
+    .area-orders-empty{
+      padding:12px;
+      border:1px dashed #374151;
+      border-radius:12px;
+      color:#9ca3af;
+      text-align:center;
+    }
+
 </style>
 </head>
 
@@ -469,6 +507,11 @@ background:#fff;
             <div class="status" id="area-editor-status"></div>
           </div>
           <div id="map"></div>
+
+          <div class="area-orders-box">
+            <h4 style="margin:10px 0 8px">عدد الطلبات لكل منطقة</h4>
+            <div id="area-orders-summary"></div>
+          </div>
         </div>
 
         <div class="col">
@@ -1329,6 +1372,7 @@ nextDrivers[key] = {
     const allDriversFeesBox = document.getElementById("all-drivers-fees-box");
 
     const managerReturnedAllList = document.getElementById("manager-returned-all-list");
+    const areaOrdersSummary = document.getElementById("area-orders-summary");
     // ✅ NEW: Manager client filter (today orders by client)
     const managerClientPick = document.getElementById("manager-client-pick");
     const managerClientOrdersDate = document.getElementById("manager-client-orders-date");
@@ -4097,6 +4141,7 @@ function normalizeAreaNameToId(name){
             setAreaFormFromArea(fresh);
           }
         }
+        renderAreaOrdersSummary();
       });
     }
 
@@ -5142,6 +5187,76 @@ function subscribeEmployees(){
       });
     }
 
+    function getAreaOrdersStats(){
+      const stats = {};
+
+      getActiveAreasArray().forEach(area => {
+        const id = String(area.id || '');
+        if (!id) return;
+        stats[id] = {
+          areaId: id,
+          areaName: String(area.name || id),
+          count: 0
+        };
+      });
+
+      Object.values(ordersCache || {}).forEach(order => {
+        if (!order) return;
+
+        const lat = Number(order.lat);
+        const lng = Number(order.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+        const detected = detectAreaByLatLng(lat, lng);
+        if (!detected || !detected.areaId || detected.areaId === 'unknown') return;
+
+        if (!stats[detected.areaId]) {
+          stats[detected.areaId] = {
+            areaId: detected.areaId,
+            areaName: detected.areaName || detected.areaId,
+            count: 0
+          };
+        }
+
+        stats[detected.areaId].count++;
+      });
+
+      return Object.values(stats).sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return String(a.areaName).localeCompare(String(b.areaName), 'ar');
+      });
+    }
+
+    function renderAreaOrdersSummary(){
+      if (!areaOrdersSummary) return;
+
+      const rows = getAreaOrdersStats();
+
+      if (!rows.length) {
+        areaOrdersSummary.innerHTML = `<div class="area-orders-empty">لا توجد مناطق أو طلبات لهذا اليوم</div>`;
+        return;
+      }
+
+      areaOrdersSummary.innerHTML = `
+        <table class="area-orders-table">
+          <thead>
+            <tr>
+              <th>المنطقة</th>
+              <th>عدد الطلبات</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(row => `
+              <tr>
+                <td>${escapeHtml(row.areaName)}</td>
+                <td><b>${row.count}</b></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
     function refreshOrdersUIAndMap(){
       updateOrdersOnManagerMap();
       updateOrdersOnDriverMap();
@@ -5153,6 +5268,7 @@ function subscribeEmployees(){
       renderDriverOrdersLists();
       renderManagerClientOrdersByClient();
       renderEmployeeReturnedAllIfAllowed();
+      renderAreaOrdersSummary();
     }
 
     // =========================
