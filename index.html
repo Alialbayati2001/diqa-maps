@@ -331,6 +331,15 @@ background:#fff;
   }
 }
 
+
+    /* ===== Area editor ===== */
+    .area-tools{margin:10px 0;padding:10px;border:1px solid #1f2937;border-radius:14px;background:#020617}
+    .area-tools .hint{margin-top:6px}
+    .area-tools .inline-actions{margin-top:8px}
+    .area-tools .status{font-size:12px;color:#93c5fd;margin-top:6px;min-height:18px}
+    .area-tools .danger-outline{background:#111827;color:#fee2e2;border:1px solid #7f1d1d}
+    .area-tools .vertex-hint{font-size:11px;color:#9ca3af;margin-top:4px}
+
 </style>
 </head>
 
@@ -431,6 +440,34 @@ background:#fff;
         <div class="col">
           <h3>الخريطة</h3>
           <div class="hint">✅ الطلبات تظهر كمربعات على الخريطة حسب الحالة: مسجل 🟦 / قريب 🟨 / تم التسليم 🟩 / راجع 🟥</div>
+          <div class="area-tools">
+            <h4 style="margin:0 0 8px">إدارة المناطق على الخريطة</h4>
+            <div class="row">
+              <div class="col">
+                <label for="area-select">اختر المنطقة</label>
+                <select id="area-select">
+                  <option value="">-- اختر منطقة --</option>
+                </select>
+              </div>
+              <div class="col">
+                <label for="area-name-input">اسم المنطقة</label>
+                <input id="area-name-input" type="text" placeholder="مثال: السيدية" />
+              </div>
+              <div class="col">
+                <label for="area-color-input">لون المنطقة</label>
+                <input id="area-color-input" type="color" value="#22c55e" />
+              </div>
+            </div>
+            <div class="inline-actions">
+              <button type="button" id="area-draw-btn">✏️ رسم حر لمنطقة جديدة</button>
+              <button type="button" id="area-edit-btn" class="secondary">🧩 تعديل الحدود</button>
+              <button type="button" id="area-save-btn" class="secondary hidden">💾 حفظ المنطقة</button>
+              <button type="button" id="area-cancel-btn" class="secondary hidden">إلغاء</button>
+              <button type="button" id="area-delete-btn" class="danger-outline">🗑️ حذف المنطقة</button>
+            </div>
+            <div class="vertex-hint">أثناء الرسم الحر: اضغط ضغطة مطوّلة واسحب على الخريطة ثم ارفع يدك/الماوس. يمكن أيضًا إضافة نقطة بضغطة سريعة إذا احتجت. عند الانتهاء اضغط حفظ. أثناء التعديل: حرّك النقاط، واضغط على الخريطة لإضافة نقطة جديدة، واضغط يمين على أي نقطة لحذفها.</div>
+            <div class="status" id="area-editor-status"></div>
+          </div>
           <div id="map"></div>
         </div>
 
@@ -1199,6 +1236,16 @@ nextDrivers[key] = {
     const pickClientOnMapBtn = document.getElementById("pick-client-on-map");
     const pickClientHint = document.getElementById("pick-hint");
 
+    const areaSelect = document.getElementById("area-select");
+    const areaNameInput = document.getElementById("area-name-input");
+    const areaColorInput = document.getElementById("area-color-input");
+    const areaDrawBtn = document.getElementById("area-draw-btn");
+    const areaEditBtn = document.getElementById("area-edit-btn");
+    const areaSaveBtn = document.getElementById("area-save-btn");
+    const areaCancelBtn = document.getElementById("area-cancel-btn");
+    const areaDeleteBtn = document.getElementById("area-delete-btn");
+    const areaEditorStatus = document.getElementById("area-editor-status");
+
 
     const clientsListDiv = document.getElementById("clients-list");
     const driverClientsListDiv = document.getElementById("driver-clients-list");
@@ -1227,6 +1274,7 @@ nextDrivers[key] = {
     let driverMarkers = {};
     let employeeMarkers = {};
     let clientMarkers = {};
+    let areaLayers = {};
     let pickingClientLocation = false;
     let clientPickMarker = null;
 
@@ -1347,6 +1395,23 @@ nextDrivers[key] = {
     // ✅ Attendance State (RTDB)
     // =========================
     const OFFICE = { lat: 33.251945, lng: 44.362572, radius: 20 };
+
+    // =========================
+    // ✅ مناطق الخريطة (افتراضي + تعديل مباشر من الخريطة)
+    // =========================
+    const DEFAULT_AREAS = [];
+
+    let areasCache = {};
+    let areasUnsubRef = null;
+    let areaTempLayer = null;
+    let areaEditVertexMarkers = [];
+    let areaEditorMode = null; // null | draw | edit
+    let areaEditorActiveId = null;
+    let areaEditorPoints = [];
+    let areaFreehandActive = false;
+    let areaFreehandPointerDown = false;
+    let areaLastFreehandPoint = null;
+    const AREA_FREEHAND_MIN_DISTANCE_METERS = 10;
     const AUTO_CHECKOUT_HOUR = 23;
     const AUTO_CHECKOUT_MIN  = 30;
     let attendanceCache = {};     // { driverId: {checkInAt, checkOutAt, ...} }
@@ -3603,6 +3668,8 @@ function bindClientPickOnMap() {
   }
 
   map.on("click", (e) => {
+    if (onAreaMapClick(e.latlng)) return;
+
     if (!pickingClientLocation) return;
 
     const { lat, lng } = e.latlng;
@@ -3613,6 +3680,467 @@ function bindClientPickOnMap() {
     stopPickClientLocation();
   });
 }
+
+
+function normalizeAreaNameToId(name){
+      return slugify(String(name || '').trim()) || ('area_' + Date.now());
+    }
+
+    function normalizeAreaPayload(id, raw){
+      const src = raw || {};
+      const points = Array.isArray(src.points) ? src.points
+        .map(pt => [Number(pt && pt[0]), Number(pt && pt[1])])
+        .filter(pt => Number.isFinite(pt[0]) && Number.isFinite(pt[1])) : [];
+      return {
+        id: String(id || src.id || normalizeAreaNameToId(src.name || 'area')),
+        name: String(src.name || id || 'منطقة').trim() || 'منطقة',
+        color: String(src.color || '#22c55e'),
+        points
+      };
+    }
+
+    function getActiveAreasArray(){
+      const source = (areasCache && Object.keys(areasCache).length) ? areasCache : Object.fromEntries((DEFAULT_AREAS || []).map(a => [a.id, a]));
+      return Object.entries(source)
+        .map(([id, area]) => normalizeAreaPayload(id, area))
+        .filter(a => Array.isArray(a.points) && a.points.length >= 3);
+    }
+
+    function setAreaEditorStatus(msg, isError){
+      if (!areaEditorStatus) return;
+      areaEditorStatus.style.color = isError ? '#fca5a5' : '#93c5fd';
+      areaEditorStatus.textContent = String(msg || '');
+    }
+
+    function renderAreaEditorSelect(){
+      if (!areaSelect) return;
+      const selected = areaSelect.value;
+      const areas = getActiveAreasArray();
+      areaSelect.innerHTML = '<option value="">-- اختر منطقة --</option>';
+      areas.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''), 'ar'));
+      areas.forEach(area => {
+        const opt = document.createElement('option');
+        opt.value = area.id;
+        opt.textContent = area.name;
+        areaSelect.appendChild(opt);
+      });
+      if (selected && areas.some(a => a.id === selected)) areaSelect.value = selected;
+    }
+
+    function setAreaFormFromArea(area){
+      const a = area || null;
+      if (areaNameInput) areaNameInput.value = a ? String(a.name || '') : '';
+      if (areaColorInput) areaColorInput.value = a ? String(a.color || '#22c55e') : '#22c55e';
+      if (areaSelect && a && a.id) areaSelect.value = a.id;
+    }
+
+    function toggleAreaEditorActionButtons(editing){
+      const on = !!editing;
+      if (areaSaveBtn) areaSaveBtn.classList.toggle('hidden', !on);
+      if (areaCancelBtn) areaCancelBtn.classList.toggle('hidden', !on);
+      if (areaDrawBtn) areaDrawBtn.disabled = on;
+      if (areaEditBtn) areaEditBtn.disabled = on;
+      if (areaDeleteBtn) areaDeleteBtn.disabled = on;
+      if (areaSelect) areaSelect.disabled = on;
+    }
+
+    function cleanupAreaEditorLayers(){
+      if (areaTempLayer && map && map.hasLayer(areaTempLayer)) map.removeLayer(areaTempLayer);
+      areaTempLayer = null;
+      (areaEditVertexMarkers || []).forEach(m => {
+        try { if (map && map.hasLayer(m)) map.removeLayer(m); } catch(e){}
+      });
+      areaEditVertexMarkers = [];
+    }
+
+
+    function setMapPanZoomEnabled(enabled){
+      if (!map) return;
+      const on = !!enabled;
+      try { if (map.dragging) on ? map.dragging.enable() : map.dragging.disable(); } catch(e){}
+      try { if (map.scrollWheelZoom) on ? map.scrollWheelZoom.enable() : map.scrollWheelZoom.disable(); } catch(e){}
+      try { if (map.boxZoom) on ? map.boxZoom.enable() : map.boxZoom.disable(); } catch(e){}
+      try { if (map.keyboard) on ? map.keyboard.enable() : map.keyboard.disable(); } catch(e){}
+      try { if (map.tap) on ? map.tap.enable() : map.tap.disable(); } catch(e){}
+      try { if (map.touchZoom) on ? map.touchZoom.enable() : map.touchZoom.disable(); } catch(e){}
+    }
+
+    function appendAreaEditorPoint(lat, lng, force){
+      const next = [Number(lat.toFixed(6)), Number(lng.toFixed(6))];
+      if (!force && areaEditorPoints.length) {
+        const prev = areaEditorPoints[areaEditorPoints.length - 1];
+        const dist = haversineMeters(prev[0], prev[1], next[0], next[1]);
+        if (dist < AREA_FREEHAND_MIN_DISTANCE_METERS) return false;
+      }
+      areaEditorPoints.push(next);
+      areaLastFreehandPoint = next;
+      redrawAreaEditorTempLayer();
+      return true;
+    }
+
+    function startAreaFreehandStroke(latlng){
+      if (!map || areaEditorMode !== 'draw' || !latlng) return;
+      areaFreehandActive = true;
+      areaFreehandPointerDown = true;
+      areaLastFreehandPoint = null;
+      setMapPanZoomEnabled(false);
+      appendAreaEditorPoint(Number(latlng.lat), Number(latlng.lng), true);
+      setAreaEditorStatus('جاري الرسم الحر... اسحب على الخريطة ثم ارفع يدك/الماوس.');
+    }
+
+    function continueAreaFreehandStroke(latlng){
+      if (!areaFreehandActive || !areaFreehandPointerDown || !latlng) return;
+      const added = appendAreaEditorPoint(Number(latlng.lat), Number(latlng.lng), false);
+      if (added) {
+        setAreaEditorStatus(`جاري الرسم الحر... تم تسجيل ${areaEditorPoints.length} نقطة.`);
+      }
+    }
+
+    function endAreaFreehandStroke(){
+      if (!areaFreehandActive && !areaFreehandPointerDown) return;
+      areaFreehandActive = false;
+      areaFreehandPointerDown = false;
+      areaLastFreehandPoint = null;
+      setMapPanZoomEnabled(true);
+      if (map && map.doubleClickZoom && areaEditorMode) map.doubleClickZoom.disable();
+      if (areaEditorMode === 'draw') {
+        if (areaEditorPoints.length >= 3) {
+          setAreaEditorStatus(`اكتمل الرسم. عدد النقاط: ${areaEditorPoints.length}. اضغط حفظ لتثبيت المنطقة.`);
+        } else {
+          setAreaEditorStatus('ارسم حدود المنطقة كاملة. تحتاج 3 نقاط على الأقل.', true);
+        }
+      }
+    }
+
+    function bindAreaFreehandDrawing(){
+      if (!map) return;
+      const container = map.getContainer();
+      if (!container || container.dataset.freehandBound === '1') return;
+      container.dataset.freehandBound = '1';
+
+      map.on('mousedown', (e) => {
+        if (areaEditorMode !== 'draw') return;
+        startAreaFreehandStroke(e.latlng);
+      });
+
+      map.on('mousemove', (e) => {
+        if (areaEditorMode !== 'draw') return;
+        continueAreaFreehandStroke(e.latlng);
+      });
+
+      map.on('mouseup', () => {
+        if (areaEditorMode !== 'draw') return;
+        endAreaFreehandStroke();
+      });
+
+      map.on('mouseout', () => {
+        if (areaEditorMode !== 'draw') return;
+        if (areaFreehandPointerDown) endAreaFreehandStroke();
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (areaEditorMode !== 'draw') return;
+        endAreaFreehandStroke();
+      });
+
+      container.addEventListener('touchstart', (ev) => {
+        if (areaEditorMode !== 'draw') return;
+        const t = ev.touches && ev.touches[0];
+        if (!t) return;
+        ev.preventDefault();
+        startAreaFreehandStroke(map.mouseEventToLatLng(t));
+      }, { passive:false });
+
+      container.addEventListener('touchmove', (ev) => {
+        if (areaEditorMode !== 'draw') return;
+        const t = ev.touches && ev.touches[0];
+        if (!t) return;
+        ev.preventDefault();
+        continueAreaFreehandStroke(map.mouseEventToLatLng(t));
+      }, { passive:false });
+
+      const touchEnd = () => {
+        if (areaEditorMode !== 'draw') return;
+        endAreaFreehandStroke();
+      };
+      container.addEventListener('touchend', touchEnd, { passive:true });
+      container.addEventListener('touchcancel', touchEnd, { passive:true });
+    }
+
+    function redrawAreaEditorTempLayer(){
+      if (!map) return;
+      if (areaTempLayer && map.hasLayer(areaTempLayer)) map.removeLayer(areaTempLayer);
+      areaTempLayer = null;
+      if (!Array.isArray(areaEditorPoints) || !areaEditorPoints.length) return;
+
+      if (areaEditorPoints.length >= 3) {
+        areaTempLayer = L.polygon(areaEditorPoints, {
+          color: (areaColorInput && areaColorInput.value) || '#22c55e',
+          weight: 2,
+          dashArray: '6,6',
+          fillColor: (areaColorInput && areaColorInput.value) || '#22c55e',
+          fillOpacity: 0.12
+        }).addTo(map);
+      } else {
+        areaTempLayer = L.polyline(areaEditorPoints, {
+          color: (areaColorInput && areaColorInput.value) || '#22c55e',
+          weight: 2,
+          dashArray: '6,6'
+        }).addTo(map);
+      }
+    }
+
+    function rebuildAreaEditVertexMarkers(){
+      if (!map) return;
+      (areaEditVertexMarkers || []).forEach(m => {
+        try { if (map.hasLayer(m)) map.removeLayer(m); } catch(e){}
+      });
+      areaEditVertexMarkers = [];
+
+      areaEditorPoints.forEach((pt, idx) => {
+        const marker = L.circleMarker(pt, {
+          radius: 6,
+          color: '#ffffff',
+          weight: 2,
+          fillColor: (areaColorInput && areaColorInput.value) || '#22c55e',
+          fillOpacity: 1
+        }).addTo(map);
+
+        marker.dragging = new L.Handler.MarkerDrag(marker);
+        marker.dragging.enable();
+
+        marker.on('drag', (e) => {
+          const ll = e.target.getLatLng();
+          areaEditorPoints[idx] = [Number(ll.lat.toFixed(6)), Number(ll.lng.toFixed(6))];
+          redrawAreaEditorTempLayer();
+        });
+
+        marker.on('contextmenu', () => {
+          if (areaEditorPoints.length <= 3) {
+            setAreaEditorStatus('لا يمكن حذف نقطة إذا بقيت المنطقة أقل من 3 نقاط.', true);
+            return;
+          }
+          areaEditorPoints.splice(idx, 1);
+          redrawAreaEditorTempLayer();
+          rebuildAreaEditVertexMarkers();
+          setAreaEditorStatus('تم حذف نقطة من حدود المنطقة. اضغط حفظ لتثبيت التعديل.');
+        });
+
+        areaEditVertexMarkers.push(marker);
+      });
+    }
+
+    function beginAreaDrawMode(){
+      if (!map) return;
+      cancelAreaEditing(false);
+      areaEditorMode = 'draw';
+      areaEditorActiveId = null;
+      areaEditorPoints = [];
+      areaFreehandActive = false;
+      areaFreehandPointerDown = false;
+      areaLastFreehandPoint = null;
+      cleanupAreaEditorLayers();
+      toggleAreaEditorActionButtons(true);
+      setAreaFormFromArea(null);
+      if (map.doubleClickZoom) map.doubleClickZoom.disable();
+      setAreaEditorStatus('ابدأ الرسم الحر: اضغط ضغطة مطوّلة واسحب على الخريطة، ثم ارفع يدك/الماوس. بعد ذلك اضغط حفظ.');
+    }
+
+    function beginAreaEditMode(areaId){
+      if (!map) return;
+      const area = getActiveAreasArray().find(a => a.id === areaId);
+      if (!area) {
+        setAreaEditorStatus('اختر منطقة أولاً حتى تعدل حدودها.', true);
+        return;
+      }
+      cancelAreaEditing(false);
+      areaEditorMode = 'edit';
+      areaEditorActiveId = area.id;
+      areaEditorPoints = (area.points || []).map(pt => [Number(pt[0]), Number(pt[1])]);
+      toggleAreaEditorActionButtons(true);
+      setAreaFormFromArea(area);
+      redrawAreaEditorTempLayer();
+      rebuildAreaEditVertexMarkers();
+      if (map.doubleClickZoom) map.doubleClickZoom.disable();
+      setAreaEditorStatus('حرّك النقاط لتعديل الحدود. اضغط على الخريطة لإضافة نقطة جديدة، واضغط يمين على النقطة لحذفها.');
+    }
+
+    function cancelAreaEditing(clearStatus){
+      areaEditorMode = null;
+      areaEditorActiveId = null;
+      areaEditorPoints = [];
+      areaFreehandActive = false;
+      areaFreehandPointerDown = false;
+      areaLastFreehandPoint = null;
+      cleanupAreaEditorLayers();
+      toggleAreaEditorActionButtons(false);
+      setMapPanZoomEnabled(true);
+      if (map && map.doubleClickZoom) map.doubleClickZoom.enable();
+      if (clearStatus !== false) setAreaEditorStatus('');
+      drawAreaPolygons();
+      renderAreaEditorSelect();
+    }
+
+    function onAreaMapClick(latlng){
+      if (!areaEditorMode || !latlng) return false;
+      const lat = Number(latlng.lat);
+      const lng = Number(latlng.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return true;
+
+      if (areaEditorMode === 'draw') {
+        const added = appendAreaEditorPoint(Number(lat), Number(lng), true);
+        if (added) {
+          setAreaEditorStatus(`تمت إضافة نقطة رقم ${areaEditorPoints.length}. تقدر أيضًا ترسم بالسحب الحر ثم تحفظ.`);
+        }
+        return true;
+      }
+
+      if (areaEditorMode === 'edit') {
+        areaEditorPoints.push([Number(lat.toFixed(6)), Number(lng.toFixed(6))]);
+        redrawAreaEditorTempLayer();
+        rebuildAreaEditVertexMarkers();
+        setAreaEditorStatus('تمت إضافة نقطة جديدة. اضغط حفظ لتثبيت التعديل.');
+        return true;
+      }
+
+      return false;
+    }
+
+    async function saveAreaFromEditor(){
+      if (!areaEditorMode) return;
+      const name = String(areaNameInput && areaNameInput.value || '').trim();
+      const color = String(areaColorInput && areaColorInput.value || '#22c55e').trim() || '#22c55e';
+
+      if (!name) {
+        setAreaEditorStatus('اكتب اسم المنطقة أولاً.', true);
+        return;
+      }
+      if (!Array.isArray(areaEditorPoints) || areaEditorPoints.length < 3) {
+        setAreaEditorStatus('المنطقة تحتاج 3 نقاط على الأقل.', true);
+        return;
+      }
+
+      const areaId = areaEditorActiveId || normalizeAreaNameToId(name);
+      const payload = {
+        id: areaId,
+        name,
+        color,
+        points: areaEditorPoints.map(pt => [Number(pt[0]), Number(pt[1])]),
+        updatedAt: SERVER_TS
+      };
+      if (areaEditorMode === 'draw') payload.createdAt = SERVER_TS;
+
+      try{
+        await db.ref(`areas/${areaId}`).update(payload);
+        setAreaEditorStatus('تم حفظ المنطقة على الخريطة ✅');
+        cancelAreaEditing(false);
+      }catch(err){
+        console.error(err);
+        setAreaEditorStatus('فشل حفظ المنطقة في Firebase.', true);
+      }
+    }
+
+    async function deleteSelectedArea(){
+      const areaId = String(areaSelect && areaSelect.value || '').trim();
+      if (!areaId) {
+        setAreaEditorStatus('اختر منطقة أولاً حتى تحذفها.', true);
+        return;
+      }
+      const area = getActiveAreasArray().find(a => a.id === areaId);
+      const label = area ? area.name : areaId;
+      if (!confirm(`تأكيد حذف المنطقة: ${label} ؟`)) return;
+      try{
+        await db.ref(`areas/${areaId}`).remove();
+        setAreaEditorStatus('تم حذف المنطقة ✅');
+        if (areaSelect) areaSelect.value = '';
+        setAreaFormFromArea(null);
+      }catch(err){
+        console.error(err);
+        setAreaEditorStatus('فشل حذف المنطقة.', true);
+      }
+    }
+
+    function subscribeAreas(){
+      if (areasUnsubRef) return;
+      areasUnsubRef = db.ref('areas');
+      areasUnsubRef.on('value', (snap) => {
+        const raw = snap.val() || {};
+        const hasRemote = raw && Object.keys(raw).length > 0;
+        areasCache = hasRemote
+          ? Object.fromEntries(Object.entries(raw).map(([id, area]) => [id, normalizeAreaPayload(id, area)]))
+          : Object.fromEntries((DEFAULT_AREAS || []).map(area => [area.id, normalizeAreaPayload(area.id, area)]));
+        renderAreaEditorSelect();
+        if (!areaEditorMode) {
+          drawAreaPolygons();
+        }
+        if (areaEditorActiveId && areaEditorMode === 'edit') {
+          const fresh = areasCache[areaEditorActiveId];
+          if (fresh) {
+            setAreaFormFromArea(fresh);
+          }
+        }
+      });
+    }
+
+    function unsubscribeAreas(){
+      if (!areasUnsubRef) return;
+      areasUnsubRef.off();
+      areasUnsubRef = null;
+    }
+
+function pointInPolygon(lat, lng, points){
+      let inside = false;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const yi = Number(points[i][0]), xi = Number(points[i][1]);
+        const yj = Number(points[j][0]), xj = Number(points[j][1]);
+        const intersects = ((yi > lat) !== (yj > lat)) &&
+          (lng < ((xj - xi) * (lat - yi)) / (((yj - yi) || Number.EPSILON)) + xi);
+        if (intersects) inside = !inside;
+      }
+      return inside;
+    }
+
+    function detectAreaByLatLng(lat, lng){
+      const la = Number(lat), ln = Number(lng);
+      if (!Number.isFinite(la) || !Number.isFinite(ln)) {
+        return { areaId: 'unknown', areaName: 'خارج المناطق' };
+      }
+      for (const area of getActiveAreasArray()) {
+        if (Array.isArray(area.points) && area.points.length >= 3 && pointInPolygon(la, ln, area.points)) {
+          return { areaId: String(area.id || ''), areaName: String(area.name || area.id || 'منطقة غير معروفة') };
+        }
+      }
+      return { areaId: 'unknown', areaName: 'خارج المناطق' };
+    }
+
+    function getClientAreaLabel(client){
+      const c = client || {};
+      const detected = detectAreaByLatLng(c.lat, c.lng);
+      if (detected && detected.areaId !== 'unknown') return detected.areaName;
+      if (String(c.areaName || '').trim()) return String(c.areaName).trim();
+      return detected.areaName;
+    }
+
+    function drawAreaPolygons(){
+      if (!map) return;
+      Object.keys(areaLayers || {}).forEach(id => {
+        const layer = areaLayers[id];
+        if (layer && map.hasLayer(layer)) map.removeLayer(layer);
+      });
+      areaLayers = {};
+
+      getActiveAreasArray().forEach(area => {
+        if (!area || !Array.isArray(area.points) || area.points.length < 3) return;
+        const layer = L.polygon(area.points, {
+          color: area.color || '#22c55e',
+          weight: 2,
+          fillColor: area.color || '#22c55e',
+          fillOpacity: 0.08
+        }).addTo(map);
+        layer.bindPopup(`المنطقة: ${escapeHtml(area.name || area.id || 'منطقة')}`);
+        areaLayers[String(area.id || Math.random())] = layer;
+      });
+    }
 
 function initMap() {
       if (map) return;
@@ -3659,8 +4187,12 @@ function initMap() {
         weight: 2
       }).addTo(map);
 
-      // ✅ تفعيل اختيار موقع الزبون من الخريطة للأدمن
+      subscribeAreas();
+      drawAreaPolygons();
+
+      // ✅ تفعيل اختيار موقع الزبون من الخريطة للأدمن + إدارة رسم المناطق
       bindClientPickOnMap();
+      bindAreaFreehandDrawing();
     }
 
     function initDriverMap(){
@@ -5519,10 +6051,13 @@ function subscribeEmployees(){
       );
       if (newDriverId == null) return;
 
+      const detectedArea = detectAreaByLatLng(lat, lng);
       const patch = {
         clientName: newClientName.trim(),
         lat,
         lng,
+        areaId: detectedArea.areaId,
+        areaName: detectedArea.areaName,
         ...buildAuditFields("lastEditedBy")
       };
 
@@ -5678,6 +6213,8 @@ function subscribeEmployees(){
       }, 0);
       const nextP = maxP + 1;
 
+      const areaInfo = detectAreaByLatLng(c.lat, c.lng);
+
       const payload = {
         workDate,
         type: "order",
@@ -5688,6 +6225,8 @@ function subscribeEmployees(){
         clientName: c.name || "زبون",
         lat: c.lat,
         lng: c.lng,
+        areaId: String(c.areaId || areaInfo.areaId || 'unknown'),
+        areaName: String(c.areaName || areaInfo.areaName || 'خارج المناطق'),
         status: "registered",
         cashCollected: false,
         priority: nextP,           // ✅ NEW
@@ -7752,6 +8291,7 @@ function getClientOrdersHtml(clientId){
         const popupHtml = `
           <div style="min-width:210px">
             <div style="font-weight:800;margin-bottom:6px">زبون: ${escapeHtml(c.name || "زبون")}</div>
+            <div class="small">المنطقة: ${escapeHtml(getClientAreaLabel(c))}</div>
             <div class="small">ID: <span class="mono">${escapeHtml(id)}</span></div>
             <div class="small">${getClientOrdersHtml(id)}</div>
           </div>
@@ -7793,7 +8333,14 @@ function getClientOrdersHtml(clientId){
         return;
       }
 
-      db.ref(`clients/${id}`).update({ name: newName.trim(), lat, lng });
+      const detectedArea = detectAreaByLatLng(lat, lng);
+      db.ref(`clients/${id}`).update({
+        name: newName.trim(),
+        lat,
+        lng,
+        areaId: detectedArea.areaId,
+        areaName: detectedArea.areaName
+      });
     }
 
     function deleteClient(id){
@@ -7828,11 +8375,16 @@ function getClientOrdersHtml(clientId){
         const nameEl = document.createElement("strong");
         nameEl.textContent = c.name || "زبون";
 
+        const areaEl = document.createElement("div");
+        areaEl.className = "small";
+        areaEl.textContent = `المنطقة: ${getClientAreaLabel(c)}`;
+
         const coordsEl = document.createElement("div");
         coordsEl.className = "small";
         coordsEl.textContent = `${c.lat}, ${c.lng}`;
 
         left.appendChild(nameEl);
+        left.appendChild(areaEl);
         left.appendChild(coordsEl);
 
         const gmBtn = document.createElement("button");
@@ -7941,14 +8493,22 @@ function addEmployee(){
         return;
       }
 
+      const detectedArea = detectAreaByLatLng(lat, lng);
       const id = slugify(name) + "_" + Date.now();
-      db.ref(`clients/${id}`).set({ name, lat, lng, createdAt: SERVER_TS })
+      db.ref(`clients/${id}`).set({
+        name,
+        lat,
+        lng,
+        areaId: detectedArea.areaId,
+        areaName: detectedArea.areaName,
+        createdAt: SERVER_TS
+      })
         .then(() => {
-          clientAddMsg.textContent = "تمت إضافة الزبون.";
+          clientAddMsg.textContent = `تمت إضافة الزبون. المنطقة: ${detectedArea.areaName}`;
           clientNameInput.value = "";
           clientLatInput.value = "";
           clientLngInput.value = "";
-          setTimeout(()=>clientAddMsg.textContent="", 2000);
+          setTimeout(()=>clientAddMsg.textContent="", 2500);
         })
         .catch(err => {
           console.error(err);
@@ -8142,6 +8702,7 @@ function addEmployee(){
       unsubscribeClients();
       unsubscribeDrivers();
       unsubscribeEmployees();
+      unsubscribeAreas();
       show(loginCard);
       hide(managerCard);
       hide(driverCard);
@@ -8283,6 +8844,7 @@ logoutEmployeeBtn && (logoutEmployeeBtn.onclick = () => {
   unsubscribeClients();
   unsubscribeDrivers();
   unsubscribeEmployees();
+  unsubscribeAreas();
 });
 
 logoutDriverBtn.onclick = () => {
@@ -8299,6 +8861,7 @@ logoutDriverBtn.onclick = () => {
       unsubscribeClients();
       unsubscribeDrivers();
       unsubscribeEmployees();
+      unsubscribeAreas();
 
       if (autoCheckoutTimer) { clearInterval(autoCheckoutTimer); autoCheckoutTimer = null; }
 
@@ -8320,6 +8883,31 @@ logoutDriverBtn.onclick = () => {
     addDriverBtn.onclick = addDriver;
     addEmployeeBtn && (addEmployeeBtn.onclick = addEmployee);
     addClientBtn.onclick = addClient;
+    areaDrawBtn && (areaDrawBtn.onclick = () => beginAreaDrawMode());
+    areaEditBtn && (areaEditBtn.onclick = () => beginAreaEditMode(String(areaSelect && areaSelect.value || '').trim()));
+    areaSaveBtn && (areaSaveBtn.onclick = () => saveAreaFromEditor());
+    areaCancelBtn && (areaCancelBtn.onclick = () => cancelAreaEditing(true));
+    areaDeleteBtn && (areaDeleteBtn.onclick = () => deleteSelectedArea());
+    areaSelect && areaSelect.addEventListener('change', () => {
+      const areaId = String(areaSelect.value || '').trim();
+      const area = getActiveAreasArray().find(a => a.id === areaId) || null;
+      setAreaFormFromArea(area);
+      if (!areaId) {
+        drawAreaPolygons();
+        setAreaEditorStatus('');
+        return;
+      }
+      drawAreaPolygons();
+      const layer = areaLayers[areaId];
+      if (layer && map) {
+        try { map.fitBounds(layer.getBounds(), { padding: [30, 30] }); } catch(e){}
+        try { layer.openPopup(); } catch(e){}
+      }
+    });
+    areaColorInput && areaColorInput.addEventListener('input', () => {
+      if (areaEditorMode) redrawAreaEditorTempLayer();
+      else drawAreaPolygons();
+    });
 
     addOrderBtn.onclick = addOrder;
 
