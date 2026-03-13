@@ -3897,22 +3897,40 @@ function normalizeAreaNameToId(name){
       });
       areaEditVertexMarkers = [];
 
+      const vertexColor = (areaColorInput && areaColorInput.value) || '#22c55e';
+
       areaEditorPoints.forEach((pt, idx) => {
-        const marker = L.circleMarker(pt, {
-          radius: 6,
-          color: '#ffffff',
-          weight: 2,
-          fillColor: (areaColorInput && areaColorInput.value) || '#22c55e',
-          fillOpacity: 1
+        const marker = L.marker(pt, {
+          draggable: true,
+          keyboard: false,
+          autoPan: false,
+          zIndexOffset: 1000,
+          icon: L.divIcon({
+            className: '',
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+            html: `<div style="width:16px;height:16px;border-radius:999px;border:2px solid #ffffff;background:${vertexColor};box-shadow:0 2px 10px rgba(0,0,0,.35);"></div>`
+          })
         }).addTo(map);
 
-        marker.dragging = new L.Handler.MarkerDrag(marker);
-        marker.dragging.enable();
+        marker.on('dragstart', () => {
+          setMapPanZoomEnabled(false);
+          setAreaEditorStatus('جاري تحريك النقطة...');
+        });
 
         marker.on('drag', (e) => {
           const ll = e.target.getLatLng();
           areaEditorPoints[idx] = [Number(ll.lat.toFixed(6)), Number(ll.lng.toFixed(6))];
           redrawAreaEditorTempLayer();
+        });
+
+        marker.on('dragend', (e) => {
+          const ll = e.target.getLatLng();
+          areaEditorPoints[idx] = [Number(ll.lat.toFixed(6)), Number(ll.lng.toFixed(6))];
+          redrawAreaEditorTempLayer();
+          setMapPanZoomEnabled(true);
+          if (map && map.doubleClickZoom && areaEditorMode) map.doubleClickZoom.disable();
+          setAreaEditorStatus('تم تعديل موقع النقطة. اضغط حفظ لتثبيت التعديل.');
         });
 
         marker.on('contextmenu', () => {
