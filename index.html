@@ -35,6 +35,16 @@
     .list-item{padding:8px;border-radius:12px;border-bottom:1px solid #111827;display:flex;justify-content:space-between;align-items:center;gap:10px}
     .list-item:last-child{border-bottom:none}
     .list-item strong{font-size:14px}
+    .driver-target-box{margin-top:10px;padding:12px 14px;border-radius:16px;border:1px solid #854d0e;background:linear-gradient(180deg, rgba(250,204,21,.18), rgba(245,158,11,.08));box-shadow:0 10px 30px rgba(0,0,0,.18)}
+    .driver-target-box .target-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+    .driver-target-box .target-title{font-size:16px;font-weight:900;color:#fde68a}
+    .driver-target-box .target-meta{font-size:12px;color:#f8fafc;line-height:1.7}
+    .driver-target-box .target-note{font-size:11px;color:#fde68a;margin-top:6px}
+    .target-order-item{border:1px solid rgba(250,204,21,.45);background:rgba(250,204,21,.08);box-shadow:0 12px 30px rgba(250,204,21,.08)}
+    .target-order-item strong{color:#fde68a}
+    .target-badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;background:#facc15;color:#111827;font-size:11px;font-weight:900;margin-inline-start:6px}
+    .driver-target-pin{width:18px;height:18px;border-radius:999px;background:#facc15;border:2px solid rgba(255,255,255,.95);box-shadow:0 0 0 4px rgba(250,204,21,.25), 0 12px 26px rgba(0,0,0,.35)}
+    .driver-order-pin{width:14px;height:14px;border-radius:999px;background:#60a5fa;border:2px solid rgba(255,255,255,.9);box-shadow:0 8px 20px rgba(0,0,0,.3)}
     .small{font-size:11px;color:#9ca3af}
     .status-dot{width:8px;height:8px;border-radius:999px;display:inline-block;margin-left:6px}
     .online{background:#22c55e}
@@ -400,6 +410,9 @@ background:#fff;
       color:#9ca3af;
       text-align:center;
     }
+
+    .order-delayed-item{border:1px solid #7f1d1d !important;background:rgba(239,68,68,.10) !important;}
+    .order-delayed-text{color:#fca5a5 !important;font-weight:800;}
 
 </style>
 </head>
@@ -769,6 +782,7 @@ background:#fff;
 
       <p>المندوب: <strong id="current-driver-name"></strong></p>
       <p class="small" id="tracking-status"></p>
+      <p class="small" id="driver-alert" style="color:#fca5a5; margin:6px 0 0;"></p>
 
       <!-- =========================
            ✅ Attendance (Driver)
@@ -803,6 +817,14 @@ background:#fff;
         ✅ NEW: تظهر نقطة موقعك + مسار حركتك (لنفسك فقط).
         <br/>
         ✅ NEW: افتراضياً الترتيب حسب الأقرب، وإذا الأدمن عدّل أولوية طلب معيّن فتصير أولوية الأدمن هي المعتمدة.
+      </div>
+      <div id="driver-current-target-box" class="driver-target-box">
+        <div class="target-head">
+          <div class="target-title">🎯 الهدف الحالي: —</div>
+          <span class="badge" id="driver-current-target-order">ترتيب: —</span>
+        </div>
+        <div class="target-meta" id="driver-current-target-meta">سيظهر هنا أقرب طلب فعلي للمندوب أو الهدف الذي يختاره مؤقتاً.</div>
+        <div class="target-note">هذا فقط لتوضيح الأولوية. المندوب يبقى يقدر يروح لأي زبون آخر ويحدث أي طلب بشكل طبيعي.</div>
       </div>
       <div class="inline-actions" style="margin-top:10px;">
         <button id="driver-build-route-btn" class="secondary">🛣️ إنشاء مسار كل الطلبات</button>
@@ -1007,6 +1029,16 @@ background:#fff;
         html: `<div class="self-pin"></div>`,
         iconSize: [18, 18],
         iconAnchor: [9, 9],
+        popupAnchor: [0, -10]
+      });
+    }
+
+    function makeDriverOrderIcon(isTarget){
+      return L.divIcon({
+        className: "",
+        html: `<div class="${isTarget ? 'driver-target-pin' : 'driver-order-pin'}"></div>`,
+        iconSize: isTarget ? [18, 18] : [14, 14],
+        iconAnchor: isTarget ? [9, 9] : [7, 7],
         popupAnchor: [0, -10]
       });
     }
@@ -1341,8 +1373,11 @@ nextDrivers[key] = {
 
     // Manager alert UI
     const managerAlert = document.getElementById("manager-alert");
+    const driverAlert = document.getElementById("driver-alert");
     const beepToggle = document.getElementById("beep-toggle");
     let lastDriverState = {}; // {id: "ok"|"bad"}
+    let lastDelayedOrderState = {}; // {orderId: true}
+    const ORDER_DELAY_ALERT_MS = 60 * 60 * 1000;
 
     // ✅ Attendance UI
     const managerAttendanceList = document.getElementById("manager-attendance-list");
@@ -1434,6 +1469,9 @@ nextDrivers[key] = {
     const driverDeliveryFeeEl = document.getElementById("driver-delivery-fee");
     const driverFeeNoteEl = document.getElementById("driver-fee-note");
     const orderSearchDriver = document.getElementById("order-search-driver");
+    const driverCurrentTargetBox = document.getElementById("driver-current-target-box");
+    const driverCurrentTargetOrder = document.getElementById("driver-current-target-order");
+    const driverCurrentTargetMeta = document.getElementById("driver-current-target-meta");
 
     // ✅ زر راجع سابق
     const legacyReturnBtn = document.getElementById("legacy-return-btn");
@@ -1463,6 +1501,7 @@ nextDrivers[key] = {
     let driverOrderMarkers = {};   // named client markers on driver map
     let driverRouteLine = null;    // route line for all active orders
     let driverSelfLatLng = null;   // {lat,lng}
+    let driverFocusOrderId = null; // local visual target only for current driver screen
 
     const NEARBY_METERS = 150;
     const DELIVERY_ALLOWED_METERS = 250;
@@ -2016,6 +2055,48 @@ function openInGoogleMaps(lat, lng) {
       return manual.concat(auto);
     }
 
+    function getDriverVisualTargetOrderId(){
+      const activeIds = new Set(getDriverActiveOrdersSorted().map(x => String(x.id || "")));
+      if (driverFocusOrderId && activeIds.has(String(driverFocusOrderId))) return String(driverFocusOrderId);
+      const first = getDriverActiveOrdersSorted()[0];
+      return first ? String(first.id || "") : null;
+    }
+
+    function setDriverVisualTarget(orderId, opts){
+      const active = getDriverActiveOrdersSorted();
+      const exists = active.find(x => String(x.id || "") === String(orderId || ""));
+      driverFocusOrderId = exists ? String(orderId) : null;
+      renderDriverCurrentTargetBox();
+      if (!(opts && opts.skipRefresh)) {
+        renderDriverOrdersLists();
+        updateDriverOrderMarkers();
+      }
+    }
+
+    function renderDriverCurrentTargetBox(){
+      if (!driverCurrentTargetBox || !driverCurrentTargetMeta || !driverCurrentTargetOrder) return;
+      const targetId = getDriverVisualTargetOrderId();
+      const ordered = getDriverActiveOrdersSorted();
+      const target = ordered.find(x => String(x.id || "") === String(targetId || ""));
+      const titleEl = driverCurrentTargetBox.querySelector('.target-title');
+      if (!target || !titleEl) {
+        if (titleEl) titleEl.textContent = '🎯 الهدف الحالي: —';
+        driverCurrentTargetOrder.textContent = 'ترتيب: —';
+        driverCurrentTargetMeta.textContent = 'لا توجد طلبات نشطة حالياً.';
+        return;
+      }
+
+      const etaPlan = buildDriverOrdersEtaPlan(ordered);
+      const bag = etaPlan[String(target.id || "")] || null;
+      const pr = normalizePriority(target.priority);
+      const isManual = hasManualPriority(target);
+      const distText = (bag && Number.isFinite(Number(bag.legDistanceM))) ? formatMetersSmart(bag.legDistanceM) : '—';
+      const etaText = (bag && bag.etaText && bag.etaText !== '—') ? bag.etaText : '—';
+      titleEl.textContent = `🎯 الهدف الحالي: ${target.clientName || 'زبون'}`;
+      driverCurrentTargetOrder.textContent = bag ? bag.sequenceText : 'ترتيب: 1';
+      driverCurrentTargetMeta.innerHTML = `الحالة: <b>${escapeHtml(statusLabel(target.status))}</b> | ${isManual ? 'أولوية أدمن' : 'الأقرب الآن'}${pr ? ` | أولوية: <b>${pr}</b>` : ''} | مسافة هذا المشوار: <b>${escapeHtml(distText)}</b> | الوصول المتوقع: <b>${escapeHtml(etaText)}</b>${bag && bag.routeModeText ? ` | ${escapeHtml(bag.routeModeText)}` : ''}`;
+    }
+
     function clearDriverRouteOnMap(opts){
       if (driverRouteLine && driverMap) {
         try { driverMap.removeLayer(driverRouteLine); } catch(_){}
@@ -2051,7 +2132,9 @@ function openInGoogleMaps(lat, lng) {
 
         const pr = normalizePriority(o.priority);
         const manualTxt = hasManualPriority(o) ? "يدوية" : "تلقائية";
+        const isTarget = String(orderId) === String(getDriverVisualTargetOrderId() || "");
         const popupHtml =
+          `${isTarget ? `<div class="target-badge" style="margin:0 0 6px 0">الهدف الحالي</div>` : ``}` +
           `<b>${escapeHtml(o.clientName || "زبون")}</b>` +
           `<br/>الحالة: <b>${statusLabel(o.status)}</b>` +
           `<br/>الأولوية: <b>${pr || "-"}</b> (${manualTxt})` +
@@ -2059,13 +2142,15 @@ function openInGoogleMaps(lat, lng) {
           ` <button class="secondary" onclick="openOrderInWaze(${Number(o.lat)}, ${Number(o.lng)})">Waze</button>`;
 
         if (!driverOrderMarkers[orderId]) {
-          const marker = L.marker([o.lat, o.lng], { title: o.clientName || "زبون" });
+          const marker = L.marker([o.lat, o.lng], { title: o.clientName || "زبون", icon: makeDriverOrderIcon(isTarget), zIndexOffset: isTarget ? 1000 : 0 });
           marker.addTo(driverMap);
           marker.bindPopup(popupHtml);
           driverOrderMarkers[orderId] = marker;
         } else {
           driverOrderMarkers[orderId].setLatLng([o.lat, o.lng]);
           driverOrderMarkers[orderId].setPopupContent(popupHtml);
+          try { driverOrderMarkers[orderId].setIcon(makeDriverOrderIcon(isTarget)); } catch(_){}
+          try { driverOrderMarkers[orderId].setZIndexOffset(isTarget ? 1000 : 0); } catch(_){}
         }
       });
     }
@@ -3483,7 +3568,7 @@ function renderDriverAttendanceBox(tickOnly=false){
 
       merged.forEach(x=>{
         const item = document.createElement("div");
-        item.className = "list-item";
+        item.className = `list-item${isOrderDelayed(x) ? ' order-delayed-item' : ''}`;
 
         const left = document.createElement("div");
         const right = document.createElement("div");
@@ -5313,6 +5398,7 @@ function subscribeEmployees(){
       renderManagerDriverBreakdown();
       renderManagerReturnedAll();
       renderDriverOrdersLists();
+      renderDriverDelayedOrdersAlert();
       renderManagerClientOrdersByClient();
       renderEmployeeReturnedAllIfAllowed();
       renderAreaOrdersSummary();
@@ -5353,29 +5439,30 @@ function subscribeEmployees(){
         const pr = (Number.isFinite(Number(o.priority)) ? Number(o.priority) : null);
         const prTxt = (pr!=null ? `أولوية: <b>${pr}</b><br/>` : "");
 
+        const delayedText = isOrderDelayed(o) ? `⏰ تنبيه: <b>${escapeHtml(getOrderDelayedLabel(o))}</b><br/>` : "";
+
         const popupHtml =
           `طلب: <b>${o.clientName || "زبون"}</b><br/>` +
           prTxt +
           `الحالة: <b>${statusLabel(o.status)}</b><br/>` +
+          delayedText +
           `مندوب: <b>${o.assignedDriverName || driverNameById(o.assignedDriverId)}</b><br/>` +
           (o.status === "delivered" ? `المبلغ: <b>${formatIQD(o.deliveredCash)}</b><br/>` : "") +
           (o.status === "returned" ? `سبب: <b>${escapeHtml(o.returnReason || "-")}</b><br/>` : "") +
           (o.status === "returned" ? `وقت الرجوع: <b>${formatTime(o.returnedAt)}</b><br/>` : "") +
           `<span class="small">اليوم: ${ordersWorkDate}</span>`;
 
+        const rectStyle = isOrderDelayed(o)
+          ? { color: '#ef4444', weight: 3, fillOpacity: 0.22, dashArray: '8 6', interactive:false, bubblingMouseEvents:false }
+          : { color, weight: 2, fillOpacity: 0.35, interactive:false, bubblingMouseEvents:false };
+
         if (!orderLayersManager[orderId]) {
-          const rect = L.rectangle(bounds, {
-            color,
-            weight:2,
-            fillOpacity:0.35,
-            interactive:false,
-            bubblingMouseEvents:false
-          });
+          const rect = L.rectangle(bounds, rectStyle);
           rect.addTo(map);
           orderLayersManager[orderId] = rect;
         } else {
           orderLayersManager[orderId].setBounds(bounds);
-          orderLayersManager[orderId].setStyle({ color, interactive:false, bubblingMouseEvents:false });
+          orderLayersManager[orderId].setStyle(rectStyle);
         }
       });
     }
@@ -6557,6 +6644,10 @@ function subscribeEmployees(){
         const st = statusLabel(x.status);
 
         let extra = ` | مندوب: ${drv} | ${st}`;
+        if (isOrderDelayed(x)) {
+          extra += ` | ${getOrderDelayedLabel(x)}`;
+        }
+
         if ((x.status === "registered" || x.status === "nearby") && typeof x.lat === "number" && typeof x.lng === "number") {
           const etaInfo = getDriverEtaInfoForClient(x.assignedDriverId, x.lat, x.lng);
           if (etaInfo) {
@@ -7886,6 +7977,59 @@ function subscribeEmployees(){
     }
 
 
+
+    function getOrderDelayMs(order){
+      const o = order || {};
+      const st = String(o.status || '').trim();
+      if (!(st === 'registered' || st === 'nearby')) return 0;
+      const createdAtMs = tsToMs(o.createdAt || o.assignedAt || o.updatedAt || 0);
+      if (!createdAtMs) return 0;
+      return Math.max(0, Date.now() - createdAtMs);
+    }
+
+    function isOrderDelayed(order){
+      return getOrderDelayMs(order) >= ORDER_DELAY_ALERT_MS;
+    }
+
+    function formatDelayDuration(ms){
+      const totalMin = Math.max(0, Math.floor(Number(ms || 0) / 60000));
+      const hours = Math.floor(totalMin / 60);
+      const mins = totalMin % 60;
+      if (hours > 0 && mins > 0) return `${hours}س ${mins}د`;
+      if (hours > 0) return `${hours}س`;
+      return `${mins}د`;
+    }
+
+    function getDelayedOrdersList(driverId = null){
+      return Object.entries(ordersCache || {})
+        .map(([id, o]) => ({ id, ...(o || {}) }))
+        .filter(x => !driverId || String(x.assignedDriverId || '') === String(driverId || ''))
+        .filter(isOrderDelayed)
+        .sort((a,b) => getOrderDelayMs(b) - getOrderDelayMs(a));
+    }
+
+    function getOrderDelayedLabel(order){
+      const delayMs = getOrderDelayMs(order);
+      if (!delayMs) return '';
+      return `⏰ متأخر ${formatDelayDuration(delayMs)}`;
+    }
+
+    function renderDriverDelayedOrdersAlert(){
+      if (!driverAlert) return;
+      if (!currentDriverId) {
+        driverAlert.textContent = '';
+        return;
+      }
+      const delayed = getDelayedOrdersList(currentDriverId);
+      if (!delayed.length) {
+        driverAlert.textContent = '';
+        return;
+      }
+      const top = delayed[0];
+      const more = delayed.length > 1 ? ` + ${delayed.length - 1}` : '';
+      driverAlert.textContent = `⚠️ لديك ${delayed.length} طلب متأخر أكثر من ساعة. أقدمها: ${top.clientName || 'زبون'} (${formatDelayDuration(getOrderDelayMs(top))})${more}`;
+    }
+
     // =========================
     // ✅ Driver orders list render
     // =========================
@@ -7914,9 +8058,12 @@ function subscribeEmployees(){
       } else {
         const orderedActive = getDriverActiveOrdersSorted().filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
         const etaPlan = buildDriverOrdersEtaPlan(orderedActive);
+        const currentTargetId = getDriverVisualTargetOrderId();
         orderedActive.forEach(x=>{
           const item = document.createElement("div");
-          item.className = "list-item";
+          const isTarget = String(x.id || "") === String(currentTargetId || "");
+          const isDelayed = isOrderDelayed(x);
+          item.className = `list-item${isTarget ? ' target-order-item' : ''}${isDelayed ? ' order-delayed-item' : ''}`;
 
           const left = document.createElement("div");
           const right = document.createElement("div");
@@ -7925,6 +8072,13 @@ function subscribeEmployees(){
           const pr = normalizePriority(x.priority);
           const etaBag = etaPlan[String(x.id || "")] || null;
           title.textContent = `${x.clientName || "زبون"}${pr ? ` (أولوية ${pr})` : ""}`;
+          if (isTarget) {
+            const badge = document.createElement("span");
+            badge.className = "target-badge";
+            badge.textContent = "الهدف الحالي";
+            title.appendChild(document.createTextNode(" "));
+            title.appendChild(badge);
+          }
 
           const meta = document.createElement("div");
           meta.className = "small";
@@ -7941,12 +8095,25 @@ function subscribeEmployees(){
           const seqText = etaBag ? ` | ${etaBag.sequenceText}` : "";
           const priorityModeText = hasManualPriority(x) ? " | أولوية الأدمن" : " | ترتيب تلقائي حسب الأقرب";
           const routeModeText = etaBag ? ` | ${etaBag.routeModeText || 'تقريبي مباشر'}` : "";
-          meta.textContent = `الحالة: ${statusLabel(x.status)}` + seqText + priorityModeText + etaText + distanceText + routeDistanceText + routeModeText + (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
+          const delayedText = isDelayed ? ` | ${getOrderDelayedLabel(x)}` : "";
+          meta.textContent = `الحالة: ${statusLabel(x.status)}` + delayedText + seqText + priorityModeText + etaText + distanceText + routeDistanceText + routeModeText + (x.adminInvoiceAmount != null ? ` | مبلغ مقترح: ${formatIQD(x.adminInvoiceAmount)}` : "");
 
           left.appendChild(title);
           left.appendChild(meta);
 
           if (typeof x.lat === "number" && typeof x.lng === "number") {
+            const targetBtn = document.createElement("button");
+            targetBtn.textContent = isTarget ? "الهدف الحالي" : "جعله الهدف";
+            targetBtn.className = isTarget ? "" : "secondary";
+            targetBtn.onclick = ()=>{
+              setDriverVisualTarget(x.id);
+              if (driverMap) {
+                driverMap.setView([x.lat, x.lng], Math.max(driverMap.getZoom(), 16));
+                if (driverOrderMarkers[x.id]) driverOrderMarkers[x.id].openPopup();
+              }
+            };
+            right.appendChild(targetBtn);
+
             const go = document.createElement("button");
             go.textContent = "Google";
             go.className = "secondary";
@@ -8107,9 +8274,10 @@ function subscribeEmployees(){
       const staleMs = STALE_MS;
 
       const badList = [];
+      const delayedOrders = getDelayedOrdersList();
 
       if (USE_TRACCAR && lastTraccarOkAt && (now - lastTraccarOkAt > 15000)) {
-        managerAlert.textContent = "⚠️ انقطع جلب مواقع Traccar (تأكد من التوكن / أو CORS).";
+        badList.push('انقطع جلب مواقع Traccar (تأكد من التوكن / أو CORS)');
       }
 
       Object.entries(driversMetaCache).forEach(([id, meta]) => {
@@ -8117,22 +8285,22 @@ function subscribeEmployees(){
         const name = (meta && meta.name) ? meta.name : id;
 
         let isBad = false;
-        let reason = "";
+        let reason = '';
 
-        if (!loc) { isBad = true; reason = "لا يوجد موقع مرسل"; }
-        else if (loc.gpsOk === false) { isBad = true; reason = "GPS مطفي/مرفوض"; }
+        if (!loc) { isBad = true; reason = 'لا يوجد موقع مرسل'; }
+        else if (loc.gpsOk === false) { isBad = true; reason = 'GPS مطفي/مرفوض'; }
         else {
           const lastMs = tsToMs(loc.updatedAt);
           const ageMs = lastMs ? (now - lastMs) : Infinity;
 
-          if (ageMs > staleMs) { isBad = true; reason = "انقطاع تحديث لأكثر من 5 دقائق"; }
+          if (ageMs > staleMs) { isBad = true; reason = 'انقطاع تحديث لأكثر من 5 دقائق'; }
           else if (ageMs > warnMs) { /* warn فقط */ }
         }
 
-        const newState = isBad ? "bad" : "ok";
-        const oldState = lastDriverState[id] || "ok";
+        const newState = isBad ? 'bad' : 'ok';
+        const oldState = lastDriverState[id] || 'ok';
 
-        if (oldState === "ok" && newState === "bad") {
+        if (oldState === 'ok' && newState === 'bad') {
           beepOnce();
           showPopup(`⚠️ تنبيه: ${name} — ${reason}`);
         }
@@ -8141,7 +8309,30 @@ function subscribeEmployees(){
         if (isBad) badList.push(`${name} (${reason})`);
       });
 
-      managerAlert.textContent = badList.length ? ("⚠️ تنبيه: " + badList.join(" — ")) : "";
+      delayedOrders.forEach(order => {
+        const key = String(order.id || '');
+        if (!key) return;
+        if (!lastDelayedOrderState[key]) {
+          beepOnce();
+          showPopup(`⏰ طلب متأخر أكثر من ساعة: ${order.clientName || 'زبون'} — المندوب: ${order.assignedDriverName || driverNameById(order.assignedDriverId)}`);
+        }
+        lastDelayedOrderState[key] = true;
+      });
+
+      Object.keys(lastDelayedOrderState).forEach(orderId => {
+        if (!ordersCache[orderId] || !isOrderDelayed({ id: orderId, ...(ordersCache[orderId] || {}) })) {
+          delete lastDelayedOrderState[orderId];
+        }
+      });
+
+      const delayedText = delayedOrders.length
+        ? `⏰ طلبات متأخرة أكثر من ساعة: ${delayedOrders.map(o => `${o.clientName || 'زبون'} / ${o.assignedDriverName || driverNameById(o.assignedDriverId)} (${formatDelayDuration(getOrderDelayMs(o))})`).join(' — ')}`
+        : '';
+
+      const parts = [];
+      if (badList.length) parts.push(`⚠️ تنبيه: ${badList.join(' — ')}`);
+      if (delayedText) parts.push(delayedText);
+      managerAlert.textContent = parts.join(' | ');
     }
 
     // =========================
@@ -9139,6 +9330,13 @@ logoutDriverBtn.onclick = () => {
       if (areaEditorMode) redrawAreaEditorTempLayer();
       else drawAreaPolygons();
     });
+
+    setInterval(()=>{
+      try {
+        refreshOrdersUIAndMap();
+        updateManagerAlertAndNotify();
+      } catch(e) {}
+    }, 30000);
 
     addOrderBtn.onclick = addOrder;
 
