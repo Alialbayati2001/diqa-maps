@@ -166,6 +166,29 @@ background:#fff;
       font-weight:700;
       font-size:16px;
     }
+    .breakdown-row-number{
+      cursor:pointer;
+      user-select:none;
+      font-weight:900;
+      transition:background-color .15s ease,color .15s ease,box-shadow .15s ease;
+    }
+    .breakdown-row-number.breakdown-row-number-marked{
+      background:#facc15 !important;
+      color:#111827 !important;
+      box-shadow:inset 0 0 0 2px #eab308;
+    }
+    .report-table tr.breakdown-row-sales-system td:not(:first-child){
+      background:#67e8f9 !important;
+      color:#082f49 !important;
+    }
+    .report-table tr.breakdown-row-sales-system td:not(:first-child) .small,
+    .report-table tr.breakdown-row-sales-system td:not(:first-child) .payment-label,
+    .report-table tr.breakdown-row-sales-system td:not(:first-child) .report-inline-note{
+      color:#0f172a !important;
+    }
+    .breakdown-edit-cell-toggle{
+      cursor:pointer;
+    }
     .report-table td .small{
       font-weight:700;
       font-size:12px;
@@ -7104,20 +7127,24 @@ function subscribeEmployees(){
           const tr = document.createElement("tr");
           tr.setAttribute("data-kind", "existing");
           tr.setAttribute("data-order-id", String(o.id || ""));
+          const rowNo = breakdownRowNumber++;
+          const isBreakdownNumberMarked = !!o.breakdownNumberMarked;
+          const isBreakdownRowSalesSystem = !!o.breakdownRowSalesSystem;
+          if (isBreakdownRowSalesSystem) tr.classList.add("breakdown-row-sales-system");
           tr.innerHTML = `
-            <td>${breakdownRowNumber++}</td>
+            <td class="breakdown-row-number ${isBreakdownNumberMarked ? 'breakdown-row-number-marked' : ''}" data-role="breakdown-number-toggle" data-order-id="${escapeHtml(o.id)}" title="اضغط لتلوين الرقم بالأصفر أو إلغاءه">${rowNo}</td>
             <td class='client-name-cell'><textarea class='edit-client client-name-input' data-selected-client-id='${escapeHtml(o.clientId || "")}' rows='2' placeholder='اسم الزبون' style='width:100%' title='${escapeHtml(clientName)}' oninput='this.title=this.value'>${escapeHtml(clientName)}</textarea></td>
             <td>${invoiceCellHtml}</td>
             <td>${gotCellHtml}</td>
             <td style="text-align:right">${details}</td>
             <td style="text-align:right">${actorHtml}</td>
-            <td class="btn-cell">
+            <td class="btn-cell breakdown-edit-cell-toggle" data-role="breakdown-row-color-toggle" data-order-id="${escapeHtml(o.id)}" title="اضغط على مساحة فارغة هنا لتلوين السطر بالسمائي أو إلغاءه">
               <select class="report-inline-control" data-role="breakdown-status" data-order-id="${escapeHtml(o.id)}">
                 ${buildManagerBreakdownQuickStatusOptions(quickValue)}
               </select>
               <button class="secondary report-inline-save-btn" data-role="breakdown-save" data-order-id="${escapeHtml(o.id)}">حفظ</button>
               <button class="danger report-inline-save-btn" data-role="breakdown-delete" data-order-id="${escapeHtml(o.id)}">حذف السطر</button>
-              <span class="report-inline-note">تعديل مباشر من نفس السطر.</span>
+              <span class="report-inline-note">تعديل مباشر من نفس السطر. اضغط على مساحة فارغة داخل هذا الحقل لتلوين السطر بالسمائي لطلبات نظام مبيعات الإكسسوارات.</span>
             </td>
           `;
           tbodyEl.appendChild(tr);
@@ -7128,7 +7155,7 @@ function subscribeEmployees(){
         newRow.className = "breakdown-new-row";
         newRow.setAttribute("data-kind", "new");
         newRow.innerHTML = `
-          <td>${breakdownRowNumber}</td>
+          <td class="breakdown-row-number" title="رقم السطر الجديد">${breakdownRowNumber}</td>
           <td class='client-name-cell'><textarea class='edit-client client-name-input' data-selected-client-id='${escapeHtml(draft.clientId || "")}' rows='2' placeholder='اسم الزبون الجديد' style='width:100%' title='${escapeHtml(draft.clientName || "")}' oninput='this.title=this.value'>${escapeHtml(draft.clientName || "")}</textarea></td>
           <td><input class='edit-invoice' value='${escapeHtml(draft.invoice || "")}' placeholder='مبلغ الفاتورة' style='width:90px'></td>
           <td><input class='edit-got' value='${escapeHtml(draft.got || "")}' placeholder='مبلغ الاستلام' style='width:90px'></td>
@@ -7147,6 +7174,48 @@ function subscribeEmployees(){
 
         tbodyEl.querySelectorAll('.client-name-input').forEach(input => ensureBreakdownClientAutocomplete(input));
         restoreBreakdownFocusSnapshot(focusSnapshot);
+
+        tbodyEl.querySelectorAll('[data-role="breakdown-number-toggle"]').forEach(cell => {
+          cell.onclick = async () => {
+            const orderId = String(cell.getAttribute('data-order-id') || '');
+            if (!orderId) return;
+            const isMarked = cell.classList.contains('breakdown-row-number-marked');
+            cell.style.pointerEvents = 'none';
+            try {
+              await db.ref(`orders/${workDate}/${orderId}`).update({
+                breakdownNumberMarked: !isMarked,
+                breakdownNumberMarkedAt: !isMarked ? SERVER_TS : null
+              });
+            } catch (err) {
+              console.error(err);
+              alert('تعذر تحديث لون رقم السطر.');
+            } finally {
+              cell.style.pointerEvents = '';
+            }
+          };
+        });
+
+        tbodyEl.querySelectorAll('[data-role="breakdown-row-color-toggle"]').forEach(cell => {
+          cell.onclick = async (ev) => {
+            if (ev.target && ev.target.closest('button,select,textarea,input,label,a')) return;
+            const orderId = String(cell.getAttribute('data-order-id') || '');
+            const row = cell.closest('tr');
+            if (!orderId || !row) return;
+            const willEnable = !row.classList.contains('breakdown-row-sales-system');
+            cell.style.pointerEvents = 'none';
+            try {
+              await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
+                breakdownRowSalesSystem: willEnable,
+                breakdownRowSalesSystemAt: willEnable ? SERVER_TS : null
+              });
+            } catch (err) {
+              console.error(err);
+              alert('تعذر تحديث لون السطر.');
+            } finally {
+              cell.style.pointerEvents = '';
+            }
+          };
+        });
 
         tbodyEl.querySelectorAll('[data-role="breakdown-save"]').forEach(btn => {
           btn.onclick = async () => {
