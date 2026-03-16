@@ -8543,6 +8543,12 @@ function renderDriversSelect() {
         right.appendChild(shiftBtn);
         right.appendChild(delBtn);
 
+        const trackBtn = document.createElement("button");
+        trackBtn.textContent = "رابط التتبع";
+        trackBtn.className = "secondary";
+        trackBtn.onclick = ()=>copyClientTrackingLink(id);
+        right.appendChild(trackBtn);
+
         item.appendChild(left);
         item.appendChild(right);
         driversListDiv.appendChild(item);
@@ -8766,7 +8772,38 @@ function getClientOrdersHtml(clientId){
       db.ref(`clients/${id}`).remove();
     }
 
-    function renderClientsLists() {
+    
+// ===== Tracking Link =====
+function generateTrackingToken(){
+  return 'trk_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
+}
+
+async function copyClientTrackingLink(clientId){
+  const client = (clientsCache||{})[clientId];
+  if(!client){ alert("لم يتم العثور على الزبون"); return; }
+
+  let token = client.trackingToken;
+  if(!token){
+    token = generateTrackingToken();
+    await db.ref('clients/'+clientId).update({
+      trackingToken: token,
+      trackingTokenCreatedAt: firebase.database.ServerValue.TIMESTAMP
+    });
+    client.trackingToken = token;
+  }
+
+  const link = location.origin + "/track.html?t=" + encodeURIComponent(token);
+
+  try{
+    await navigator.clipboard.writeText(link);
+    alert("تم نسخ رابط تتبع الزبون");
+  }catch(e){
+    prompt("انسخ الرابط:", link);
+  }
+}
+// ===== End Tracking Link =====
+
+function renderClientsLists() {
       clientsListDiv.innerHTML = "";
       driverClientsListDiv.innerHTML = "";
 
@@ -8839,6 +8876,12 @@ function getClientOrdersHtml(clientId){
 
         right.appendChild(editBtn);
         right.appendChild(delBtn);
+
+        const trackBtn = document.createElement("button");
+        trackBtn.textContent = "رابط التتبع";
+        trackBtn.className = "secondary";
+        trackBtn.onclick = ()=>copyClientTrackingLink(id);
+        right.appendChild(trackBtn);
 
         return item;
       }
