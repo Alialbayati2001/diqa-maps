@@ -8792,7 +8792,7 @@ async function copyClientTrackingLink(clientId){
     client.trackingToken = token;
   }
 
-  const link = location.origin + "/track.html?t=" + encodeURIComponent(token);
+  const link = "https://alialbayati2001.github.io/diqa-track/track.html?t=" + encodeURIComponent(token);
 
   try{
     await navigator.clipboard.writeText(link);
