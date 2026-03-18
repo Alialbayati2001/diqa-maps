@@ -1216,6 +1216,7 @@ nextDrivers[key] = {
         updateDriverMarkers();
         updateEmployeeMarkers();
         updateManagerAlertAndNotify();
+        queueOrdersEtaSync(ordersWorkDate || getActiveWorkDate());
 
         // ✅ update driver page live location + nearby status
         updateDriverSelfLocationFromCache();
@@ -2305,6 +2306,9 @@ function openInGoogleMaps(lat, lng) {
     const driverRouteEtaInFlight = {};
     const genericRouteCache = {};
     const genericRouteInFlight = {};
+    const orderEtaSaveCache = {};
+    let orderEtaSyncTimer = null;
+    let orderEtaSyncInFlight = false;
 
     function normalizeSpeedKmhFromTraccar(raw){
       const n = Number(raw);
@@ -2388,6 +2392,113 @@ function openInGoogleMaps(lat, lng) {
       const usedSpeed = (Number.isFinite(liveSpeed) && liveSpeed > ETA_MIN_MOVING_SPEED_KMH) ? liveSpeed : fallback;
       if (!Number.isFinite(usedSpeed) || usedSpeed <= 0) return null;
       return Math.max(1, Math.round(((d / 1000) / usedSpeed) * 60));
+    }
+
+    function buildEtaTextForOrder(order, driverLoc){
+      if (!order) return { etaMinutes: null, etaText: '—' };
+
+      if (String(order.status || '') === 'nearby') {
+        return { etaMinutes: 0, etaText: 'قريب جداً' };
+      }
+      if (String(order.status || '') === 'delivered') {
+        return { etaMinutes: 0, etaText: 'تم التسليم' };
+      }
+      if (String(order.status || '') === 'returned') {
+        return { etaMinutes: null, etaText: 'تم إرجاع الطلب' };
+      }
+
+      if (!driverLoc) {
+        return { etaMinutes: null, etaText: 'حوالي 10-15 دقيقة' };
+      }
+
+      const lat1 = Number(driverLoc.lat);
+      const lng1 = Number(driverLoc.lng);
+      const lat2 = Number(order.lat);
+      const lng2 = Number(order.lng);
+
+      if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) {
+        return { etaMinutes: null, etaText: 'حوالي 10-15 دقيقة' };
+      }
+
+      const distanceM = haversineMeters(lat1, lng1, lat2, lng2);
+      const isNearby = distanceM <= DELIVERY_ALLOWED_METERS;
+      if (isNearby) {
+        return { etaMinutes: 0, etaText: 'قريب جداً' };
+      }
+
+      const speedKmh = getPreferredDriverSpeedKmh(driverLoc);
+      const etaMinutes = calcEtaMinutes(distanceM, speedKmh, ETA_FALLBACK_SPEED_KMH);
+
+      return {
+        etaMinutes: Number.isFinite(etaMinutes) ? etaMinutes : null,
+        etaText: Number.isFinite(etaMinutes) ? formatEtaMinutes(etaMinutes) : 'حوالي 10-15 دقيقة'
+      };
+    }
+
+    function getOrderEtaSaveSignature(workDateKey, orderId, etaBag){
+      return JSON.stringify({
+        workDateKey: String(workDateKey || ''),
+        orderId: String(orderId || ''),
+        etaMinutes: Number.isFinite(Number(etaBag && etaBag.etaMinutes)) ? Number(etaBag.etaMinutes) : null,
+        etaText: String((etaBag && etaBag.etaText) || '—')
+      });
+    }
+
+    async function saveOrderEtaToFirebase(order, workDateKey){
+      try {
+        if (!order || !order.id || !workDateKey) return;
+
+        const driverLoc = driversLocationsCache[String(order.assignedDriverId || '')] || null;
+        const etaBag = buildEtaTextForOrder(order, driverLoc);
+        const nextSignature = getOrderEtaSaveSignature(workDateKey, order.id, etaBag);
+        const cacheKey = `${String(workDateKey)}__${String(order.id)}`;
+        const currentSignature = getOrderEtaSaveSignature(workDateKey, order.id, {
+          etaMinutes: order.etaMinutes,
+          etaText: order.etaText
+        });
+
+        if (orderEtaSaveCache[cacheKey] === nextSignature) return;
+        if (currentSignature === nextSignature) {
+          orderEtaSaveCache[cacheKey] = nextSignature;
+          return;
+        }
+
+        orderEtaSaveCache[cacheKey] = nextSignature;
+
+        await db.ref(`orders/${workDateKey}/${order.id}`).update({
+          etaMinutes: etaBag.etaMinutes,
+          etaText: etaBag.etaText,
+          etaUpdatedAt: SERVER_TS
+        });
+      } catch (err) {
+        console.error('saveOrderEtaToFirebase error', err);
+      }
+    }
+
+    async function syncOrdersEtaToFirebase(workDateKey){
+      if (!workDateKey || orderEtaSyncInFlight) return;
+      orderEtaSyncInFlight = true;
+      try {
+        const jobs = [];
+        Object.entries(ordersCache || {}).forEach(([orderId, rawOrder]) => {
+          if (!rawOrder) return;
+          const order = { id: orderId, ...rawOrder };
+          jobs.push(saveOrderEtaToFirebase(order, order.workDate || workDateKey));
+        });
+        if (jobs.length) await Promise.allSettled(jobs);
+      } finally {
+        orderEtaSyncInFlight = false;
+      }
+    }
+
+    function queueOrdersEtaSync(workDateKey){
+      const safeWorkDateKey = String(workDateKey || ordersWorkDate || getActiveWorkDate() || '');
+      if (!safeWorkDateKey) return;
+      if (orderEtaSyncTimer) clearTimeout(orderEtaSyncTimer);
+      orderEtaSyncTimer = setTimeout(() => {
+        orderEtaSyncTimer = null;
+        syncOrdersEtaToFirebase(safeWorkDateKey);
+      }, 250);
     }
 
     function parseGoogleDurationToMinutes(raw){
@@ -5234,6 +5345,7 @@ function initMap() {
           renderDriversList();
           updateDriverMarkers();
           updateManagerAlertAndNotify();
+          queueOrdersEtaSync(ordersWorkDate || getActiveWorkDate());
 
           updateDriverSelfLocationFromCache();
           refreshOrdersUIAndMap();
@@ -5316,6 +5428,7 @@ function subscribeEmployees(){
         ordersCache = snap.val() || {};
         rebuildClientInvoiceHintMap();
         refreshOrdersUIAndMap();
+        queueOrdersEtaSync(workDate);
       });
     }
 
@@ -5390,6 +5503,7 @@ function subscribeEmployees(){
     }
 
     function refreshOrdersUIAndMap(){
+      queueOrdersEtaSync(ordersWorkDate || getActiveWorkDate());
       updateOrdersOnManagerMap();
       updateOrdersOnDriverMap();
       updateDriverOrderMarkers();
