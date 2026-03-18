@@ -6223,13 +6223,17 @@ function subscribeEmployees(){
       if (!resolvedClient.clientId || !resolvedClient.hasLocation) throw new Error('client_pick_required');
       if (clientEl && clientEl.dataset) clientEl.dataset.selectedClientId = resolvedClient.clientId;
 
+      const normalizedInvoiceAmount = (form.invoiceAmount != null && Number.isFinite(form.invoiceAmount)) ? form.invoiceAmount : null;
+
       const patch = {
         type: (o && o.type) ? String(o.type) : 'order',
         clientId: resolvedClient.clientId,
         clientName: resolvedClient.clientName,
         lat: resolvedClient.lat,
         lng: resolvedClient.lng,
-        adminInvoiceAmount: (form.invoiceAmount != null && Number.isFinite(form.invoiceAmount)) ? form.invoiceAmount : null,
+        adminInvoiceAmount: normalizedInvoiceAmount,
+        invoiceAmount: normalizedInvoiceAmount,
+        amount: normalizedInvoiceAmount,
         ...buildAuditFields("lastEditedBy")
       };
 
@@ -6601,6 +6605,8 @@ function subscribeEmployees(){
         workDate,
         type: "order",
         adminInvoiceAmount: (adminAmount != null ? adminAmount : null), // ✅ اختياري (مقترح من الأدمن)
+        invoiceAmount: (adminAmount != null ? adminAmount : null),
+        amount: (adminAmount != null ? adminAmount : null),
         assignedDriverId: driverId,
         assignedDriverName: driverNameById(driverId),
         clientId,
