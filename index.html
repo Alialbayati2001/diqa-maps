@@ -492,12 +492,11 @@ background:#fff;
               تنبيه صوتي
             </label>
 
-            <!-- ✅ NEW: Day selector for daily pages (today/yesterday/beforeYesterday) -->
-            <span class="badge">اليوم / أمس / قبل أمس (طلبات يومية)</span>
+            <!-- ✅ NEW: Day selector for daily pages (today/yesterday only) -->
+            <span class="badge">اليوم/أمس (طلبات يومية)</span>
             <select id="manager-day-select" style="max-width:180px;">
               <option value="today">اليوم</option>
               <option value="yesterday">أمس</option>
-              <option value="beforeYesterday">قبل أمس</option>
             </select>
 
             <!-- ✅ NEW: Filter driver for cash/returned lists -->
@@ -767,13 +766,12 @@ background:#fff;
           <h2>لوحة المندوب</h2>
           <p class="small">مشاركة الموقع تعمل تلقائيًا (إجباري).</p>
 
-          <!-- ✅ NEW: Day selector (today/yesterday/beforeYesterday) -->
+          <!-- ✅ NEW: Day selector (today/yesterday) -->
           <div class="inline-actions">
-            <span class="badge">اليوم / أمس / قبل أمس (طلبات يومية)</span>
+            <span class="badge">اليوم/أمس (طلبات يومية)</span>
             <select id="driver-day-select" style="max-width:180px;">
               <option value="today">اليوم</option>
               <option value="yesterday">أمس</option>
-              <option value="beforeYesterday">قبل أمس</option>
             </select>
           </div>
         </div>
@@ -2242,7 +2240,7 @@ function openInGoogleMaps(lat, lng) {
     })();
 
     // =========================
-    // ✅ WorkDate (today/yesterday/beforeYesterday)
+    // ✅ WorkDate (today/yesterday)
     // =========================
     function toISODateLocal(d){
       const y = d.getFullYear();
@@ -2252,10 +2250,12 @@ function openInGoogleMaps(lat, lng) {
     }
     function getWorkDateByKey(key){
       const now = new Date();
-      const d = new Date(now);
-      if (key === "yesterday") d.setDate(now.getDate()-1);
-      else if (key === "beforeYesterday") d.setDate(now.getDate()-2);
-      return toISODateLocal(d);
+      if (key === "yesterday"){
+        const yd = new Date(now);
+        yd.setDate(now.getDate()-1);
+        return toISODateLocal(yd);
+      }
+      return toISODateLocal(now);
     }
     function getActiveWorkDate(){
       if (!managerCard.classList.contains("hidden")) return getWorkDateByKey(managerDaySelect.value || "today");
@@ -2432,6 +2432,70 @@ function openInGoogleMaps(lat, lng) {
       return {
         etaMinutes: Number.isFinite(etaMinutes) ? etaMinutes : null,
         etaText: Number.isFinite(etaMinutes) ? formatEtaMinutes(etaMinutes) : 'حوالي 10-15 دقيقة'
+      };
+    }
+
+
+    function getOrderDispatchEtaMinutes(order, driverLoc){
+      const savedEta = Number(order && order.etaMinutes);
+      if (Number.isFinite(savedEta) && savedEta >= 0) {
+        return Math.max(0, Math.round(savedEta));
+      }
+      const etaBag = buildEtaTextForOrder(order, driverLoc);
+      const etaMinutes = Number(etaBag && etaBag.etaMinutes);
+      return Number.isFinite(etaMinutes) && etaMinutes >= 0 ? Math.max(0, Math.round(etaMinutes)) : null;
+    }
+
+    function buildDispatchEtaAlertInfo(driverId, candidateOrder){
+      const safeDriverId = String(driverId || '').trim();
+      const driverLoc = safeDriverId ? (driversLocationsCache[safeDriverId] || null) : null;
+      const activeOrders = Object.entries(ordersCache || {})
+        .map(([id, raw]) => ({ id, ...(raw || {}) }))
+        .filter(o => {
+          if (!o) return false;
+          if (String(o.assignedDriverId || '') !== safeDriverId) return false;
+          const st = String(o.status || '');
+          return st === 'registered' || st === 'nearby';
+        })
+        .sort((a, b) => {
+          const pa = normalizePriority(a.priority) || 999999;
+          const pb = normalizePriority(b.priority) || 999999;
+          if (pa !== pb) return pa - pb;
+          return tsToMs(a.createdAt) - tsToMs(b.createdAt);
+        });
+
+      let existingTotalEtaMinutes = 0;
+      let knownExistingOrdersCount = 0;
+      let unknownExistingOrdersCount = 0;
+
+      activeOrders.forEach(order => {
+        const etaMinutes = getOrderDispatchEtaMinutes(order, driverLoc);
+        if (Number.isFinite(etaMinutes)) {
+          existingTotalEtaMinutes += etaMinutes;
+          knownExistingOrdersCount += 1;
+        } else {
+          unknownExistingOrdersCount += 1;
+        }
+      });
+
+      const newOrderEtaMinutes = candidateOrder ? getOrderDispatchEtaMinutes(candidateOrder, driverLoc) : null;
+      const knownPartsCount = knownExistingOrdersCount + (Number.isFinite(newOrderEtaMinutes) ? 1 : 0);
+      const totalEtaMinutes = knownPartsCount > 0
+        ? existingTotalEtaMinutes + (Number.isFinite(newOrderEtaMinutes) ? newOrderEtaMinutes : 0)
+        : null;
+
+      const thresholdMinutes = 50;
+      return {
+        driverLoc,
+        activeOrders,
+        existingTotalEtaMinutes,
+        knownExistingOrdersCount,
+        unknownExistingOrdersCount,
+        newOrderEtaMinutes,
+        totalEtaMinutes,
+        thresholdMinutes,
+        shouldWarn: Number.isFinite(totalEtaMinutes) && totalEtaMinutes >= thresholdMinutes,
+        hasUnknownEta: unknownExistingOrdersCount > 0 || !Number.isFinite(newOrderEtaMinutes)
       };
     }
 
@@ -6600,6 +6664,15 @@ function subscribeEmployees(){
       const nextP = maxP + 1;
 
       const areaInfo = detectAreaByLatLng(c.lat, c.lng);
+      const draftOrder = {
+        assignedDriverId: driverId,
+        lat: c.lat,
+        lng: c.lng,
+        status: "registered",
+        priority: nextP
+      };
+      const dispatchAlertInfo = buildDispatchEtaAlertInfo(driverId, draftOrder);
+      const etaBag = buildEtaTextForOrder(draftOrder, dispatchAlertInfo.driverLoc);
 
       const payload = {
         workDate,
@@ -6619,6 +6692,9 @@ function subscribeEmployees(){
         cashCollected: false,
         priority: nextP,           // ✅ NEW
         priorityManual: false,
+        etaMinutes: Number.isFinite(Number(etaBag.etaMinutes)) ? Number(etaBag.etaMinutes) : null,
+        etaText: String(etaBag.etaText || '—'),
+        etaUpdatedAt: SERVER_TS,
         createdAt: SERVER_TS,
         ...buildAuditFields("createdBy"),
         ...buildAuditFields("lastEditedBy")
@@ -6626,12 +6702,22 @@ function subscribeEmployees(){
 
       try {
         await ref.set(payload);
-        orderAddMsg.textContent = "تم تسجيل الطلب ✅";
+
+        let successMsg = "تم تسجيل الطلب ✅";
+        if (dispatchAlertInfo.shouldWarn) {
+          successMsg += ` | ⏰ تنبيه: مجموع وقت الوصول لهذا المندوب صار ${formatEtaMinutes(dispatchAlertInfo.totalEtaMinutes)} أو أكثر في هذه التخريجة`;
+          beepOnce();
+          showPopup(`⏰ تنبيه تخريجة: ${driverNameById(driverId) || 'المندوب'} — مجموع ETA الحالي ${formatEtaMinutes(dispatchAlertInfo.totalEtaMinutes)}. راجع قبل إضافة المزيد.`);
+        } else if (dispatchAlertInfo.hasUnknownEta) {
+          successMsg += " | ملاحظة: بعض أوقات الوصول غير متوفرة حالياً، لذلك المجموع تقريبي";
+        }
+
+        orderAddMsg.textContent = successMsg;
         // تنظيف الحقل بعد التسجيل
         orderClientPick.value = "";
         if (orderAdminInvoiceAmountInput) orderAdminInvoiceAmountInput.value = "";
         if (orderAdminInvoicePreview) orderAdminInvoicePreview.textContent = "";
-        setTimeout(()=>orderAddMsg.textContent="", 2000);
+        setTimeout(()=>orderAddMsg.textContent="", dispatchAlertInfo.shouldWarn ? 6000 : 2500);
       } catch(e) {
         console.error(e);
         orderAddMsg.textContent = "فشل تسجيل الطلب (Rules).";
