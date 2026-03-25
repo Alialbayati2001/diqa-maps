@@ -10317,7 +10317,7 @@ document.addEventListener("DOMContentLoaded",function(){
 
     if(idx >= 0 && idx < controls.length - 1){
       controls[idx + 1].focus();
-    }
+      return;
     }
     const saveBtn = row.querySelector('[data-role="breakdown-save"]');
     if(saveBtn && !saveBtn.disabled) saveBtn.click();
