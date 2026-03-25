@@ -506,7 +506,7 @@ background:#fff;
           </div>
 
           <div id="limited-manager-attendance-box" class="att-box hidden" style="margin-top:10px;">
-            <div class="small" style="margin-bottom:8px">حضور / انصراف الموظف صاحب الصلاحية الخاصة</div>
+            <div class="small" style="margin-bottom:8px" id="lm-att-title">حضور / انصراف الموظف</div>
             <div class="att-row">
               <button class="secondary" id="lm-btn-checkin">تسجيل دخول</button>
               <button class="secondary" id="lm-btn-checkout">تسجيل خروج</button>
@@ -925,7 +925,7 @@ background:#fff;
   <div id="employee-ammar-returns-section" class="hidden">
     <hr style="border-color:#111827;margin:10px 0;" />
     <h3>كل الطلبات الراجعة (اليوم)</h3>
-    <div class="hint">✅ تظهر فقط للموظفين ذوي الصلاحية الخاصة.</div>
+    <div class="hint">✅ تظهر للموظفين ذوي الصلاحية الخاصة.</div>
     <div class="list" id="employee-returned-all-list"></div>
   </div>
 
@@ -1322,6 +1322,7 @@ nextDrivers[key] = {
     const lmAttStatusEl = document.getElementById("lm-att-status");
     const lmAttWorkedEl = document.getElementById("lm-att-worked");
     const lmAttMsgEl = document.getElementById("lm-att-msg");
+    const lmAttTitleEl = document.getElementById("lm-att-title");
 
 
     const driversListDiv = document.getElementById("drivers-list");
@@ -1582,7 +1583,7 @@ nextDrivers[key] = {
 
       if (allowedNames.includes(name)) return true;
 
-      for (const n of allowedNames) {
+      for (let n of allowedNames) {
         if (name.includes(n) || id.includes(n)) return true;
       }
 
@@ -8144,7 +8145,7 @@ function subscribeEmployees(){
       });
     }
 
-    // ✅ NEW: كل الطلبات الراجعة في صفحة الموظف (للموظفين ذوي الصلاحية الخاصة)
+    // ✅ NEW: كل الطلبات الراجعة في صفحة الموظف للموظفين ذوي الصلاحية الخاصة
     function renderEmployeeReturnedAllIfAllowed(){
       if (!employeeReturnedAllList || !employeeAmmarReturnsSection) return;
 
@@ -9483,6 +9484,7 @@ employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
   currentEmployeeNameLabel.textContent = meta.name || selectedId;
 
   if (isLimitedManager) {
+    lmAttTitleEl && (lmAttTitleEl.textContent = `حضور / انصراف ${meta.name || selectedId}`);
     currentSessionRole = "limited_manager";
     show(managerCard);
     applyManagerLikePermissions();
