@@ -925,7 +925,7 @@ background:#fff;
   <div id="employee-ammar-returns-section" class="hidden">
     <hr style="border-color:#111827;margin:10px 0;" />
     <h3>كل الطلبات الراجعة (اليوم)</h3>
-    <div class="hint">✅ تظهر للموظفين ذوي الصلاحية الخاصة.</div>
+    <div class="hint">✅ تظهر فقط للموظفين ذوي الصلاحية الخاصة.</div>
     <div class="list" id="employee-returned-all-list"></div>
   </div>
 
@@ -1567,24 +1567,23 @@ nextDrivers[key] = {
         ? employeesMetaCache[employeeId]
         : null;
 
-      const name = meta && meta.name ? String(meta.name).trim() : "";
-      const slug = slugify(name || employeeId);
+      const rawName = meta && meta.name ? String(meta.name).trim() : "";
+      const rawId = String(employeeId || "").trim();
 
-      const specialEmployees = new Set([
-        "محمد_نجم",
-        "عمار_رعد",
-        "حمد",
+      const name = rawName.replace(/\s+/g, " ").trim();
+      const id = rawId.replace(/\s+/g, " ").trim();
+
+      const allowedNames = [
+        "محمد نجم",
+        "عمار رعد",
+        "حمد وسام",
         "منتظر"
-      ]);
+      ];
 
-      if (specialEmployees.has(slug)) return true;
+      if (allowedNames.includes(name)) return true;
 
-      if (meta && (
-        meta.isLimitedManager === true ||
-        meta.managerLike === true ||
-        meta.specialManagerAccess === true
-      )) {
-        return true;
+      for (const n of allowedNames) {
+        if (name.includes(n) || id.includes(n)) return true;
       }
 
       return false;
@@ -8145,12 +8144,11 @@ function subscribeEmployees(){
       });
     }
 
-    // ✅ كل الطلبات الراجعة في صفحة الموظف للموظفين ذوي الصلاحية الخاصة
+    // ✅ NEW: كل الطلبات الراجعة في صفحة الموظف (للموظفين ذوي الصلاحية الخاصة)
     function renderEmployeeReturnedAllIfAllowed(){
       if (!employeeReturnedAllList || !employeeAmmarReturnsSection) return;
 
       const allowed = isSpecialLimitedManagerEmployeeById(currentEmployeeId);
-
       employeeAmmarReturnsSection.classList.toggle("hidden", !allowed);
 
       if (!allowed) {
