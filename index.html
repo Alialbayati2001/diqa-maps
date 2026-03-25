@@ -506,7 +506,7 @@ background:#fff;
           </div>
 
           <div id="limited-manager-attendance-box" class="att-box hidden" style="margin-top:10px;">
-            <div class="small" style="margin-bottom:8px">حضور / انصراف محمد نجم</div>
+            <div class="small" style="margin-bottom:8px">حضور / انصراف الموظف صاحب الصلاحية الخاصة</div>
             <div class="att-row">
               <button class="secondary" id="lm-btn-checkin">تسجيل دخول</button>
               <button class="secondary" id="lm-btn-checkout">تسجيل خروج</button>
@@ -925,7 +925,7 @@ background:#fff;
   <div id="employee-ammar-returns-section" class="hidden">
     <hr style="border-color:#111827;margin:10px 0;" />
     <h3>كل الطلبات الراجعة (اليوم)</h3>
-    <div class="hint">✅ تظهر فقط للموظف <b>عمار رعد</b>.</div>
+    <div class="hint">✅ تظهر للموظفين ذوي الصلاحية الخاصة.</div>
     <div class="list" id="employee-returned-all-list"></div>
   </div>
 
@@ -1562,10 +1562,32 @@ nextDrivers[key] = {
 
     function isSpecialLimitedManagerEmployeeById(employeeId) {
       if (!employeeId) return false;
-      const meta = (employeesMetaCache && employeesMetaCache[employeeId]) ? employeesMetaCache[employeeId] : null;
+
+      const meta = (employeesMetaCache && employeesMetaCache[employeeId])
+        ? employeesMetaCache[employeeId]
+        : null;
+
       const name = meta && meta.name ? String(meta.name).trim() : "";
       const slug = slugify(name || employeeId);
-      return slug === "محمد_نجم";
+
+      const specialEmployees = new Set([
+        "محمد_نجم",
+        "عمار_رعد",
+        "حمد",
+        "منتظر"
+      ]);
+
+      if (specialEmployees.has(slug)) return true;
+
+      if (meta && (
+        meta.isLimitedManager === true ||
+        meta.managerLike === true ||
+        meta.specialManagerAccess === true
+      )) {
+        return true;
+      }
+
+      return false;
     }
 
     function isLimitedManagerSession() {
@@ -8123,18 +8145,18 @@ function subscribeEmployees(){
       });
     }
 
-    // ✅ NEW: كل الطلبات الراجعة في صفحة الموظف (فقط عمار رعد)
+    // ✅ كل الطلبات الراجعة في صفحة الموظف للموظفين ذوي الصلاحية الخاصة
     function renderEmployeeReturnedAllIfAllowed(){
       if (!employeeReturnedAllList || !employeeAmmarReturnsSection) return;
 
-      const empName = (currentEmployeeId && employeesMetaCache[currentEmployeeId] && employeesMetaCache[currentEmployeeId].name)
-        ? String(employeesMetaCache[currentEmployeeId].name).trim()
-        : "";
+      const allowed = isSpecialLimitedManagerEmployeeById(currentEmployeeId);
 
-      const allowed = (empName === "عمار رعد" || empName.includes("عمار رعد"));
       employeeAmmarReturnsSection.classList.toggle("hidden", !allowed);
 
-      if (!allowed) return;
+      if (!allowed) {
+        employeeReturnedAllList.innerHTML = "";
+        return;
+      }
 
       const list = Object.entries(ordersCache || {})
         .map(([id,o])=>({id, ...(o||{}) }))
@@ -9480,7 +9502,7 @@ employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
 
     if (USE_TRACCAR) {
       appStatus.textContent = "";
-      managerAlert.textContent = "ℹ️ تم الدخول بصلاحية محمد نجم الخاصة.";
+      managerAlert.textContent = "ℹ️ تم الدخول بصلاحية الموظف الخاصة.";
     }
     return;
   }
