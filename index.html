@@ -2318,7 +2318,7 @@ function openInGoogleMaps(lat, lng) {
     }
 
     const ETA_FALLBACK_SPEED_KMH = 32;
-    const ETA_MIN_MOVING_SPEED_KMH = 3;
+    const ETA_MIN_MOVING_SPEED_KMH = 8;
     const ETA_MAX_REASONABLE_MOTO_SPEED_KMH = 95;
     const GOOGLE_ROUTES_API_KEY = ""; // ضع مفتاح Google Routes API هنا إذا أردت ETA مروري فعلي
     const DRIVER_ROUTE_CACHE_MS = 90 * 1000;
@@ -2400,10 +2400,50 @@ function openInGoogleMaps(lat, lng) {
     function formatEtaMinutes(mins){
       const n = Number(mins);
       if (!Number.isFinite(n) || n <= 0) return '—';
-      if (n < 60) return `${Math.round(n)} د`;
+      if (n < 60) {
+        const rounded = Math.max(1, Math.round(n));
+        return rounded === 1 ? 'دقيقة واحدة' : `${rounded} دقائق`;
+      }
       const h = Math.floor(n / 60);
       const m = Math.round(n % 60);
-      return m ? `${h} س ${m} د` : `${h} س`;
+      if (m <= 0) {
+        return h === 1 ? 'ساعة واحدة' : `${h} ساعات`;
+      }
+      const hText = h === 1 ? 'ساعة واحدة' : `${h} ساعات`;
+      const mText = m === 1 ? 'دقيقة واحدة' : `${m} دقائق`;
+      return `${hText} و ${mText}`;
+    }
+
+    const ETA_STORAGE_PREFIX = 'diqa_track_eta_';
+
+    function getOrderEtaStorageKey(order, workDateKey){
+      const safeWorkDate = String(workDateKey || (order && order.workDate) || ordersWorkDate || getActiveWorkDate() || '');
+      const safeOrderId = String((order && order.id) || '');
+      return `${ETA_STORAGE_PREFIX}${safeWorkDate}__${safeOrderId}`;
+    }
+
+    function loadOrderEtaMemory(order, workDateKey){
+      try {
+        const raw = localStorage.getItem(getOrderEtaStorageKey(order, workDateKey));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function saveOrderEtaMemory(order, workDateKey, bag){
+      try {
+        if (!order || !order.id || !bag) return;
+        localStorage.setItem(getOrderEtaStorageKey(order, workDateKey), JSON.stringify({
+          etaMinutes: Number.isFinite(Number(bag.etaMinutes)) ? Number(bag.etaMinutes) : null,
+          etaText: String(bag.etaText || '—'),
+          speedKmh: Number.isFinite(Number(bag.speedKmh)) ? Number(bag.speedKmh) : null,
+          speedText: String(bag.speedText || '—'),
+          savedAt: Date.now()
+        }));
+      } catch (_) {}
     }
 
     function calcEtaMinutes(distanceM, speedKmh, fallbackSpeedKmh){
@@ -2417,20 +2457,30 @@ function openInGoogleMaps(lat, lng) {
     }
 
     function buildEtaTextForOrder(order, driverLoc){
-      if (!order) return { etaMinutes: null, etaText: '—' };
+      const workDateKey = String((order && order.workDate) || ordersWorkDate || getActiveWorkDate() || '');
+      const rawSpeed = driverLoc && (driverLoc.traccarSpeedKmh ?? driverLoc.computedSpeedKmh ?? driverLoc.speedKmh);
+      const normalizedLiveSpeed = normalizePreferredMotoSpeed(rawSpeed);
+      const currentSpeedKmh = Number.isFinite(Number(rawSpeed)) && Number(rawSpeed) >= 0
+        ? Math.round(Number(rawSpeed))
+        : (Number.isFinite(Number(normalizedLiveSpeed)) ? Math.round(Number(normalizedLiveSpeed)) : null);
+      const currentSpeedText = formatSpeedKmh(currentSpeedKmh);
+
+      if (!order) return { etaMinutes: null, etaText: '—', speedKmh: currentSpeedKmh, speedText: currentSpeedText, etaFrozen: false };
 
       if (String(order.status || '') === 'nearby') {
-        return { etaMinutes: 0, etaText: 'قريب جداً' };
+        const bag = { etaMinutes: 0, etaText: 'قريب جداً', speedKmh: currentSpeedKmh, speedText: currentSpeedText, etaFrozen: false };
+        saveOrderEtaMemory(order, workDateKey, bag);
+        return bag;
       }
       if (String(order.status || '') === 'delivered') {
-        return { etaMinutes: 0, etaText: 'تم التسليم' };
+        return { etaMinutes: 0, etaText: 'تم التسليم', speedKmh: currentSpeedKmh, speedText: currentSpeedText, etaFrozen: false };
       }
       if (String(order.status || '') === 'returned') {
-        return { etaMinutes: null, etaText: 'تم إرجاع الطلب' };
+        return { etaMinutes: null, etaText: 'تم إرجاع الطلب', speedKmh: currentSpeedKmh, speedText: currentSpeedText, etaFrozen: false };
       }
 
       if (!driverLoc) {
-        return { etaMinutes: null, etaText: 'حوالي 10-15 دقيقة' };
+        return { etaMinutes: null, etaText: 'حوالي 10-15 دقيقة', speedKmh: currentSpeedKmh, speedText: currentSpeedText, etaFrozen: false };
       }
 
       const lat1 = Number(driverLoc.lat);
@@ -2439,22 +2489,41 @@ function openInGoogleMaps(lat, lng) {
       const lng2 = Number(order.lng);
 
       if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) {
-        return { etaMinutes: null, etaText: 'حوالي 10-15 دقيقة' };
+        return { etaMinutes: null, etaText: 'حوالي 10-15 دقيقة', speedKmh: currentSpeedKmh, speedText: currentSpeedText, etaFrozen: false };
       }
 
       const distanceM = haversineMeters(lat1, lng1, lat2, lng2);
       const isNearby = distanceM <= DELIVERY_ALLOWED_METERS;
       if (isNearby) {
-        return { etaMinutes: 0, etaText: 'قريب جداً' };
+        const bag = { etaMinutes: 0, etaText: 'قريب جداً', speedKmh: currentSpeedKmh, speedText: currentSpeedText, etaFrozen: false };
+        saveOrderEtaMemory(order, workDateKey, bag);
+        return bag;
       }
 
-      const speedKmh = getPreferredDriverSpeedKmh(driverLoc);
-      const etaMinutes = calcEtaMinutes(distanceM, speedKmh, ETA_FALLBACK_SPEED_KMH);
-
-      return {
+      const preferredSpeedKmh = getPreferredDriverSpeedKmh(driverLoc);
+      const etaMinutes = calcEtaMinutes(distanceM, preferredSpeedKmh, ETA_FALLBACK_SPEED_KMH);
+      const freshBag = {
         etaMinutes: Number.isFinite(etaMinutes) ? etaMinutes : null,
-        etaText: Number.isFinite(etaMinutes) ? formatEtaMinutes(etaMinutes) : 'حوالي 10-15 دقيقة'
+        etaText: Number.isFinite(etaMinutes) ? formatEtaMinutes(etaMinutes) : 'حوالي 10-15 دقيقة',
+        speedKmh: currentSpeedKmh,
+        speedText: currentSpeedText,
+        etaFrozen: false
       };
+
+      const frozenByLowSpeed = Number.isFinite(Number(normalizedLiveSpeed)) && Number(normalizedLiveSpeed) === 0;
+      const oldBag = loadOrderEtaMemory(order, workDateKey);
+      if (frozenByLowSpeed && oldBag && oldBag.etaText && oldBag.etaText !== '—') {
+        return {
+          etaMinutes: Number.isFinite(Number(oldBag.etaMinutes)) ? Number(oldBag.etaMinutes) : null,
+          etaText: String(oldBag.etaText || 'حوالي 10-15 دقيقة'),
+          speedKmh: currentSpeedKmh,
+          speedText: currentSpeedText,
+          etaFrozen: true
+        };
+      }
+
+      saveOrderEtaMemory(order, workDateKey, freshBag);
+      return freshBag;
     }
 
 
@@ -2526,7 +2595,10 @@ function openInGoogleMaps(lat, lng) {
         workDateKey: String(workDateKey || ''),
         orderId: String(orderId || ''),
         etaMinutes: Number.isFinite(Number(etaBag && etaBag.etaMinutes)) ? Number(etaBag.etaMinutes) : null,
-        etaText: String((etaBag && etaBag.etaText) || '—')
+        etaText: String((etaBag && etaBag.etaText) || '—'),
+        speedKmh: Number.isFinite(Number(etaBag && etaBag.speedKmh)) ? Number(etaBag.speedKmh) : null,
+        speedText: String((etaBag && etaBag.speedText) || '—'),
+        etaFrozen: !!(etaBag && etaBag.etaFrozen)
       });
     }
 
@@ -2540,7 +2612,10 @@ function openInGoogleMaps(lat, lng) {
         const cacheKey = `${String(workDateKey)}__${String(order.id)}`;
         const currentSignature = getOrderEtaSaveSignature(workDateKey, order.id, {
           etaMinutes: order.etaMinutes,
-          etaText: order.etaText
+          etaText: order.etaText,
+          speedKmh: order.speedKmh,
+          speedText: order.speedText,
+          etaFrozen: order.etaFrozen
         });
 
         if (orderEtaSaveCache[cacheKey] === nextSignature) return;
@@ -2554,6 +2629,9 @@ function openInGoogleMaps(lat, lng) {
         await db.ref(`orders/${workDateKey}/${order.id}`).update({
           etaMinutes: etaBag.etaMinutes,
           etaText: etaBag.etaText,
+          speedKmh: Number.isFinite(Number(etaBag.speedKmh)) ? Number(etaBag.speedKmh) : null,
+          speedText: String(etaBag.speedText || '—'),
+          etaFrozen: !!etaBag.etaFrozen,
           etaUpdatedAt: SERVER_TS
         });
       } catch (err) {
