@@ -925,7 +925,7 @@ background:#fff;
   <div id="employee-ammar-returns-section" class="hidden">
     <hr style="border-color:#111827;margin:10px 0;" />
     <h3>كل الطلبات الراجعة (اليوم)</h3>
-    <div class="hint">✅ تظهر لعمار رعد فقط، وباقي الموظفين حضور / انصراف فقط.</div>
+    <div class="hint">✅ تظهر للموظفين ذوي الصلاحية الخاصة.</div>
     <div class="list" id="employee-returned-all-list"></div>
   </div>
 
@@ -974,7 +974,7 @@ background:#fff;
     const TRACCAR_PROXY_URL = ""; // اتركه فارغ حتى نستخدم Direct API
 
     // 3) سرعة التحديث
-    const TRACCAR_POLL_MS = 4000;
+    const TRACCAR_POLL_MS = 10000;
 
     let traccarPollTimer = null;
     let lastTraccarOkAt = 0;
@@ -1574,35 +1574,11 @@ nextDrivers[key] = {
       const name = rawName.replace(/\s+/g, " ").trim();
       const id = rawId.replace(/\s+/g, " ").trim();
 
-      // صلاحية صفحة الموظف الخاصة الكاملة تبقى فقط لمحمد نجم
       const allowedNames = [
-        "محمد نجم"
-      ];
-
-      if (allowedNames.includes(name)) return true;
-
-      for (let n of allowedNames) {
-        if (name.includes(n) || id.includes(n)) return true;
-      }
-
-      return false;
-    }
-
-    function isReturnedOnlyEmployeeById(employeeId) {
-      if (!employeeId) return false;
-
-      const meta = (employeesMetaCache && employeesMetaCache[employeeId])
-        ? employeesMetaCache[employeeId]
-        : null;
-
-      const rawName = meta && meta.name ? String(meta.name).trim() : "";
-      const rawId = String(employeeId || "").trim();
-
-      const name = rawName.replace(/\s+/g, " ").trim();
-      const id = rawId.replace(/\s+/g, " ").trim();
-
-      const allowedNames = [
-        "عمار رعد"
+        "محمد نجم",
+        "عمار رعد",
+        "حمد وسام",
+        "منتظر"
       ];
 
       if (allowedNames.includes(name)) return true;
@@ -2653,8 +2629,6 @@ function openInGoogleMaps(lat, lng) {
         await db.ref(`orders/${workDateKey}/${order.id}`).update({
           etaMinutes: etaBag.etaMinutes,
           etaText: etaBag.etaText,
-          speedKmh: Number.isFinite(Number(etaBag.speedKmh)) ? Number(etaBag.speedKmh) : null,
-          speedText: String(etaBag.speedText || '—'),
           etaFrozen: !!etaBag.etaFrozen,
           etaUpdatedAt: SERVER_TS
         });
@@ -2686,7 +2660,7 @@ function openInGoogleMaps(lat, lng) {
       orderEtaSyncTimer = setTimeout(() => {
         orderEtaSyncTimer = null;
         syncOrdersEtaToFirebase(safeWorkDateKey);
-      }, 250);
+      }, 2000);
     }
 
     function parseGoogleDurationToMinutes(raw){
@@ -8251,7 +8225,7 @@ function subscribeEmployees(){
     function renderEmployeeReturnedAllIfAllowed(){
       if (!employeeReturnedAllList || !employeeAmmarReturnsSection) return;
 
-      const allowed = isReturnedOnlyEmployeeById(currentEmployeeId);
+      const allowed = isSpecialLimitedManagerEmployeeById(currentEmployeeId);
       employeeAmmarReturnsSection.classList.toggle("hidden", !allowed);
 
       if (!allowed) {
@@ -9308,7 +9282,7 @@ function addEmployee(){
 
     // Tracking (mandatory, no stop button)
     let lastSentAt = 0;
-    const MIN_SEND_INTERVAL_MS = 3000;
+    const MIN_SEND_INTERVAL_MS = 10000;
     const MAX_BAD_ACCURACY = 1500;
 
     async function saveDriverTrackingPoint(driverId, point) {
