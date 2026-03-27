@@ -925,7 +925,7 @@ background:#fff;
   <div id="employee-ammar-returns-section" class="hidden">
     <hr style="border-color:#111827;margin:10px 0;" />
     <h3>كل الطلبات الراجعة (اليوم)</h3>
-    <div class="hint">✅ تظهر للموظفين ذوي الصلاحية الخاصة.</div>
+    <div class="hint">✅ تظهر لعمار رعد فقط، وباقي الموظفين حضور / انصراف فقط.</div>
     <div class="list" id="employee-returned-all-list"></div>
   </div>
 
@@ -974,7 +974,7 @@ background:#fff;
     const TRACCAR_PROXY_URL = ""; // اتركه فارغ حتى نستخدم Direct API
 
     // 3) سرعة التحديث
-    const TRACCAR_POLL_MS = 10000;
+    const TRACCAR_POLL_MS = 4000;
 
     let traccarPollTimer = null;
     let lastTraccarOkAt = 0;
@@ -1309,7 +1309,6 @@ nextDrivers[key] = {
     const employeeLoginError = document.getElementById("employee-login-error");
     const logoutEmployeeBtn = document.getElementById("logout-employee");
     const currentEmployeeNameLabel = document.getElementById("current-employee-name");
-    const employeeAmmarReturnsSection = document.getElementById("employee-ammar-returns-section");
 
     // ✅ Employee attendance UI
     const empBtnCheckIn = document.getElementById("emp-btn-checkin");
@@ -1457,6 +1456,7 @@ nextDrivers[key] = {
     const managerClientOrdersTodayList = document.getElementById("manager-client-orders-today-list");
 
     // ✅ NEW: Employee Ammar returns list
+    const employeeAmmarReturnsSection = document.getElementById("employee-ammar-returns-section");
     const employeeReturnedAllList = document.getElementById("employee-returned-all-list");
 
 
@@ -1574,8 +1574,35 @@ nextDrivers[key] = {
       const name = rawName.replace(/\s+/g, " ").trim();
       const id = rawId.replace(/\s+/g, " ").trim();
 
+      // صلاحية صفحة الموظف الخاصة الكاملة تبقى فقط لمحمد نجم
       const allowedNames = [
         "محمد نجم"
+      ];
+
+      if (allowedNames.includes(name)) return true;
+
+      for (let n of allowedNames) {
+        if (name.includes(n) || id.includes(n)) return true;
+      }
+
+      return false;
+    }
+
+    function isReturnedOnlyEmployeeById(employeeId) {
+      if (!employeeId) return false;
+
+      const meta = (employeesMetaCache && employeesMetaCache[employeeId])
+        ? employeesMetaCache[employeeId]
+        : null;
+
+      const rawName = meta && meta.name ? String(meta.name).trim() : "";
+      const rawId = String(employeeId || "").trim();
+
+      const name = rawName.replace(/\s+/g, " ").trim();
+      const id = rawId.replace(/\s+/g, " ").trim();
+
+      const allowedNames = [
+        "عمار رعد"
       ];
 
       if (allowedNames.includes(name)) return true;
@@ -1591,35 +1618,12 @@ nextDrivers[key] = {
       return currentSessionRole === "limited_manager" && isSpecialLimitedManagerEmployeeById(currentEmployeeId);
     }
 
-    function isAmmarReturnedOnlyEmployeeById(employeeId) {
-      if (!employeeId) return false;
-
-      const meta = (employeesMetaCache && employeesMetaCache[employeeId])
-        ? employeesMetaCache[employeeId]
-        : null;
-
-      const rawName = meta && meta.name ? String(meta.name).trim() : "";
-      const rawId = String(employeeId || "").trim();
-
-      const name = rawName.replace(/\s+/g, " ").trim();
-      const id = rawId.replace(/\s+/g, " ").trim();
-
-      if (name === "عمار رعد" || id === "عمار رعد") return true;
-      if (name.includes("عمار رعد") || id.includes("عمار رعد")) return true;
-
-      return false;
-    }
-
     function canManageEmployeesSection() {
       return currentSessionRole === "manager";
     }
 
     function canSeeEmployeesAttendanceSection() {
       return currentSessionRole === "manager";
-    }
-
-    function isReturnedOnlyEmployeeSession() {
-      return currentSessionRole === "employee" && isAmmarReturnedOnlyEmployeeById(currentEmployeeId);
     }
 
     function applyManagerLikePermissions() {
@@ -1631,9 +1635,6 @@ nextDrivers[key] = {
       }
       if (limitedManagerAttendanceBox) {
         limitedManagerAttendanceBox.classList.toggle("hidden", !isLimitedManagerSession());
-      }
-      if (employeeAmmarReturnsSection) {
-        employeeAmmarReturnsSection.classList.toggle("hidden", !isReturnedOnlyEmployeeSession());
       }
     }
 
@@ -5608,18 +5609,6 @@ function subscribeEmployees(){
       unsubscribeOrders();
 
       ordersWorkDate = workDate;
-
-      if (isReturnedOnlyEmployeeSession()) {
-        const ref = db.ref(`orders/${workDate}`).orderByChild("status").equalTo("returned");
-        ordersUnsubRef = ref;
-
-        ref.on("value", snap => {
-          ordersCache = snap.val() || {};
-          renderEmployeeReturnedAllIfAllowed();
-        });
-        return;
-      }
-
       const ref = db.ref(`orders/${workDate}`);
       ordersUnsubRef = ref;
 
@@ -8262,7 +8251,7 @@ function subscribeEmployees(){
     function renderEmployeeReturnedAllIfAllowed(){
       if (!employeeReturnedAllList || !employeeAmmarReturnsSection) return;
 
-      const allowed = isSpecialLimitedManagerEmployeeById(currentEmployeeId);
+      const allowed = isReturnedOnlyEmployeeById(currentEmployeeId);
       employeeAmmarReturnsSection.classList.toggle("hidden", !allowed);
 
       if (!allowed) {
