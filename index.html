@@ -1111,6 +1111,11 @@ background:#fff;
     async function fetchTraccarPositions() {
       if (!USE_TRACCAR) return;
 
+      if (isTrackingBlockedNow()) {
+        applyTrackingBlockedUi();
+        return;
+      }
+
       try {
         let j = null;
 
@@ -1242,6 +1247,8 @@ nextDrivers[key] = {
     }
 
     function getDynamicTraccarPollMs() {
+      if (isTrackingBlockedNow()) return getTrackingResumeDelayMs();
+
       const entries = Object.values(driversLocationsCache || {});
       if (!entries.length) return TRACCAR_POLL_MOVING_MS;
 
@@ -1275,6 +1282,35 @@ nextDrivers[key] = {
         clearTimeout(traccarPollTimer);
         traccarPollTimer = null;
       }
+    }
+
+    // ✅ إيقاف التتبع والقراءات بين 1 ص و 9 ص
+    const TRACKING_BLOCK_START_HOUR = 1;
+    const TRACKING_BLOCK_END_HOUR = 9;
+    const TRACKING_BLOCK_RETRY_MS = 60 * 1000;
+
+    function isTrackingBlockedNow(){
+      const now = new Date();
+      const hour = now.getHours();
+      return hour >= TRACKING_BLOCK_START_HOUR && hour < TRACKING_BLOCK_END_HOUR;
+    }
+
+    function getTrackingResumeDelayMs(){
+      const now = new Date();
+      if (!isTrackingBlockedNow()) return 0;
+      const resumeAt = new Date(now);
+      resumeAt.setHours(TRACKING_BLOCK_END_HOUR, 0, 0, 0);
+      return Math.max(60 * 1000, resumeAt.getTime() - now.getTime());
+    }
+
+    function getTrackingBlockedMessage(){
+      return "⏸️ التتبع والقراءات متوقفة يومياً من 1:00 ص إلى 9:00 ص";
+    }
+
+    function applyTrackingBlockedUi(){
+      if (trackingStatus) trackingStatus.textContent = getTrackingBlockedMessage();
+      if (managerAlert) managerAlert.textContent = getTrackingBlockedMessage();
+      if (driverAlert) driverAlert.textContent = getTrackingBlockedMessage();
     }
 
     // =========================
@@ -9336,6 +9372,7 @@ function addEmployee(){
     const MAX_BAD_ACCURACY = 1500;
 
     async function saveDriverTrackingPoint(driverId, point) {
+      if (isTrackingBlockedNow()) return;
       try {
         if (!driverId || !point) return;
         const ref = db.ref(`trackingHistory/${driverId}`);
@@ -9368,6 +9405,18 @@ function addEmployee(){
     }
 
     function startTrackingMandatory() {
+      if (isTrackingBlockedNow()) {
+        applyTrackingBlockedUi();
+        if (watchId !== null && navigator.geolocation) {
+          navigator.geolocation.clearWatch(watchId);
+          watchId = null;
+        }
+        setTimeout(() => {
+          if (currentDriverId) startTrackingMandatory();
+        }, Math.min(getTrackingResumeDelayMs(), TRACKING_BLOCK_RETRY_MS));
+        return;
+      }
+
       if (USE_TRACCAR) {
         trackingStatus.textContent = "✅ التتبع يتم عبر تطبيق Traccar Client على هاتفك. افتحه وتأكد أنه شغال.";
         return;
@@ -9394,6 +9443,18 @@ function addEmployee(){
 
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
+          if (isTrackingBlockedNow()) {
+            applyTrackingBlockedUi();
+            if (watchId !== null && navigator.geolocation) {
+              navigator.geolocation.clearWatch(watchId);
+              watchId = null;
+            }
+            setTimeout(() => {
+              if (currentDriverId) startTrackingMandatory();
+            }, Math.min(getTrackingResumeDelayMs(), TRACKING_BLOCK_RETRY_MS));
+            return;
+          }
+
           const now = Date.now();
           if (now - lastSentAt < MIN_SEND_INTERVAL_MS) return;
           lastSentAt = now;
