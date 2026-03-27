@@ -5609,6 +5609,18 @@ function subscribeEmployees(){
       unsubscribeOrders();
 
       ordersWorkDate = workDate;
+
+      if (isReturnedOnlyEmployeeSession()) {
+        const ref = db.ref(`orders/${workDate}`).orderByChild("status").equalTo("returned");
+        ordersUnsubRef = ref;
+
+        ref.on("value", snap => {
+          ordersCache = snap.val() || {};
+          renderEmployeeReturnedAllIfAllowed();
+        });
+        return;
+      }
+
       const ref = db.ref(`orders/${workDate}`);
       ordersUnsubRef = ref;
 
