@@ -2500,6 +2500,10 @@ function openInGoogleMaps(lat, lng) {
 
     const ETA_STORAGE_PREFIX = 'diqa_track_eta_';
 
+    // ✅ إيقاف مزامنة ETA/السرعة إلى Firebase الخاصة بصفحة تتبع الزبون لتقليل القراءات/الكتابات
+    // الأدمن والمندوب يبقون يشوفون ETA محلياً داخل نفس الصفحة بدون إرسال تحديثات لصفحة التتبع العامة.
+    const ENABLE_CUSTOMER_TRACKING_SYNC = false;
+
     function getOrderEtaStorageKey(order, workDateKey){
       const safeWorkDate = String(workDateKey || (order && order.workDate) || ordersWorkDate || getActiveWorkDate() || '');
       const safeOrderId = String((order && order.id) || '');
@@ -2688,6 +2692,7 @@ function openInGoogleMaps(lat, lng) {
 
     async function saveOrderEtaToFirebase(order, workDateKey){
       try {
+        if (!ENABLE_CUSTOMER_TRACKING_SYNC) return;
         if (!order || !order.id || !workDateKey) return;
 
         const driverLoc = driversLocationsCache[String(order.assignedDriverId || '')] || null;
@@ -2724,6 +2729,7 @@ function openInGoogleMaps(lat, lng) {
     }
 
     async function syncOrdersEtaToFirebase(workDateKey){
+      if (!ENABLE_CUSTOMER_TRACKING_SYNC) return;
       if (!workDateKey || orderEtaSyncInFlight) return;
       orderEtaSyncInFlight = true;
       try {
@@ -2740,6 +2746,7 @@ function openInGoogleMaps(lat, lng) {
     }
 
     function queueOrdersEtaSync(workDateKey){
+      if (!ENABLE_CUSTOMER_TRACKING_SYNC) return;
       const safeWorkDateKey = String(workDateKey || ordersWorkDate || getActiveWorkDate() || '');
       if (!safeWorkDateKey) return;
       if (orderEtaSyncTimer) clearTimeout(orderEtaSyncTimer);
