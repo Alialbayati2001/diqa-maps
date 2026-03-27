@@ -925,7 +925,7 @@ background:#fff;
   <div id="employee-ammar-returns-section" class="hidden">
     <hr style="border-color:#111827;margin:10px 0;" />
     <h3>كل الطلبات الراجعة (اليوم)</h3>
-    <div class="hint">✅ تظهر للموظفين ذوي الصلاحية الخاصة.</div>
+    <div class="hint">✅ تظهر لعمار رعد فقط، وباقي الموظفين حضور / انصراف فقط.</div>
     <div class="list" id="employee-returned-all-list"></div>
   </div>
 
@@ -974,7 +974,9 @@ background:#fff;
     const TRACCAR_PROXY_URL = ""; // اتركه فارغ حتى نستخدم Direct API
 
     // 3) سرعة التحديث
-    const TRACCAR_POLL_MS = 10000;
+    const TRACCAR_POLL_MOVING_MS = 10000;
+    const TRACCAR_POLL_IDLE_MS = 60000;
+    const IDLE_SPEED_THRESHOLD_KMH = 3;
 
     let traccarPollTimer = null;
     let lastTraccarOkAt = 0;
@@ -1239,16 +1241,38 @@ nextDrivers[key] = {
       }
     }
 
+    function getDynamicTraccarPollMs() {
+      const entries = Object.values(driversLocationsCache || {});
+      if (!entries.length) return TRACCAR_POLL_MOVING_MS;
+
+      const hasMovingDriver = entries.some(loc => {
+        const s = Number(loc?.speedKmh || 0);
+        return Number.isFinite(s) && s > IDLE_SPEED_THRESHOLD_KMH;
+      });
+
+      return hasMovingDriver ? TRACCAR_POLL_MOVING_MS : TRACCAR_POLL_IDLE_MS;
+    }
+
+    async function traccarPollLoop() {
+      if (!USE_TRACCAR) return;
+
+      try {
+        await fetchTraccarPositions();
+      } finally {
+        if (traccarPollTimer) clearTimeout(traccarPollTimer);
+        traccarPollTimer = setTimeout(traccarPollLoop, getDynamicTraccarPollMs());
+      }
+    }
+
     function startTraccarPolling() {
       if (!USE_TRACCAR) return;
       stopTraccarPolling();
-      fetchTraccarPositions();
-      traccarPollTimer = setInterval(fetchTraccarPositions, TRACCAR_POLL_MS);
+      traccarPollLoop();
     }
 
     function stopTraccarPolling() {
       if (traccarPollTimer) {
-        clearInterval(traccarPollTimer);
+        clearTimeout(traccarPollTimer);
         traccarPollTimer = null;
       }
     }
@@ -1574,11 +1598,35 @@ nextDrivers[key] = {
       const name = rawName.replace(/\s+/g, " ").trim();
       const id = rawId.replace(/\s+/g, " ").trim();
 
+      // صلاحية صفحة الموظف الخاصة الكاملة تبقى فقط لمحمد نجم
       const allowedNames = [
-        "محمد نجم",
-        "عمار رعد",
-        "حمد وسام",
-        "منتظر"
+        "محمد نجم"
+      ];
+
+      if (allowedNames.includes(name)) return true;
+
+      for (let n of allowedNames) {
+        if (name.includes(n) || id.includes(n)) return true;
+      }
+
+      return false;
+    }
+
+    function isReturnedOnlyEmployeeById(employeeId) {
+      if (!employeeId) return false;
+
+      const meta = (employeesMetaCache && employeesMetaCache[employeeId])
+        ? employeesMetaCache[employeeId]
+        : null;
+
+      const rawName = meta && meta.name ? String(meta.name).trim() : "";
+      const rawId = String(employeeId || "").trim();
+
+      const name = rawName.replace(/\s+/g, " ").trim();
+      const id = rawId.replace(/\s+/g, " ").trim();
+
+      const allowedNames = [
+        "عمار رعد"
       ];
 
       if (allowedNames.includes(name)) return true;
@@ -2629,6 +2677,8 @@ function openInGoogleMaps(lat, lng) {
         await db.ref(`orders/${workDateKey}/${order.id}`).update({
           etaMinutes: etaBag.etaMinutes,
           etaText: etaBag.etaText,
+          speedKmh: Number.isFinite(Number(etaBag.speedKmh)) ? Number(etaBag.speedKmh) : null,
+          speedText: String(etaBag.speedText || '—'),
           etaFrozen: !!etaBag.etaFrozen,
           etaUpdatedAt: SERVER_TS
         });
@@ -2660,7 +2710,7 @@ function openInGoogleMaps(lat, lng) {
       orderEtaSyncTimer = setTimeout(() => {
         orderEtaSyncTimer = null;
         syncOrdersEtaToFirebase(safeWorkDateKey);
-      }, 2000);
+      }, 250);
     }
 
     function parseGoogleDurationToMinutes(raw){
@@ -8225,7 +8275,7 @@ function subscribeEmployees(){
     function renderEmployeeReturnedAllIfAllowed(){
       if (!employeeReturnedAllList || !employeeAmmarReturnsSection) return;
 
-      const allowed = isSpecialLimitedManagerEmployeeById(currentEmployeeId);
+      const allowed = isReturnedOnlyEmployeeById(currentEmployeeId);
       employeeAmmarReturnsSection.classList.toggle("hidden", !allowed);
 
       if (!allowed) {
@@ -9282,7 +9332,7 @@ function addEmployee(){
 
     // Tracking (mandatory, no stop button)
     let lastSentAt = 0;
-    const MIN_SEND_INTERVAL_MS = 10000;
+    const MIN_SEND_INTERVAL_MS = 3000;
     const MAX_BAD_ACCURACY = 1500;
 
     async function saveDriverTrackingPoint(driverId, point) {
