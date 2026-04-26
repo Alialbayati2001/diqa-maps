@@ -1784,6 +1784,20 @@ nextDrivers[key] = {
       return 'راجع طلب اليوم';
     }
 
+    // ✅ يعتبر الاستبدال راجعاً أيضاً حتى لو بقيت حالة الطلب "تم التسليم"
+    // لأن الاستبدال عملياً = تسليم طلب + استلام راجع من الزبون.
+    function isOrderReturnLike(order){
+      const o = order || {};
+      if (String(o.status || '').trim() === 'returned') return true;
+      if (getReturnKindKey(o) === 'replacement') return true;
+      return false;
+    }
+
+    function getOrderReturnedSortMs(order){
+      const o = order || {};
+      return tsToMs(o.returnedAt || o.deliveredAt || o.updatedAt || o.createdAt || 0);
+    }
+
     function describeOrderDataActor(order){
       const o = order || {};
 
@@ -6246,12 +6260,30 @@ function subscribeEmployees(){
           alert(`أنت بعيد عن الزبون حالياً (${Math.round(distanceMeters)}م). يسمح بتحديث الطلب ضمن ${DELIVERY_ALLOWED_METERS}م.`);
           return;
         }
+
+        const suggested = (liveOrder && liveOrder.adminInvoiceAmount != null) ? Number(liveOrder.adminInvoiceAmount) : null;
+        const hint = (suggested != null) ? `\n(مبلغ مقترح من الأدمن: ${formatIQD(suggested)})` : "";
+        const amountStr = prompt("اكتب مبلغ الطلب المُسلّم في الاستبدال (إجباري حتى لو 0):" + hint, (suggested != null ? String(suggested) : "0"));
+        if (amountStr == null) return;
+
+        const amount = parseIQD(amountStr);
+        if (amount == null || !Number.isFinite(amount)) {
+          alert("المبلغ غير صحيح.");
+          return;
+        }
+
         await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
-          status: "returned",
+          // ✅ الاستبدال يبقى محسوب كتسليم للطلب الجديد
+          status: "delivered",
+          nearbyAt: liveOrder.nearbyAt || SERVER_TS,
+          deliveredCash: amount,
+          deliveredAt: SERVER_TS,
+
+          // ✅ وبنفس الوقت يظهر ضمن كل الطلبات الراجعة لأنه استلم راجع
           returnedAt: SERVER_TS,
           returnReason: "استبدال",
           returnType: "replacement",
-          deliveredCash: 0,
+
           cashCollected: false,
           cashCollectedById: null,
           cashCollectedByName: null,
@@ -6261,7 +6293,7 @@ function subscribeEmployees(){
           ...buildAuditFields("lastEditedBy"),
           assignedDriverName: currentDriverNameLabel.textContent || driverNameById(currentDriverId)
         });
-        alert("تم تسجيل (استبدال) ✅");
+        alert("تم تسجيل (استبدال): تم التسليم + راجع ✅");
       }
     }
 
@@ -6969,7 +7001,7 @@ function subscribeEmployees(){
       } else if (tab === "collected") {
         list = list.filter(x => x.status === "delivered" && x.cashCollected === true);
       } else if (tab === "returned") {
-        list = list.filter(x => x.status === "returned");
+        list = list.filter(isOrderReturnLike);
       } else if (tab === "registered") {
         list = list.filter(x => x.status === "registered" || x.status === "nearby");
       }
@@ -8165,9 +8197,9 @@ function subscribeEmployees(){
 
       const list = Object.entries(ordersCache || {})
         .map(([id,o])=>({id, ...o}))
-        .filter(x => x.status === "returned")
+        .filter(isOrderReturnLike)
         .filter(x => !filterDriver || x.assignedDriverId === filterDriver)
-        .sort((a,b)=>tsToMs(b.returnedAt||0)-tsToMs(a.returnedAt||0));
+        .sort((a,b)=>getOrderReturnedSortMs(b)-getOrderReturnedSortMs(a));
 
       managerReturnedAllList.innerHTML = "";
       if (!list.length){
@@ -8328,8 +8360,8 @@ function subscribeEmployees(){
 
       const list = Object.entries(ordersCache || {})
         .map(([id,o])=>({id, ...(o||{}) }))
-        .filter(x => x.status === "returned")
-        .sort((a,b)=>tsToMs(b.returnedAt||0)-tsToMs(a.returnedAt||0));
+        .filter(isOrderReturnLike)
+        .sort((a,b)=>getOrderReturnedSortMs(b)-getOrderReturnedSortMs(a));
 
       employeeReturnedAllList.innerHTML = "";
       if (!list.length){
