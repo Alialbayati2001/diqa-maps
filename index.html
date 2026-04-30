@@ -1784,6 +1784,10 @@ nextDrivers[key] = {
       return 'راجع طلب اليوم';
     }
 
+    function isReplacementOrder(order){
+      return getReturnKindKey(order) === 'replacement';
+    }
+
     // ✅ يعتبر الاستبدال راجعاً أيضاً حتى لو بقيت حالة الطلب "تم التسليم"
     // لأن الاستبدال عملياً = تسليم طلب + استلام راجع من الزبون.
     function isOrderReturnLike(order){
@@ -5830,7 +5834,7 @@ function subscribeEmployees(){
           `الحالة: <b>${statusLabel(o.status)}</b><br/>` +
           delayedText +
           `مندوب: <b>${o.assignedDriverName || driverNameById(o.assignedDriverId)}</b><br/>` +
-          (o.status === "delivered" ? `المبلغ: <b>${formatIQD(o.deliveredCash)}</b><br/>` : "") +
+          (o.status === "delivered" ? (isReplacementOrder(o) ? `استبدال: <b>راجع مستلم بدون مبلغ</b><br/>` : `المبلغ: <b>${formatIQD(o.deliveredCash)}</b><br/>`) : "") +
           (o.status === "returned" ? `سبب: <b>${escapeHtml(o.returnReason || "-")}</b><br/>` : "") +
           (o.status === "returned" ? `وقت الرجوع: <b>${formatTime(o.returnedAt)}</b><br/>` : "") +
           `<span class="small">اليوم: ${ordersWorkDate}</span>`;
@@ -5933,7 +5937,7 @@ function subscribeEmployees(){
           (distanceMeters != null ? `<br/>المسافة: <b>${Math.round(distanceMeters)}م</b>` : "") +
           actionsHint +
           prTxt +
-          (o.status === "delivered" ? `<br/>المبلغ: <b>${formatIQD(o.deliveredCash)}</b>` : "") +
+          (o.status === "delivered" ? (isReplacementOrder(o) ? `<br/>استبدال: <b>راجع مستلم بدون مبلغ</b>` : `<br/>المبلغ: <b>${formatIQD(o.deliveredCash)}</b>`) : "") +
           (o.status === "returned" ? `<br/>سبب: <b>${escapeHtml(o.returnReason || "")}</b>` : "") +
           `<br/><span class="small">${ordersWorkDate}</span>`;
 
@@ -6261,22 +6265,12 @@ function subscribeEmployees(){
           return;
         }
 
-        const suggested = (liveOrder && liveOrder.adminInvoiceAmount != null) ? Number(liveOrder.adminInvoiceAmount) : null;
-        const hint = (suggested != null) ? `\n(مبلغ مقترح من الأدمن: ${formatIQD(suggested)})` : "";
-        const amountStr = prompt("اكتب مبلغ الطلب المُسلّم في الاستبدال (إجباري حتى لو 0):" + hint, (suggested != null ? String(suggested) : "0"));
-        if (amountStr == null) return;
-
-        const amount = parseIQD(amountStr);
-        if (amount == null || !Number.isFinite(amount)) {
-          alert("المبلغ غير صحيح.");
-          return;
-        }
-
         await db.ref(`orders/${ordersWorkDate}/${orderId}`).update({
-          // ✅ الاستبدال يبقى محسوب كتسليم للطلب الجديد
+          // ✅ الاستبدال = تسليم قطعة بدل قطعة بدون مبلغ
+          // ✅ يبقى محسوب كطلب توصيل واحد فقط، وليس راجعاً إضافياً للأجور
           status: "delivered",
           nearbyAt: liveOrder.nearbyAt || SERVER_TS,
-          deliveredCash: amount,
+          deliveredCash: 0,
           deliveredAt: SERVER_TS,
 
           // ✅ وبنفس الوقت يظهر ضمن كل الطلبات الراجعة لأنه استلم راجع
@@ -6284,16 +6278,18 @@ function subscribeEmployees(){
           returnReason: "استبدال",
           returnType: "replacement",
 
-          cashCollected: false,
+          // ✅ لا يوجد مبلغ تحصيل بالاستبدال، لذلك لا يظهر ضمن مبالغ المندوب
+          cashCollected: true,
+          cashCollectedAt: SERVER_TS,
           cashCollectedById: null,
           cashCollectedByName: null,
           cashCollectedByRole: null,
           cashCollectedByRoleLabel: null,
-          cashCollectedFromPage: null,
+          cashCollectedFromPage: "استبدال بدون مبلغ",
           ...buildAuditFields("lastEditedBy"),
           assignedDriverName: currentDriverNameLabel.textContent || driverNameById(currentDriverId)
         });
-        alert("تم تسجيل (استبدال): تم التسليم + راجع ✅");
+        alert("تم تسجيل الاستبدال: تسليم قطعة بدل قطعة + استلام راجع بدون مبلغ ✅");
       }
     }
 
@@ -6997,9 +6993,9 @@ function subscribeEmployees(){
       if (filterDriver) list = list.filter(x => x.assignedDriverId === filterDriver);
 
       if (tab === "uncollected") {
-        list = list.filter(x => x.status === "delivered" && x.cashCollected === false);
+        list = list.filter(x => x.status === "delivered" && x.cashCollected === false && !isReplacementOrder(x));
       } else if (tab === "collected") {
-        list = list.filter(x => x.status === "delivered" && x.cashCollected === true);
+        list = list.filter(x => x.status === "delivered" && x.cashCollected === true && !isReplacementOrder(x));
       } else if (tab === "returned") {
         list = list.filter(isOrderReturnLike);
       } else if (tab === "registered") {
@@ -7038,6 +7034,7 @@ function subscribeEmployees(){
         // طبق فلتر المندوب إذا موجود
         if (filterDriver && o.assignedDriverId !== filterDriver) return;
         if (o.status !== "delivered") return;
+        if (isReplacementOrder(o)) return;
 
         const v = Number(o.deliveredCash);
         if (!Number.isFinite(v)) return;
@@ -7098,8 +7095,12 @@ function subscribeEmployees(){
         }
 
         if (x.status === "delivered") {
-          extra += ` | مبلغ: ${formatIQD(x.deliveredCash)}`;
-          extra += x.cashCollected ? " | ✅ تم الاستلام" : " | 💰 المندوب استلم المبلغ";
+          if (isReplacementOrder(x)) {
+            extra += " | استبدال: راجع مستلم بدون مبلغ";
+          } else {
+            extra += ` | مبلغ: ${formatIQD(x.deliveredCash)}`;
+            extra += x.cashCollected ? " | ✅ تم الاستلام" : " | 💰 المندوب استلم المبلغ";
+          }
         }
         if (x.status === "returned") {
           // ✅ (4) السبب + اسم المندوب
@@ -7584,12 +7585,13 @@ function subscribeEmployees(){
           let gotCellHtml = `<input class='edit-got' value='' placeholder='0' style='width:90px'>`;
 
           if (st === "delivered"){
+            const isReplacement = isReplacementOrder(o);
             const v = Number(o.deliveredCash);
-            if (Number.isFinite(v)) gotNumber = v;
+            if (!isReplacement && Number.isFinite(v)) gotNumber = v;
             gotTxt = gotNumber != null ? formatIQD(gotNumber) : "";
 
             const isCollected = (o.cashCollected === true);
-            if (Number.isFinite(v)){
+            if (!isReplacement && Number.isFinite(v)){
               if (isCollected) sumCollected += v;
               else sumUncollected += v;
             }
@@ -7601,22 +7603,38 @@ function subscribeEmployees(){
               arrivalDurationHtml = `<div class="small">مدة الوصول: ${escapeHtml(formatDuration(deliveredAtMs - createdAtMs))}</div>`;
             }
 
-            const amountLabel = gotTxt || formatIQD(0);
-            const amountStateLabel = isCollected ? "✅ تم استلامها" : "💰 المندوب استلم المبلغ";
-            gotCellHtml = `
-              <div style="position:relative;min-height:58px;padding-top:2px">
-                <button class="secondary" data-role="breakdown-edit-got" data-order-id="${escapeHtml(o.id)}" title="تعديل المبلغ" style="position:absolute;top:-4px;left:-2px;padding:2px 8px;min-width:auto;line-height:1;font-size:12px;border-radius:999px">✏️</button>
-                <div style="padding-top:14px">
-                  <div class="small" style="font-weight:800;color:${isCollected ? '#166534' : '#92400e'};margin-bottom:4px">${amountStateLabel}</div>
-                  <div class="small" style="font-size:12px;font-weight:900;color:#111827">${amountLabel}</div>
+            if (isReplacement) {
+              gotCellHtml = `
+                <div style="position:relative;min-height:58px;padding-top:12px">
+                  <div class="small" style="font-weight:900;color:#92400e;margin-bottom:4px">استبدال</div>
+                  <div class="small" style="font-size:12px;font-weight:900;color:#111827">بدون مبلغ</div>
+                  <input class='edit-got hidden' value='0' placeholder='0' style='width:90px'>
                 </div>
-                <input class='edit-got hidden' value='${escapeHtml(gotTxt)}' placeholder='0' style='width:90px'>
-              </div>
-            `;
+              `;
+              details = `🔁 استبدال: تم تسليم قطعة بدل قطعة + استلام راجع` +
+                `<div class="small">لا يدخل ضمن مبالغ التحصيل</div>` +
+                `<div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div>` +
+                `<div class="small">وقت التسليم/الاستبدال: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>` +
+                `<div class="small">وقت الراجع: ${escapeHtml(formatTime(o.returnedAt || o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>` +
+                arrivalDurationHtml;
+            } else {
+              const amountLabel = gotTxt || formatIQD(0);
+              const amountStateLabel = isCollected ? "✅ تم استلامها" : "💰 المندوب استلم المبلغ";
+              gotCellHtml = `
+                <div style="position:relative;min-height:58px;padding-top:2px">
+                  <button class="secondary" data-role="breakdown-edit-got" data-order-id="${escapeHtml(o.id)}" title="تعديل المبلغ" style="position:absolute;top:-4px;left:-2px;padding:2px 8px;min-width:auto;line-height:1;font-size:12px;border-radius:999px">✏️</button>
+                  <div style="padding-top:14px">
+                    <div class="small" style="font-weight:800;color:${isCollected ? '#166534' : '#92400e'};margin-bottom:4px">${amountStateLabel}</div>
+                    <div class="small" style="font-size:12px;font-weight:900;color:#111827">${amountLabel}</div>
+                  </div>
+                  <input class='edit-got hidden' value='${escapeHtml(gotTxt)}' placeholder='0' style='width:90px'>
+                </div>
+              `;
 
-            details = isCollected
-              ? `✅ تم استلامها <div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div><div class="small">وقت التسليم: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>${arrivalDurationHtml}`
-              : `<button class="secondary" data-role="breakdown-mark-collected" data-order-id="${escapeHtml(o.id)}" style="padding:6px 10px;font-size:12px">تم الاستلام</button><div class="small">الحالة الحالية: المندوب استلم المبلغ</div><div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div><div class="small">وقت التسليم: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>${arrivalDurationHtml}`;
+              details = isCollected
+                ? `✅ تم استلامها <div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div><div class="small">وقت التسليم: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>${arrivalDurationHtml}`
+                : `<button class="secondary" data-role="breakdown-mark-collected" data-order-id="${escapeHtml(o.id)}" style="padding:6px 10px;font-size:12px">تم الاستلام</button><div class="small">الحالة الحالية: المندوب استلم المبلغ</div><div class="small">وقت التسجيل: ${escapeHtml(formatTime(o.createdAt || ""))}</div><div class="small">وقت التسليم: ${escapeHtml(formatTime(o.deliveredAt || o.updatedAt || o.createdAt || ""))}</div>${arrivalDurationHtml}`;
+            }
           } else if (st === "returned"){
             details =
               `❌ ${escapeHtml(getReturnKindLabel(o))}` +
@@ -8308,7 +8326,7 @@ function subscribeEmployees(){
         const drv = x.assignedDriverName || driverNameById(x.assignedDriverId);
         let stTxt = "";
         if (x.status === "delivered"){
-          stTxt = `تم التسليم ✅ | المبلغ: ${formatIQD(x.deliveredCash || 0)} | ${formatTime(x.deliveredAt)}`;
+          stTxt = isReplacementOrder(x) ? `استبدال ✅ | راجع مستلم بدون مبلغ | ${formatTime(x.deliveredAt)}` : `تم التسليم ✅ | المبلغ: ${formatIQD(x.deliveredCash || 0)} | ${formatTime(x.deliveredAt)}`;
         } else if (x.status === "returned"){
           const reason = x.returnReason ? x.returnReason : "-";
           stTxt = `راجع 🔴 | يم: ${drv} | سبب: ${reason} | ${formatTime(x.returnedAt)}`;
@@ -8475,6 +8493,7 @@ function subscribeEmployees(){
       const active = list.filter(x => x.status !== "delivered" && x.status !== "returned");
       const delivered = list.filter(x => x.status === "delivered");
       const returned = list.filter(x => x.status === "returned");
+      const replacementReturns = list.filter(x => isReplacementOrder(x));
 
       const activeFiltered = active.filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
       const deliveredFiltered = delivered.filter(x => !q || (x.clientName||"").toLowerCase().includes(q));
@@ -8585,7 +8604,7 @@ function subscribeEmployees(){
       let sum = 0;
       let pendingSum = 0;
 
-      if (!deliveredFiltered.length && !returned.length) {
+      if (!deliveredFiltered.length && !returned.length && !replacementReturns.length) {
         driverDeliveredList.innerHTML = `<div class="small">لا توجد بيانات.</div>`;
       } else {
         deliveredFiltered.sort((a,b)=>tsToMs(b.deliveredAt||0)-tsToMs(a.deliveredAt||0));
@@ -8601,13 +8620,16 @@ function subscribeEmployees(){
 
           const meta = document.createElement("div");
           meta.className = "small";
+          const isReplacement = isReplacementOrder(x);
           const v = Number(x.deliveredCash);
-          if (Number.isFinite(v)) {
+          if (!isReplacement && Number.isFinite(v)) {
             sum += v;
             if (x.cashCollected !== true) pendingSum += v;
           }
 
-          meta.textContent = `مبلغ: ${formatIQD(x.deliveredCash)} | ${x.cashCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ"}`;
+          meta.textContent = isReplacement
+            ? "استبدال: تسليم قطعة بدل قطعة + راجع مستلم | بدون مبلغ"
+            : `مبلغ: ${formatIQD(x.deliveredCash)} | ${x.cashCollected ? "✅ تم الاستلام" : "💰 المندوب استلم المبلغ"}`;
 
           left.appendChild(title);
           left.appendChild(meta);
@@ -8620,7 +8642,7 @@ function subscribeEmployees(){
             right.appendChild(go);
           }
 
-          if (x.cashCollected !== true) {
+          if (x.cashCollected !== true && !isReplacementOrder(x)) {
             const editBtn = document.createElement("button");
             editBtn.textContent = "تعديل المبلغ";
             editBtn.className = "secondary";
@@ -8634,15 +8656,16 @@ function subscribeEmployees(){
         });
 
         // returned section appended
-        if (returned.length) {
+        if (returned.length || replacementReturns.length) {
           const sep = document.createElement("div");
           sep.className = "small";
           sep.style.margin = "8px 0";
           sep.textContent = "الطلبات الراجعة:";
           driverDeliveredList.appendChild(sep);
 
-          returned.sort((a,b)=>tsToMs(b.returnedAt||0)-tsToMs(a.returnedAt||0));
-          returned.forEach(x=>{
+          const returnedDisplay = [...returned, ...replacementReturns]
+            .sort((a,b)=>tsToMs(b.returnedAt||b.deliveredAt||0)-tsToMs(a.returnedAt||a.deliveredAt||0));
+          returnedDisplay.forEach(x=>{
             const item = document.createElement("div");
             item.className = "list-item";
 
@@ -9120,7 +9143,7 @@ function getClientOrdersHtml(clientId){
             <div><b>الحالة:</b> ${escapeHtml(statusLabel(o.status))}</div>
             <div><b>المندوب:</b> ${escapeHtml(o.assignedDriverName || driverNameById(o.assignedDriverId))}</div>
             ${pr != null ? `<div><b>الأولوية:</b> ${pr}</div>` : ``}
-            ${o.status === "delivered" ? `<div><b>المبلغ:</b> ${escapeHtml(formatIQD(o.deliveredCash))}</div>` : ``}
+            ${o.status === "delivered" ? (isReplacementOrder(o) ? `<div><b>استبدال:</b> راجع مستلم بدون مبلغ</div>` : `<div><b>المبلغ:</b> ${escapeHtml(formatIQD(o.deliveredCash))}</div>`) : ``}
             ${o.status === "returned" ? `<div><b>سبب الراجع:</b> ${escapeHtml(o.returnReason || "-")}</div>` : ``}
           </div>
         `;
