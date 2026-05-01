@@ -1217,6 +1217,10 @@ nextDrivers[key] = {
 
         driversLocationsCache = nextDrivers;
 
+        // ✅ إذا المندوب فاتح واجهة موقعنا، نعتمد موقع المتصفح المحلي بدل Traccar مؤقتاً
+        // بدون أي حفظ في Firebase، وإذا أغلق الصفحة يرجع Traccar تلقائياً.
+        overlayBrowserDriverLocation();
+
         employeesLocationsCache = nextEmployees;
 
         renderDriversList();
@@ -1462,6 +1466,30 @@ nextDrivers[key] = {
     let currentEmployeeId = null;
     let currentSessionRole = null; // manager | limited_manager | driver | employee
     let watchId = null;
+
+    // ✅ موقع المتصفح للمندوب فقط عند فتح صفحة الموقع - بدون حفظ في Firebase
+    let driverBrowserLocationCache = null;
+    const BROWSER_LOCATION_FRESH_MS = 30000;
+
+    function isFreshBrowserDriverLocation(){
+      return !!(
+        driverBrowserLocationCache &&
+        currentSessionRole === "driver" &&
+        currentDriverId &&
+        String(driverBrowserLocationCache.driverId || "") === String(currentDriverId) &&
+        Date.now() - Number(driverBrowserLocationCache.updatedAt || 0) <= BROWSER_LOCATION_FRESH_MS
+      );
+    }
+
+    function overlayBrowserDriverLocation(){
+      if (!isFreshBrowserDriverLocation()) return;
+      const id = String(currentDriverId);
+      driversLocationsCache[id] = {
+        ...(driversLocationsCache[id] || {}),
+        ...driverBrowserLocationCache,
+        source: "browser"
+      };
+    }
 
     let driversMetaCache = {};
     let employeesMetaCache = {};
@@ -9480,8 +9508,7 @@ function addEmployee(){
       }
 
       if (USE_TRACCAR) {
-        trackingStatus.textContent = "✅ التتبع يتم عبر تطبيق Traccar Client على هاتفك. افتحه وتأكد أنه شغال.";
-        return;
+        trackingStatus.textContent = "✅ التتبع العام عبر Traccar، وعند فتح هذه الصفحة نعتمد موقع المتصفح مباشرة للتسليم والقرب.";
       }
 
       if (!currentDriverId) return;
@@ -9491,15 +9518,17 @@ function addEmployee(){
       }
       if (watchId !== null) return;
 
-      const locRef = db.ref(`driversLocations/${currentDriverId}`);
+      const locRef = USE_TRACCAR ? null : db.ref(`driversLocations/${currentDriverId}`);
 
-      if (infoConnectedUnsubRef && typeof infoConnectedUnsubRef.off === "function") infoConnectedUnsubRef.off();
-      infoConnectedUnsubRef = db.ref(".info/connected");
-      infoConnectedUnsubRef.on("value", (snap) => {
-        if (snap.val() === true) {
-          locRef.onDisconnect().update({ active:false, updatedAt: SERVER_TS });
-        }
-      });
+      if (!USE_TRACCAR) {
+        if (infoConnectedUnsubRef && typeof infoConnectedUnsubRef.off === "function") infoConnectedUnsubRef.off();
+        infoConnectedUnsubRef = db.ref(".info/connected");
+        infoConnectedUnsubRef.on("value", (snap) => {
+          if (snap.val() === true) {
+            locRef.onDisconnect().update({ active:false, updatedAt: SERVER_TS });
+          }
+        });
+      }
 
       trackingStatus.textContent = "جارِ تفعيل مشاركة الموقع (إجباري)...";
 
@@ -9532,22 +9561,52 @@ function addEmployee(){
 
           driverSelfLatLng = { lat, lng };
 
-          locRef.update({
+          const prevBrowserBaseLoc = driversLocationsCache[currentDriverId] || null;
+          const computedSpeedKmh = computeSpeedKmhFromPoints(prevBrowserBaseLoc, lat, lng, now);
+          const browserSpeedKmh = getPreferredDriverSpeedKmh({
+            traccarSpeedKmh: prevBrowserBaseLoc && prevBrowserBaseLoc.traccarSpeedKmh,
+            computedSpeedKmh,
+            speedKmh: prevBrowserBaseLoc && prevBrowserBaseLoc.speedKmh
+          });
+
+          const liveBrowserLoc = {
+            ...(prevBrowserBaseLoc || {}),
+            driverId: currentDriverId,
             name: currentDriverNameLabel.textContent,
             lat, lng,
             accuracy: acc,
             gpsOk: true,
             gpsError: null,
             active: true,
-            updatedAt: SERVER_TS
-          });
+            liveState: "online",
+            updatedAt: now,
+            source: "browser",
+            computedSpeedKmh,
+            speedKmh: browserSpeedKmh,
+            speedSource: "browser"
+          };
 
-          saveDriverTrackingPoint(currentDriverId, {
-            lat,
-            lng,
-            accuracy: acc,
-            speedKmh: null
-          });
+          driverBrowserLocationCache = liveBrowserLoc;
+          driversLocationsCache[currentDriverId] = liveBrowserLoc;
+
+          if (!USE_TRACCAR && locRef) {
+            locRef.update({
+              name: currentDriverNameLabel.textContent,
+              lat, lng,
+              accuracy: acc,
+              gpsOk: true,
+              gpsError: null,
+              active: true,
+              updatedAt: SERVER_TS
+            });
+
+            saveDriverTrackingPoint(currentDriverId, {
+              lat,
+              lng,
+              accuracy: acc,
+              speedKmh: browserSpeedKmh
+            });
+          }
 
           trackingStatus.textContent =
             `📍 مشاركة الموقع فعّالة | الدقة ±${acc}m | آخر تحديث: ${formatTime(now)}`;
@@ -9563,12 +9622,15 @@ function addEmployee(){
         (err) => {
           console.error(err);
 
-          db.ref(`driversLocations/${currentDriverId}`).update({
-            gpsOk: false,
-            gpsError: err && err.message ? String(err.message) : "GPS blocked",
-            active: false,
-            updatedAt: SERVER_TS
-          });
+          driverBrowserLocationCache = null;
+          if (!USE_TRACCAR) {
+            db.ref(`driversLocations/${currentDriverId}`).update({
+              gpsOk: false,
+              gpsError: err && err.message ? String(err.message) : "GPS blocked",
+              active: false,
+              updatedAt: SERVER_TS
+            });
+          }
 
           trackingStatus.textContent = "⚠️ لازم تفعّل الموقع (Allow + Precise).";
           if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
@@ -9588,7 +9650,8 @@ function addEmployee(){
         infoConnectedUnsubRef.off();
         infoConnectedUnsubRef = null;
       }
-      if (currentDriverId) {
+      driverBrowserLocationCache = null;
+      if (!USE_TRACCAR && currentDriverId) {
         db.ref(`driversLocations/${currentDriverId}`).update({
           active:false,
           updatedAt: SERVER_TS
