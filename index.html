@@ -1443,7 +1443,9 @@ nextDrivers[key] = {
     const beepToggle = document.getElementById("beep-toggle");
     let lastDriverState = {}; // {id: "ok"|"bad"}
     let lastDelayedOrderState = {}; // {orderId: true}
-    const ORDER_DELAY_ALERT_MS = 60 * 60 * 1000;
+    const ORDER_DELAY_ALERT_MS = 60 * 60 * 1000; // تنبيه المدير يبقى بعد ساعة
+    const DRIVER_ORDER_DELAY_ALERT_MS = 40 * 60 * 1000; // تنبيه المندوب فقط بعد 40 دقيقة
+    let lastDriverDelayedOrderSoundState = {}; // {driverId_orderId: true}
 
     // ✅ Attendance UI
     const managerAttendanceList = document.getElementById("manager-attendance-list");
@@ -8488,20 +8490,62 @@ function subscribeEmployees(){
       return `⏰ متأخر ${formatDelayDuration(delayMs)}`;
     }
 
+    function getDriverDelayedOrdersList(driverId){
+      if (!driverId) return [];
+      return Object.entries(ordersCache || {})
+        .map(([id, o]) => ({ id, ...(o || {}) }))
+        .filter(x => String(x.assignedDriverId || '') === String(driverId || ''))
+        .filter(x => getOrderDelayMs(x) >= DRIVER_ORDER_DELAY_ALERT_MS)
+        .sort((a,b) => getOrderDelayMs(b) - getOrderDelayMs(a));
+    }
+
+    function playDriverDelayedOrderSoundOnce(orderId){
+      if (!currentDriverId || !orderId) return;
+      const key = String(currentDriverId) + '_' + String(orderId);
+      if (lastDriverDelayedOrderSoundState[key]) return;
+      lastDriverDelayedOrderSoundState[key] = true;
+
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+
+        const ctx = new AudioCtx();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+
+        o.type = "sine";
+        o.frequency.value = 980;
+        g.gain.value = 0.06;
+
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start();
+
+        setTimeout(() => {
+          o.stop();
+          ctx.close && ctx.close();
+        }, 220);
+      } catch(e) {}
+    }
+
     function renderDriverDelayedOrdersAlert(){
       if (!driverAlert) return;
       if (!currentDriverId) {
         driverAlert.textContent = '';
         return;
       }
-      const delayed = getDelayedOrdersList(currentDriverId);
+
+      const delayed = getDriverDelayedOrdersList(currentDriverId);
       if (!delayed.length) {
         driverAlert.textContent = '';
         return;
       }
+
+      delayed.forEach(o => playDriverDelayedOrderSoundOnce(o.id));
+
       const top = delayed[0];
       const more = delayed.length > 1 ? ` + ${delayed.length - 1}` : '';
-      driverAlert.textContent = `⚠️ لديك ${delayed.length} طلب متأخر أكثر من ساعة. أقدمها: ${top.clientName || 'زبون'} (${formatDelayDuration(getOrderDelayMs(top))})${more}`;
+      driverAlert.textContent = `🔔 لديك ${delayed.length} طلب متأخر أكثر من 40 دقيقة. أقدمها: ${top.clientName || 'زبون'} (${formatDelayDuration(getOrderDelayMs(top))})${more}`;
     }
 
     // =========================
