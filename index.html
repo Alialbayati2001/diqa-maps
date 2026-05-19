@@ -734,7 +734,7 @@ background:#fff;
           <div class="att-box">
             <div class="att-row">
               <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 20m</span>
-              <span class="badge">خروج تلقائي: <b>11:30 PM</b></span>
+              <span class="badge">خروج تلقائي: <b>9:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
             </div>
             <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
           </div>
@@ -748,7 +748,7 @@ background:#fff;
 <div class="att-box">
   <div class="att-row">
     <span class="badge">نفس نطاق الشركة</span>
-    <span class="badge">خروج تلقائي: <b>11:30 PM</b></span>
+    <span class="badge">خروج تلقائي: <b>9:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
   </div>
   <div style="margin-top:8px" class="list" id="manager-emp-attendance-list"></div>
 </div>
@@ -1627,8 +1627,15 @@ nextDrivers[key] = {
     let areaFreehandPointerDown = false;
     let areaLastFreehandPoint = null;
     const AREA_FREEHAND_MIN_DISTANCE_METERS = 10;
-    const AUTO_CHECKOUT_HOUR = 23;
-    const AUTO_CHECKOUT_MIN  = 30;
+
+    // ✅ أوقات نهاية الدوام التلقائي:
+    // - كل المندوبين والموظفين: 21:00
+    // - الموظف مصطفى إياد فقط: 23:30 مثل السابق
+    const AUTO_CHECKOUT_DEFAULT_HOUR = 21;
+    const AUTO_CHECKOUT_DEFAULT_MIN  = 0;
+    const AUTO_CHECKOUT_MUSTAFA_HOUR = 23;
+    const AUTO_CHECKOUT_MUSTAFA_MIN  = 30;
+
     let attendanceCache = {};     // { driverId: {checkInAt, checkOutAt, ...} }
     // ✅ Employee attendance state
     let empAttendanceCache = {}; // { empId: {checkInAt, checkOutAt, ...} }
@@ -1970,7 +1977,7 @@ function parseFlexibleDateTime(input){
 
 
     // =========================
-    // ✅ FIX: إغلاق الجلسات المفتوحة فعلياً (Auto Close 11:30 PM)
+    // ✅ FIX: إغلاق الجلسات المفتوحة فعلياً (Auto Close حسب وقت نهاية دوام الشخص)
     // - لا يغيّر شكل عرض الوقت (يبقى 12 ساعة)
     // - يغلق أي سجل مفتوح داخل Firebase حتى لو الصفحة كانت "تعرض" خروج تلقائي فقط
     // =========================
@@ -1988,10 +1995,47 @@ function parseFlexibleDateTime(input){
       return new Date(y, mo, d, 0, 0, 0, 0);
     }
 
-    function cutoffMsForDateKey(dateKey){
+    function normalizeArabicPersonName(v){
+      return String(v || "")
+        .replace(/[إأآ]/g, "ا")
+        .replace(/[ى]/g, "ي")
+        .replace(/[ؤ]/g, "و")
+        .replace(/[ئ]/g, "ي")
+        .replace(/[ًٌٍَُِّْـ]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function isMustafaIyadEmployee(id, doc){
+      const meta = (id && employeesMetaCache && employeesMetaCache[id]) ? employeesMetaCache[id] : null;
+      const candidates = [
+        id,
+        meta && meta.name,
+        doc && doc.employeeName,
+        doc && doc.name
+      ].filter(Boolean).map(normalizeArabicPersonName);
+
+      return candidates.some(name =>
+        name === "مصطفي اياد" ||
+        name === "مصطفى اياد" ||
+        (name.includes("مصطفي") && name.includes("اياد")) ||
+        (name.includes("مصطفى") && name.includes("اياد"))
+      );
+    }
+
+    function getAutoCheckoutTime(basePath, id, doc){
+      // الاستثناء فقط للموظف مصطفى إياد
+      if (basePath === "attendanceEmployees" && isMustafaIyadEmployee(id, doc)) {
+        return { hour: AUTO_CHECKOUT_MUSTAFA_HOUR, min: AUTO_CHECKOUT_MUSTAFA_MIN, label: "11:30 PM" };
+      }
+      return { hour: AUTO_CHECKOUT_DEFAULT_HOUR, min: AUTO_CHECKOUT_DEFAULT_MIN, label: "9:00 PM" };
+    }
+
+    function cutoffMsForDateKey(dateKey, basePath, id, doc){
       const base = dateKeyToLocalDate(dateKey);
       if (!base) return 0;
-      base.setHours(AUTO_CHECKOUT_HOUR, AUTO_CHECKOUT_MIN, 0, 0); // 11:30 PM
+      const t = getAutoCheckoutTime(basePath, id, doc);
+      base.setHours(t.hour, t.min, 0, 0);
       return base.getTime();
     }
 
@@ -1999,21 +2043,21 @@ function parseFlexibleDateTime(input){
       return String(dateKey) === toISODateLocal(new Date());
     }
 
-    function shouldAutoCloseForDate(dateKey){
+    function shouldAutoCloseForDate(dateKey, basePath, id, doc){
       // نغلق إذا:
       // - يوم سابق دائماً
-      // - أو اليوم الحالي بعد 11:30 PM
+      // - أو اليوم الحالي بعد وقت نهاية الدوام المحدد للشخص
       if (!dateKey) return false;
       if (!isTodayDateKey(dateKey)) return true;
       const now = new Date();
-      const passed = (now.getHours() > AUTO_CHECKOUT_HOUR) || (now.getHours() === AUTO_CHECKOUT_HOUR && now.getMinutes() >= AUTO_CHECKOUT_MIN);
+      const t = getAutoCheckoutTime(basePath, id, doc);
+      const passed = (now.getHours() > t.hour) || (now.getHours() === t.hour && now.getMinutes() >= t.min);
       return passed;
     }
 
     async function forceCloseOpenSessions(dateKey, cacheObj, basePath, guardBucket){
       try{
         if (!dateKey || !cacheObj) return;
-        if (!shouldAutoCloseForDate(dateKey)) return;
 
         // Guard: لا نعيد نفس العملية كل مرة ينزل فيها snapshot
         const nowMs = Date.now();
@@ -2021,13 +2065,14 @@ function parseFlexibleDateTime(input){
         if (nowMs - last < 60_000) return; // مرة كل دقيقة كحد أقصى
         guardBucket[dateKey] = nowMs;
 
-        const cutoffMs = cutoffMsForDateKey(dateKey);
-        if (!cutoffMs) return;
-
         const entries = Object.entries(cacheObj || {});
 
         for (const [id, doc] of entries){
           if (!doc) continue;
+          if (!shouldAutoCloseForDate(dateKey, basePath, id, doc)) continue;
+
+          const cutoffMs = cutoffMsForDateKey(dateKey, basePath, id, doc);
+          if (!cutoffMs) continue;
 
           // ✅ NEW: جلسات متعددة
           const sessions = normalizeSessions(doc);
@@ -2055,7 +2100,7 @@ function parseFlexibleDateTime(input){
           if (inMs && inMs > cutoffMs) continue;
 
           sessions[openIdx] = Object.assign({}, sessions[openIdx]||{}, {
-            outAt: cutoffMs,          // رقم ثابت (ms) حتى يكون 11:30 بالضبط
+            outAt: cutoffMs,          // رقم ثابت (ms) حسب وقت نهاية دوام الشخص
             autoOut: true,
             autoClosed: true
           });
@@ -3335,7 +3380,7 @@ function openInGoogleMaps(lat, lng) {
       return attendanceCache[driverId] || null;
     }
 
-    // ✅ Auto checkout 11:30 PM (Web-side)
+    // ✅ Auto checkout حسب وقت نهاية دوام الشخص (Web-side)
     function ensureAutoCheckoutTimer(){
       if (autoCheckoutTimer) clearInterval(autoCheckoutTimer);
       autoCheckoutTimer = setInterval(async ()=>{
@@ -3350,8 +3395,9 @@ function openInGoogleMaps(lat, lng) {
         const now = new Date();
         const h = now.getHours();
         const m = now.getMinutes();
+        const t = getAutoCheckoutTime("attendance", currentDriverId, doc);
 
-        const passed = (h > AUTO_CHECKOUT_HOUR) || (h === AUTO_CHECKOUT_HOUR && m >= AUTO_CHECKOUT_MIN);
+        const passed = (h > t.hour) || (h === t.hour && m >= t.min);
         if (!passed) return;
 
         try {
@@ -3593,10 +3639,12 @@ const subscribeEmpAttendanceFor = window.subscribeEmpAttendanceFor = function su
 
   if (empAttendanceTickTimer) clearInterval(empAttendanceTickTimer);
   empAttendanceTickTimer = setInterval(()=>{
+    empAutoCheckOutIfNeeded();
     renderEmployeeAttendanceBox(true);
     renderManagerEmployeesAttendanceList(true);
   }, 60000);
 
+  empAutoCheckOutIfNeeded();
   renderEmployeeAttendanceBox(true);
   renderManagerEmployeesAttendanceList(true);
 }
@@ -3771,6 +3819,65 @@ async function empDoCheckOut(){
 }
 
 
+async function empAutoCheckOutIfNeeded(){
+  if (!currentEmployeeId) return;
+
+  const dateKey = getWorkDateByKey("today");
+  if (empAttendanceDateKey !== dateKey) subscribeEmpAttendanceFor(dateKey);
+
+  const doc = getEmpAttendanceDocFor(currentEmployeeId);
+  if (!doc || !isDocCheckedInNow(doc)) return;
+
+  const now = new Date();
+  const h = now.getHours();
+  const m = now.getMinutes();
+  const t = getAutoCheckoutTime("attendanceEmployees", currentEmployeeId, doc);
+  const passed = (h > t.hour) || (h === t.hour && m >= t.min);
+  if (!passed) return;
+
+  try{
+    const pos = await getBestLatLngForEmployeeAttendance().catch(()=>null);
+    let acc = null, dist = null;
+    if (pos){
+      acc = pos.acc != null ? Math.round(pos.acc) : null;
+      dist = Math.round(inOfficeRadius(pos.lat, pos.lng).d);
+    }
+
+    const ref = db.ref(`attendanceEmployees/${dateKey}/${currentEmployeeId}`);
+    await new Promise((resolve, reject)=>{
+      ref.transaction(curr=>{
+        curr = curr || {};
+        const sessions = normalizeSessions(curr);
+        const idx = getOpenSessionIndex(sessions);
+        if (idx === -1) return;
+        sessions[idx] = Object.assign({}, sessions[idx]||{}, {
+          outAt: SERVER_TS,
+          outLat: OFFICE.lat,
+          outLng: OFFICE.lng,
+          outAcc: acc,
+          outDistance: dist,
+          outSource: pos ? (pos.source || null) : null,
+          autoOut: true,
+          autoClosed: true
+        });
+
+        return Object.assign({}, curr, {
+          sessions,
+          lastOutAt: SERVER_TS,
+          checkOutAt: SERVER_TS,
+          autoCheckOut: true,
+          autoClosed: true,
+          updatedAt: SERVER_TS
+        });
+      }, (err, committed)=>{
+        if (err) return reject(err);
+        resolve({committed});
+      }, false);
+    });
+  }catch(e){
+    console.error("empAutoCheckOutIfNeeded error:", e);
+  }
+}
 
 
 
