@@ -734,7 +734,7 @@ background:#fff;
           <div class="att-box">
             <div class="att-row">
               <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 20m</span>
-              <span class="badge">خروج تلقائي: <b>9:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
+              <span class="badge">خروج تلقائي: <b>11:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
             </div>
             <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
           </div>
@@ -748,7 +748,7 @@ background:#fff;
 <div class="att-box">
   <div class="att-row">
     <span class="badge">نفس نطاق الشركة</span>
-    <span class="badge">خروج تلقائي: <b>9:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
+    <span class="badge">خروج تلقائي: <b>11:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
   </div>
   <div style="margin-top:8px" class="list" id="manager-emp-attendance-list"></div>
 </div>
@@ -791,7 +791,7 @@ background:#fff;
       <h3>الحضور (داخل الشركة)</h3>
       <div class="hint">
         ✅ تقدر تسجّل دخول/خروج فقط إذا كنت داخل نطاق الشركة (20m).<br/>
-        ✅ إذا تعدّت الساعة 11:30 مساءً يسجل خروج تلقائي (إذا الصفحة شغالة).<br/>
+        ✅ إذا تعدّت الساعة 11:00 مساءً يسجل خروج تلقائي، ومصطفى إياد فقط 11:30 مساءً (إذا الصفحة شغالة).<br/>
         ✅ وقت حضورك اليوم يظهر هنا وأيضاً عند الأدمن.
       </div>
       <div class="att-box">
@@ -1629,9 +1629,9 @@ nextDrivers[key] = {
     const AREA_FREEHAND_MIN_DISTANCE_METERS = 10;
 
     // ✅ أوقات نهاية الدوام التلقائي:
-    // - كل المندوبين والموظفين: 21:00
+    // - كل المندوبين والموظفين: 23:00 / 11:00 مساءً
     // - الموظف مصطفى إياد فقط: 23:30 مثل السابق
-    const AUTO_CHECKOUT_DEFAULT_HOUR = 21;
+    const AUTO_CHECKOUT_DEFAULT_HOUR = 23;
     const AUTO_CHECKOUT_DEFAULT_MIN  = 0;
     const AUTO_CHECKOUT_MUSTAFA_HOUR = 23;
     const AUTO_CHECKOUT_MUSTAFA_MIN  = 30;
@@ -2028,7 +2028,7 @@ function parseFlexibleDateTime(input){
       if (basePath === "attendanceEmployees" && isMustafaIyadEmployee(id, doc)) {
         return { hour: AUTO_CHECKOUT_MUSTAFA_HOUR, min: AUTO_CHECKOUT_MUSTAFA_MIN, label: "11:30 PM" };
       }
-      return { hour: AUTO_CHECKOUT_DEFAULT_HOUR, min: AUTO_CHECKOUT_DEFAULT_MIN, label: "9:00 PM" };
+      return { hour: AUTO_CHECKOUT_DEFAULT_HOUR, min: AUTO_CHECKOUT_DEFAULT_MIN, label: "11:00 PM" };
     }
 
     function cutoffMsForDateKey(dateKey, basePath, id, doc){
