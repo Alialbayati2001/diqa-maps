@@ -562,17 +562,19 @@ background:#fff;
         </div>
 
         <div class="col">
-          <h3>إدارة المندوبين</h3>
-          <label for="new-driver-name">اسم المندوب الجديد</label>
-          <input id="new-driver-name" type="text" placeholder="مثال: حسين أحمد" />
+          <div id="drivers-management-section">
+            <h3>إدارة المندوبين</h3>
+            <label for="new-driver-name">اسم المندوب الجديد</label>
+            <input id="new-driver-name" type="text" placeholder="مثال: حسين أحمد" />
 
-          <label for="new-driver-pin">PIN للمندوب (4 أرقام)</label>
-          <!-- ✅ فقط ضبطنا 4 أرقام -->
-          <input id="new-driver-pin" type="password" inputmode="numeric" maxlength="4" placeholder="مثال: 1999" />
+            <label for="new-driver-pin">PIN للمندوب (4 أرقام)</label>
+            <!-- ✅ فقط ضبطنا 4 أرقام -->
+            <input id="new-driver-pin" type="password" inputmode="numeric" maxlength="4" placeholder="مثال: 1999" />
 
-          <button id="add-driver-btn">إضافة مندوب</button>
-          <p class="small" id="driver-add-msg"></p>
-          <div class="list" id="drivers-list"></div>
+            <button id="add-driver-btn">إضافة مندوب</button>
+            <p class="small" id="driver-add-msg"></p>
+            <div class="list" id="drivers-list"></div>
+          </div>
 <div id="employees-management-section">
 <hr style="border-color:#111827;margin:10px 0;" />
 
@@ -1389,6 +1391,7 @@ nextDrivers[key] = {
     const lmAttTitleEl = document.getElementById("lm-att-title");
 
 
+    const driversManagementSection = document.getElementById("drivers-management-section");
     const driversListDiv = document.getElementById("drivers-list");
     const newDriverNameInput = document.getElementById("new-driver-name");
     const newDriverPinInput = document.getElementById("new-driver-pin");
@@ -1719,11 +1722,19 @@ nextDrivers[key] = {
       return currentSessionRole === "manager";
     }
 
+    // ✅ إدارة المندوبين تظهر للمدير ولمحمد نجم، حتى لا تظهر ثم تختفي بعد تطبيق الصلاحيات
+    function canManageDriversSection() {
+      return currentSessionRole === "manager" || isLimitedManagerSession();
+    }
+
     function canSeeEmployeesAttendanceSection() {
       return currentSessionRole === "manager";
     }
 
     function applyManagerLikePermissions() {
+      if (driversManagementSection) {
+        driversManagementSection.classList.toggle("hidden", !canManageDriversSection());
+      }
       if (employeesManagementSection) {
         employeesManagementSection.classList.toggle("hidden", !canManageEmployeesSection());
       }
