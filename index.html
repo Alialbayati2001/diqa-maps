@@ -414,6 +414,120 @@ background:#fff;
     .order-delayed-item{border:1px solid #7f1d1d !important;background:rgba(239,68,68,.10) !important;}
     .order-delayed-text{color:#fca5a5 !important;font-weight:800;}
 
+
+    /* =========================
+       ✅ Attendance export/print report
+       ========================= */
+    .attendance-export-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin:10px 0;
+      padding:10px;
+      border:1px solid #1f2937;
+      border-radius:14px;
+      background:#020617;
+    }
+    .attendance-export-actions input[type="date"]{
+      max-width:190px;
+      margin-bottom:0;
+    }
+    .attendance-report-paper{
+      direction:rtl;
+      width:794px;
+      max-width:100%;
+      background:#fff;
+      color:#111827;
+      border:2px solid #111827;
+      border-radius:14px;
+      padding:16px;
+      font-family:system-ui, sans-serif;
+    }
+    .attendance-report-title{
+      text-align:center;
+      font-size:24px;
+      font-weight:900;
+      margin:0 0 4px;
+      color:#111827;
+    }
+    .attendance-report-date{
+      text-align:center;
+      font-size:14px;
+      font-weight:800;
+      margin-bottom:12px;
+      color:#dc2626;
+    }
+    .attendance-summary-grid{
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:8px;
+      margin-bottom:12px;
+    }
+    .attendance-summary-card{
+      border:2px solid #111827;
+      border-radius:10px;
+      padding:8px;
+      text-align:center;
+      font-weight:900;
+      background:#f8fafc;
+    }
+    .attendance-summary-card .num{
+      display:block;
+      font-size:22px;
+      margin-top:4px;
+      color:#dc2626;
+    }
+    .attendance-section-title{
+      font-size:18px;
+      font-weight:900;
+      margin:12px 0 6px;
+      color:#111827;
+    }
+    .attendance-report-table{
+      width:100%;
+      border-collapse:collapse;
+      table-layout:fixed;
+      background:#fff;
+      color:#111827;
+      margin-bottom:10px;
+    }
+    .attendance-report-table th,
+    .attendance-report-table td{
+      border:2px solid #111827;
+      padding:6px 4px;
+      text-align:center;
+      vertical-align:middle;
+      font-size:13px;
+      font-weight:800;
+      word-break:break-word;
+    }
+    .attendance-report-table th{
+      background:#e5e7eb;
+      font-weight:900;
+    }
+    .att-status-present{color:#16a34a;font-weight:900}
+    .att-status-open{color:#d97706;font-weight:900}
+    .att-status-absent{color:#dc2626;font-weight:900}
+    @media print{
+      .attendance-report-paper{
+        width:100% !important;
+        max-width:none !important;
+        border:0 !important;
+        border-radius:0 !important;
+        padding:0 !important;
+      }
+      .attendance-export-actions{display:none !important}
+      .attendance-report-table th,
+      .attendance-report-table td{
+        font-size:10px !important;
+        padding:3px 2px !important;
+        border:1px solid #000 !important;
+      }
+      .attendance-summary-grid{gap:4px !important}
+      .attendance-summary-card{padding:4px !important;border:1px solid #000 !important}
+    }
+
 </style>
 </head>
 
@@ -733,6 +847,14 @@ background:#fff;
             ✅ يعرض دخول/خروج المندوبين داخل نطاق الشركة (20m).<br/>
             ✅ NEW: يظهر مدة حضور اليوم لكل مندوب، وإذا بعده ما سجل خروج يظهر "مستمر".
           </div>
+          <div class="attendance-export-actions">
+            <span class="badge">تاريخ الحضور</span>
+            <input id="manager-attendance-date-input" type="date" />
+            <button type="button" id="load-attendance-date-btn" class="secondary">عرض اليوم المحدد</button>
+            <button type="button" id="print-attendance-report-btn" class="secondary">🖨️ طباعة حضور اليوم</button>
+            <button type="button" id="download-attendance-report-image-btn" class="secondary">🖼️ تحميل صورة الحضور</button>
+          </div>
+
           <div class="att-box">
             <div class="att-row">
               <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 20m</span>
@@ -939,6 +1061,270 @@ background:#fff;
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin="">
+  
+    // =========================
+    // ✅ Attendance Export / Print by selected date
+    // =========================
+    function getManagerSelectedWorkDateKey(){
+      const input = document.getElementById("manager-attendance-date-input");
+      const v = input ? String(input.value || "").trim() : "";
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+      return getWorkDateByKey(managerDaySelect ? (managerDaySelect.value || "today") : "today");
+    }
+
+    function initManagerAttendanceDateInput(){
+      const input = document.getElementById("manager-attendance-date-input");
+      if (!input || input.dataset.inited === "1") return;
+      input.dataset.inited = "1";
+      input.value = getWorkDateByKey(managerDaySelect ? (managerDaySelect.value || "today") : "today");
+    }
+
+    function syncAttendanceSubscriptionsForSelectedDate(){
+      initManagerAttendanceDateInput();
+      const dateKey = getManagerSelectedWorkDateKey();
+      if (dateKey){
+        subscribeAttendanceFor(dateKey);
+        subscribeEmpAttendanceFor(dateKey);
+      }
+      setTimeout(()=>{
+        renderManagerAttendanceList(true);
+        renderManagerEmployeesAttendanceList(true);
+      }, 50);
+    }
+
+    function getPersonAttendanceRows(kind){
+      const isEmp = kind === "employees";
+      const meta = isEmp ? (employeesMetaCache || {}) : (driversMetaCache || {});
+      const cache = isEmp ? (empAttendanceCache || {}) : (attendanceCache || {});
+      const rows = Object.entries(meta).map(([id, m])=>{
+        const doc = cache[id] || null;
+        const sessions = normalizeSessions(doc || {});
+        const first = sessions[0] || {};
+        const last = sessions.length ? (sessions[sessions.length - 1] || {}) : {};
+        const hasIn = !!(doc && (sessions.length || doc.checkInAt));
+        const isOpen = !!(doc && isDocCheckedInNow(doc));
+        const status = !hasIn ? "غائب" : (isOpen ? "مستمر" : "حاضر");
+        const worked = hasIn ? formatDuration(getDocWorkedMs(doc)) : "—";
+        const inAt = hasIn ? formatHHMM(first.inAt || doc.checkInAt) : "—";
+        const outAt = hasIn ? (isOpen ? "مستمر" : formatHHMM(last.outAt || doc.checkOutAt)) : "—";
+        return {
+          id,
+          name: (doc && (doc.driverName || doc.employeeName)) || (m && m.name) || id,
+          status,
+          worked,
+          inAt,
+          outAt,
+          sessionsCount: sessions.length || (hasIn ? 1 : 0),
+          hasIn,
+          isOpen,
+          workedMs: hasIn ? getDocWorkedMs(doc) : 0
+        };
+      });
+
+      rows.sort((a,b)=>{
+        if (a.hasIn !== b.hasIn) return a.hasIn ? -1 : 1;
+        if (a.isOpen !== b.isOpen) return a.isOpen ? -1 : 1;
+        return String(a.name || "").localeCompare(String(b.name || ""), "ar");
+      });
+
+      return rows;
+    }
+
+    function formatAttendanceReportDate(dateKey){
+      if (!dateKey) return "—";
+      const parts = String(dateKey).split("-");
+      if (parts.length !== 3) return dateKey;
+      return `${parts[2]} / ${parts[1]} / ${parts[0]}`;
+    }
+
+    function escapeHtml(s){
+      return String(s ?? "")
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#039;");
+    }
+
+    function buildAttendanceReportRowsHtml(rows){
+      if (!rows.length){
+        return `<tr><td colspan="6">لا توجد أسماء.</td></tr>`;
+      }
+      return rows.map((r, i)=>{
+        const cls = r.status === "غائب" ? "att-status-absent" : (r.status === "مستمر" ? "att-status-open" : "att-status-present");
+        return `
+          <tr>
+            <td>${i + 1}</td>
+            <td>${escapeHtml(r.name)}</td>
+            <td class="${cls}">${escapeHtml(r.status)}</td>
+            <td>${escapeHtml(r.inAt)}</td>
+            <td>${escapeHtml(r.outAt)}</td>
+            <td>${escapeHtml(r.worked)}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function buildAttendanceReportHtml(){
+      const dateKey = getManagerSelectedWorkDateKey();
+      const drivers = getPersonAttendanceRows("drivers");
+      const employees = getPersonAttendanceRows("employees");
+      const all = drivers.concat(employees);
+
+      const present = all.filter(x => x.hasIn).length;
+      const absent = all.filter(x => !x.hasIn).length;
+      const open = all.filter(x => x.isOpen).length;
+      const totalMs = all.reduce((sum,x)=>sum + (Number(x.workedMs)||0), 0);
+
+      return `
+        <div class="attendance-report-paper" id="attendance-report-paper">
+          <h2 class="attendance-report-title">تقرير الحضور اليومي - شركة الدقة</h2>
+          <div class="attendance-report-date">التاريخ: ${escapeHtml(formatAttendanceReportDate(dateKey))}</div>
+
+          <div class="attendance-summary-grid">
+            <div class="attendance-summary-card">إجمالي الأسماء<span class="num">${all.length}</span></div>
+            <div class="attendance-summary-card">الحاضرون<span class="num">${present}</span></div>
+            <div class="attendance-summary-card">الغائبون<span class="num">${absent}</span></div>
+            <div class="attendance-summary-card">مستمر الآن<span class="num">${open}</span></div>
+          </div>
+          <div class="attendance-summary-card" style="margin-bottom:12px;">إجمالي ساعات الحضور: <span class="num">${escapeHtml(formatDuration(totalMs))}</span></div>
+
+          <div class="attendance-section-title">حضور المندوبين</div>
+          <table class="attendance-report-table">
+            <thead>
+              <tr>
+                <th style="width:7%">#</th>
+                <th>الاسم</th>
+                <th style="width:15%">الحالة</th>
+                <th style="width:15%">الدخول</th>
+                <th style="width:15%">الخروج</th>
+                <th style="width:17%">المدة</th>
+              </tr>
+            </thead>
+            <tbody>${buildAttendanceReportRowsHtml(drivers)}</tbody>
+          </table>
+
+          <div class="attendance-section-title">حضور الموظفين</div>
+          <table class="attendance-report-table">
+            <thead>
+              <tr>
+                <th style="width:7%">#</th>
+                <th>الاسم</th>
+                <th style="width:15%">الحالة</th>
+                <th style="width:15%">الدخول</th>
+                <th style="width:15%">الخروج</th>
+                <th style="width:17%">المدة</th>
+              </tr>
+            </thead>
+            <tbody>${buildAttendanceReportRowsHtml(employees)}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function openAttendanceReportPrintWindow(){
+      syncAttendanceSubscriptionsForSelectedDate();
+      const html = buildAttendanceReportHtml();
+      const w = window.open("", "_blank");
+      if (!w){
+        alert("المتصفح منع نافذة الطباعة. اسمح بالـ Pop-ups وجرب مرة ثانية.");
+        return;
+      }
+      w.document.write(`
+        <!DOCTYPE html>
+        <html lang="ar" dir="rtl">
+        <head>
+          <meta charset="UTF-8">
+          <title>تقرير الحضور</title>
+          <style>
+            body{margin:0;padding:16px;background:#fff;font-family:system-ui,sans-serif;color:#111827}
+            ${Array.from(document.querySelectorAll("style")).map(s=>s.innerHTML).join("\n")}
+            @page{size:A4 portrait;margin:8mm}
+          </style>
+        </head>
+        <body>${html}</body>
+        </html>
+      `);
+      w.document.close();
+      w.focus();
+      setTimeout(()=>{ w.print(); }, 400);
+    }
+
+    async function downloadAttendanceReportImage(){
+      syncAttendanceSubscriptionsForSelectedDate();
+
+      if (typeof html2canvas !== "function"){
+        alert("مكتبة تحويل الصورة لم تُحمَّل بعد. حدّث الصفحة وجرب مرة ثانية.");
+        return;
+      }
+
+      const wrap = document.createElement("div");
+      wrap.style.position = "fixed";
+      wrap.style.left = "-100000px";
+      wrap.style.top = "0";
+      wrap.style.width = "794px";
+      wrap.style.background = "#ffffff";
+      wrap.style.padding = "16px";
+      wrap.style.zIndex = "-1";
+      wrap.innerHTML = buildAttendanceReportHtml();
+      document.body.appendChild(wrap);
+
+      try{
+        const target = wrap.firstElementChild;
+        const canvas = await html2canvas(target, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: "#ffffff"
+        });
+        const link = document.createElement("a");
+        link.download = `حضور-${getManagerSelectedWorkDateKey()}.png`;
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      }catch(e){
+        console.error(e);
+        alert("فشل تحميل صورة الحضور.");
+      }finally{
+        wrap.remove();
+      }
+    }
+
+    function setupAttendanceExportControls(){
+      initManagerAttendanceDateInput();
+
+      const loadBtn = document.getElementById("load-attendance-date-btn");
+      const printBtn = document.getElementById("print-attendance-report-btn");
+      const imgBtn = document.getElementById("download-attendance-report-image-btn");
+      const input = document.getElementById("manager-attendance-date-input");
+
+      if (loadBtn && loadBtn.dataset.bound !== "1"){
+        loadBtn.dataset.bound = "1";
+        loadBtn.addEventListener("click", syncAttendanceSubscriptionsForSelectedDate);
+      }
+      if (printBtn && printBtn.dataset.bound !== "1"){
+        printBtn.dataset.bound = "1";
+        printBtn.addEventListener("click", openAttendanceReportPrintWindow);
+      }
+      if (imgBtn && imgBtn.dataset.bound !== "1"){
+        imgBtn.dataset.bound = "1";
+        imgBtn.addEventListener("click", downloadAttendanceReportImage);
+      }
+      if (input && input.dataset.bound !== "1"){
+        input.dataset.bound = "1";
+        input.addEventListener("change", syncAttendanceSubscriptionsForSelectedDate);
+      }
+
+      if (managerDaySelect && managerDaySelect.dataset.attDateBound !== "1"){
+        managerDaySelect.dataset.attDateBound = "1";
+        managerDaySelect.addEventListener("change", ()=>{
+          const inp = document.getElementById("manager-attendance-date-input");
+          if (inp) inp.value = getWorkDateByKey(managerDaySelect.value || "today");
+          syncAttendanceSubscriptionsForSelectedDate();
+        });
+      }
+    }
+
+    setupAttendanceExportControls();
+
   </script>
 
   <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
@@ -2468,7 +2854,7 @@ function openInGoogleMaps(lat, lng) {
       return toISODateLocal(now);
     }
     function getActiveWorkDate(){
-      if (!managerCard.classList.contains("hidden")) return getWorkDateByKey(managerDaySelect.value || "today");
+      if (!managerCard.classList.contains("hidden")) return getManagerSelectedWorkDateKey();
       return getWorkDateByKey(driverDaySelect.value || "today");
     }
 
@@ -3924,7 +4310,7 @@ const renderEmployeeAttendanceBox = window.renderEmployeeAttendanceBox = functio
 
 const renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttendanceList = function renderManagerEmployeesAttendanceList(tickOnly=false){
   if (!managerEmpAttendanceList) return;
-  const dateKey = getWorkDateByKey(managerDaySelect.value || "today");
+  const dateKey = getManagerSelectedWorkDateKey();
   if (empAttendanceDateKey !== dateKey && !tickOnly){
     setTimeout(()=>subscribeEmpAttendanceFor(dateKey), 0);
   }
@@ -4051,7 +4437,7 @@ function renderDriverAttendanceBox(tickOnly=false){
 
     function renderManagerAttendanceList(tickOnly=false){
       if (!managerAttendanceList) return;
-      const dateKey = getWorkDateByKey(managerDaySelect.value || "today");
+      const dateKey = getManagerSelectedWorkDateKey();
       if (attendanceDateKey !== dateKey && !tickOnly){
         // ✅ FIX: لا تنادي subscribe مباشرة داخل render حتى ما يصير Loop
         if (!attendanceSubInProgress) setTimeout(()=>subscribeAttendanceFor(dateKey), 0);
@@ -7019,7 +7405,7 @@ function subscribeEmployees(){
       // ✅ NEW: مبلغ الفاتورة من الأدمن (اختياري)
       const adminAmount = orderAdminInvoiceAmountInput ? parseIQD(orderAdminInvoiceAmountInput.value) : null;
 
-      const workDate = getWorkDateByKey(managerDaySelect.value || "today");
+      const workDate = getManagerSelectedWorkDateKey();
       const ref = db.ref(`orders/${workDate}`).push();
 
       // ✅ أعطي أولوية افتراضية = آخر رقم + 1 لنفس المندوب (اليوم)
@@ -9839,12 +10225,12 @@ function addEmployee(){
       subscribeClients();
       subscribeEmployees();
 
-      subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
+      subscribeOrdersFor(getManagerSelectedWorkDateKey());
 
       // ✅ Attendance subscribe for manager
-      subscribeAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+      subscribeAttendanceFor(getManagerSelectedWorkDateKey());
       if (canSeeEmployeesAttendanceSection()) {
-        subscribeEmpAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+        subscribeEmpAttendanceFor(getManagerSelectedWorkDateKey());
       } else {
         unsubscribeEmpAttendance(true);
       }
@@ -9966,8 +10352,8 @@ employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
     subscribeDrivers();
     subscribeClients();
     subscribeEmployees();
-    subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
-    subscribeAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+    subscribeOrdersFor(getManagerSelectedWorkDateKey());
+    subscribeAttendanceFor(getManagerSelectedWorkDateKey());
     unsubscribeEmpAttendance(true);
     subscribeEmpAttendanceFor(getWorkDateByKey("today"));
     lmBtnCheckIn && (lmBtnCheckIn.onclick = ()=>empDoCheckIn());
@@ -10108,10 +10494,10 @@ logoutDriverBtn.onclick = () => {
     }
 
     managerDaySelect.addEventListener("change", ()=>{
-      subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
-      subscribeAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+      subscribeOrdersFor(getManagerSelectedWorkDateKey());
+      subscribeAttendanceFor(getManagerSelectedWorkDateKey());
       if (canSeeEmployeesAttendanceSection()) {
-        subscribeEmpAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
+        subscribeEmpAttendanceFor(getManagerSelectedWorkDateKey());
       } else {
         unsubscribeEmpAttendance(true);
       }
