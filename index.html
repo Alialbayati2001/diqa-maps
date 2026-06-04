@@ -733,10 +733,11 @@ background:#fff;
             ✅ يعرض دخول/خروج المندوبين داخل نطاق الشركة (20m).<br/>
             ✅ NEW: يظهر مدة حضور اليوم لكل مندوب، وإذا بعده ما سجل خروج يظهر "مستمر".
           </div>
-          <div class="att-box">
+          <div class="att-box" id="manager-attendance-report-box">
             <div class="att-row">
               <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 20m</span>
               <span class="badge">خروج تلقائي: <b>11:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
+              <button id="download-manager-attendance-image-btn" class="secondary">🖼️ تحميل صورة حضور المندوبين</button>
             </div>
             <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
           </div>
@@ -747,10 +748,11 @@ background:#fff;
   ✅ يعرض دخول/خروج الموظفين داخل نطاق الشركة (20m).<br/>
   ✅ يظهر مدة حضور اليوم لكل موظف.
 </div>
-<div class="att-box">
+<div class="att-box" id="manager-emp-attendance-report-box">
   <div class="att-row">
     <span class="badge">نفس نطاق الشركة</span>
     <span class="badge">خروج تلقائي: <b>11:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
+    <button id="download-manager-employees-attendance-image-btn" class="secondary">🖼️ تحميل صورة حضور الموظفين</button>
   </div>
   <div style="margin-top:8px" class="list" id="manager-emp-attendance-list"></div>
 </div>
@@ -8351,6 +8353,182 @@ function subscribeEmployees(){
     if (downloadDriverReportImageBtn) downloadDriverReportImageBtn.addEventListener('click', downloadDriverReportImage);
     if (printAllDriversReportsBtn) printAllDriversReportsBtn.addEventListener('click', printAllDriversReports);
     if (showAllDriversFeesBtn) showAllDriversFeesBtn.addEventListener('click', renderAllDriversFeesBox);
+
+
+    function escapeReportHtml(value){
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function buildAttendanceRowsForImage(kind){
+      const isEmployees = kind === 'employees';
+      const metaCache = isEmployees ? (employeesMetaCache || {}) : (driversMetaCache || {});
+      const attCache = isEmployees ? (empAttendanceCache || {}) : (attendanceCache || {});
+      const nameKey = isEmployees ? 'employeeName' : 'driverName';
+      const filterDriver = (!isEmployees && typeof getManagerSelectedDriverId === 'function') ? getManagerSelectedDriverId() : '';
+
+      const allPeople = Object.entries(metaCache).map(([id, meta]) => ({
+        id,
+        name: (meta && meta.name) ? meta.name : id
+      })).filter(x => isEmployees || !filterDriver || x.id === filterDriver);
+
+      const byId = {};
+      Object.entries(attCache).forEach(([id, doc]) => { byId[id] = doc || {}; });
+
+      const rows = allPeople.map(person => {
+        const doc = byId[person.id] || null;
+        const sessions = normalizeSessions(doc || {});
+        const hasAttendance = !!(doc && (sessions.length || doc.checkInAt));
+        const openIdx = hasAttendance ? getOpenSessionIndex(sessions) : -1;
+        const st = !hasAttendance ? 'غير حاضر' : (openIdx !== -1 ? 'مستمر' : 'مكتمل');
+        const worked = hasAttendance ? formatDuration(getDocWorkedMs(doc)) : '0س 0د';
+        const first = sessions.length ? (sessions[0] || {}) : {};
+        const last = sessions.length ? (sessions[sessions.length - 1] || {}) : {};
+        const checkIn = hasAttendance ? (first.inAt || doc.checkInAt || '') : '';
+        const checkOut = hasAttendance ? (last.outAt || doc.checkOutAt || '') : '';
+        const auto = hasAttendance && (doc.autoCheckOut || (last && last.autoOut)) ? 'نعم' : '—';
+        const dist = hasAttendance
+          ? ((last && last.inDistance != null) ? `${last.inDistance}m` : (doc.checkInDistance != null ? `${doc.checkInDistance}m` : '—'))
+          : '—';
+        return {
+          id: person.id,
+          name: (doc && doc[nameKey]) ? doc[nameKey] : person.name,
+          status: st,
+          checkIn: checkIn ? formatTime(checkIn) : '—',
+          checkOut: checkOut ? formatTime(checkOut) : '—',
+          worked,
+          sessions: hasAttendance ? Math.max(sessions.length, doc.checkInAt ? 1 : 0) : 0,
+          auto,
+          dist,
+          sortMs: tsToMs(checkIn || 0)
+        };
+      });
+
+      rows.sort((a,b)=> b.sortMs - a.sortMs || String(a.name||'').localeCompare(String(b.name||''), 'ar'));
+      return rows;
+    }
+
+    function buildAttendanceReportHtml(kind){
+      const isEmployees = kind === 'employees';
+      const title = isEmployees ? 'حضور الموظفين (دوام الشركة)' : 'الحضور (دوام الشركة) - المندوبين';
+      const dateKey = getWorkDateByKey(managerDaySelect.value || 'today');
+      const rows = buildAttendanceRowsForImage(kind);
+      const presentCount = rows.filter(r => r.status !== 'غير حاضر').length;
+      const activeCount = rows.filter(r => r.status === 'مستمر').length;
+      const completedCount = rows.filter(r => r.status === 'مكتمل').length;
+
+      const body = rows.length ? rows.map((r, i)=>`
+        <tr>
+          <td>${i + 1}</td>
+          <td class="name">${escapeReportHtml(r.name)}</td>
+          <td>${escapeReportHtml(r.status)}</td>
+          <td>${escapeReportHtml(r.checkIn)}</td>
+          <td>${escapeReportHtml(r.checkOut)}</td>
+          <td>${escapeReportHtml(r.worked)}</td>
+          <td>${escapeReportHtml(r.sessions)}</td>
+          <td>${escapeReportHtml(r.auto)}</td>
+          <td>${escapeReportHtml(r.dist)}</td>
+        </tr>`).join('') : `<tr><td colspan="9">لا يوجد بيانات حضور.</td></tr>`;
+
+      return `
+        <div class="attendance-image-report" dir="rtl">
+          <style>
+            .attendance-image-report{width:1120px;background:#fff;color:#111827;border:3px solid #111827;border-radius:16px;padding:18px;font-family:system-ui,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;box-sizing:border-box;}
+            .attendance-image-report *{box-sizing:border-box;}
+            .attendance-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-end;border-bottom:3px solid #111827;padding-bottom:12px;margin-bottom:12px;}
+            .attendance-title{font-size:30px;font-weight:950;color:#dc2626;line-height:1.2;}
+            .attendance-date{font-size:20px;font-weight:900;color:#111827;text-align:left;}
+            .attendance-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0 14px;}
+            .attendance-stat{border:2px solid #111827;border-radius:12px;padding:10px;text-align:center;font-weight:900;}
+            .attendance-stat .num{display:block;font-size:24px;color:#dc2626;margin-top:3px;}
+            table.attendance-table{width:100%;border-collapse:collapse;table-layout:fixed;background:#fff;color:#111827;}
+            .attendance-table th,.attendance-table td{border:2px solid #111827;padding:8px 6px;text-align:center;vertical-align:middle;font-size:18px;font-weight:800;line-height:1.25;word-break:break-word;}
+            .attendance-table th{font-size:19px;background:#f3f4f6;color:#111827;}
+            .attendance-table td.name{text-align:right;font-size:19px;font-weight:950;}
+            .attendance-foot{margin-top:12px;padding-top:10px;border-top:3px solid #111827;text-align:center;font-size:16px;font-weight:900;color:#dc2626;}
+          </style>
+          <div class="attendance-head">
+            <div class="attendance-title">${escapeReportHtml(title)}</div>
+            <div class="attendance-date">التاريخ: ${escapeReportHtml(dateKey)}</div>
+          </div>
+          <div class="attendance-stats">
+            <div class="attendance-stat">الإجمالي<span class="num">${rows.length}</span></div>
+            <div class="attendance-stat">الحاضرون<span class="num">${presentCount}</span></div>
+            <div class="attendance-stat">مستمر<span class="num">${activeCount}</span></div>
+            <div class="attendance-stat">مكتمل<span class="num">${completedCount}</span></div>
+          </div>
+          <table class="attendance-table">
+            <thead>
+              <tr>
+                <th style="width:6%">ت</th>
+                <th style="width:26%">الاسم</th>
+                <th style="width:12%">الحالة</th>
+                <th style="width:13%">الدخول</th>
+                <th style="width:13%">الخروج</th>
+                <th style="width:12%">المدة</th>
+                <th style="width:8%">جلسات</th>
+                <th style="width:7%">تلقائي</th>
+                <th style="width:9%">المسافة</th>
+              </tr>
+            </thead>
+            <tbody>${body}</tbody>
+          </table>
+          <div class="attendance-foot">شركة الدقة - تقرير حضور يومي</div>
+        </div>`;
+    }
+
+    async function downloadAttendanceImage(kind){
+      if (typeof html2canvas !== 'function'){
+        alert('مكتبة تحويل الصورة لم تُحمَّل بعد. حدّث الصفحة وجرب مرة ثانية.');
+        return;
+      }
+
+      const rows = buildAttendanceRowsForImage(kind);
+      if (!rows.length){
+        alert('لا توجد أسماء لعمل صورة حضور.');
+        return;
+      }
+
+      const wrap = document.createElement('div');
+      wrap.style.position = 'fixed';
+      wrap.style.left = '-100000px';
+      wrap.style.top = '0';
+      wrap.style.width = '1120px';
+      wrap.style.background = '#ffffff';
+      wrap.style.padding = '0';
+      wrap.style.zIndex = '-1';
+      wrap.innerHTML = buildAttendanceReportHtml(kind);
+      document.body.appendChild(wrap);
+
+      try{
+        const target = wrap.firstElementChild;
+        const canvas = await html2canvas(target, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          windowWidth: 1200
+        });
+        const link = document.createElement('a');
+        const dateKey = getWorkDateByKey(managerDaySelect.value || 'today');
+        link.download = `${kind === 'employees' ? 'حضور-الموظفين' : 'حضور-المندوبين'}-${dateKey}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      } catch(e){
+        console.error(e);
+        alert('فشل تحميل صورة الحضور.');
+      } finally {
+        wrap.remove();
+      }
+    }
+
+    const downloadManagerAttendanceImageBtn = document.getElementById('download-manager-attendance-image-btn');
+    const downloadManagerEmployeesAttendanceImageBtn = document.getElementById('download-manager-employees-attendance-image-btn');
+    if (downloadManagerAttendanceImageBtn) downloadManagerAttendanceImageBtn.addEventListener('click', ()=>downloadAttendanceImage('drivers'));
+    if (downloadManagerEmployeesAttendanceImageBtn) downloadManagerEmployeesAttendanceImageBtn.addEventListener('click', ()=>downloadAttendanceImage('employees'));
 
 
 
