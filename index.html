@@ -951,6 +951,24 @@ background:#fff;
 
   <script>
 
+    // ✅ FIX V2: منع أي نافذة alert من تجميد الموقع نهائياً
+    // أي تنبيه قديم أو جديد يتحول إلى رسالة داخل الصفحة/console فقط.
+    window.__diqaNativeAlert = window.__diqaNativeAlert || window.alert;
+    window.alert = function(msg) {
+      try {
+        const text = String(msg || "");
+        const el = document.getElementById("manager-alert") || document.getElementById("driver-alert") || document.getElementById("app-status");
+        if (el) {
+          el.textContent = text;
+          el.style.color = "#fca5a5";
+        }
+        console.warn("DIQA ALERT BLOCKED:", text);
+      } catch(e) {
+        console.warn("DIQA ALERT BLOCKED:", msg);
+      }
+    };
+
+
     // ---- Safety: prevent ReferenceError if function is called before definition (or old cached build)
     // We create a temporary stub and later overwrite it with the real function.
     window.renderManagerEmployeesAttendanceList = window.renderManagerEmployeesAttendanceList || function(){};
@@ -4326,18 +4344,23 @@ function renderDriverAttendanceBox(tickOnly=false){
     }
 
     function showPopup(msg) {
-      // ✅ FIX: لا تستخدم alert لأنّه يجمّد الموقع ويوقف التفاعل مع الصفحة
-      // التنبيه يظهر داخل لوحة المدير فقط، بدون نافذة منبثقة.
-      if (managerCard && managerCard.classList.contains("hidden")) return;
+      // ✅ FIX V2: ممنوع استخدام alert نهائياً لأنه يجمّد الموقع.
+      // التنبيه يظهر داخل لوحة المدير فقط، بدون نافذة OK، وبدون تكرار مزعج لنفس النص.
       try {
         const text = String(msg || "");
+        if (!text) return;
+        if (managerCard && managerCard.classList.contains("hidden")) return;
         if (managerAlert) {
+          const now = Date.now();
+          window.__lastInlinePopup = window.__lastInlinePopup || { text: "", at: 0 };
+          if (window.__lastInlinePopup.text === text && (now - window.__lastInlinePopup.at) < 60000) return;
+          window.__lastInlinePopup = { text, at: now };
           managerAlert.textContent = text;
           managerAlert.style.color = "#fca5a5";
         }
-        console.warn(text);
+        console.warn("DIQA POPUP:", text);
       } catch(e) {
-        console.warn(msg);
+        console.warn("DIQA POPUP:", msg);
       }
     }
 
@@ -9095,6 +9118,18 @@ function subscribeEmployees(){
       }
     }
 
+
+    function uniqueOrdersById(list) {
+      const seen = {};
+      return (Array.isArray(list) ? list : []).filter(o => {
+        const k = String((o && o.id) || "");
+        if (!k) return true;
+        if (seen[k]) return false;
+        seen[k] = true;
+        return true;
+      });
+    }
+
     function updateManagerAlertAndNotify() {
       if (!managerAlert) return;
 
@@ -9103,7 +9138,7 @@ function subscribeEmployees(){
       const staleMs = STALE_MS;
 
       const badList = [];
-      const delayedOrders = getDelayedOrdersList();
+      const delayedOrders = uniqueOrdersById(getDelayedOrdersList());
 
       if (USE_TRACCAR && lastTraccarOkAt && (now - lastTraccarOkAt > 15000)) {
         badList.push('انقطع جلب مواقع Traccar (تأكد من التوكن / أو CORS)');
@@ -9142,8 +9177,9 @@ function subscribeEmployees(){
         const key = String(order.id || '');
         if (!key) return;
         if (!lastDelayedOrderState[key]) {
+          // ✅ FIX V2: الطلب المتأخر لا يفتح نافذة alert نهائياً.
+          // نترك الصوت مرة واحدة فقط، والرسالة تظهر أسفل managerAlert في نهاية الدالة.
           beepOnce();
-          showPopup(`⏰ طلب متأخر أكثر من ساعة: ${order.clientName || 'زبون'} — المندوب: ${order.assignedDriverName || driverNameById(order.assignedDriverId)}`);
         }
         lastDelayedOrderState[key] = true;
       });
