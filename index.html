@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>اعمال شركة الدقة</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b1120'/%3E%3Ctext x='32' y='40' font-size='28' text-anchor='middle' fill='%2322c55e' font-family='Arial'%3ED%3C/text%3E%3C/svg%3E" />
 
   <!-- Leaflet CSS -->
   <link
@@ -967,6 +968,16 @@ background:#fff;
         console.warn("DIQA ALERT BLOCKED:", msg);
       }
     };
+
+    // ✅ FIX V3: بديل آمن لـ CSS.escape حتى لا تتعطل صفحة المندوب/المدير في بعض المتصفحات أو النسخ
+    function cssEscapeSafe(value) {
+      const str = String(value == null ? "" : value);
+      if (window.CSS && typeof window.CSS.escape === "function") {
+        return window.CSS.escape(str);
+      }
+      // Escape minimal characters used inside querySelector attribute values
+      return str.replace(/[\\"'\]\[.#:>+~*^$|=,(){}\s]/g, "\\$&");
+    }
 
 
     // ---- Safety: prevent ReferenceError if function is called before definition (or old cached build)
