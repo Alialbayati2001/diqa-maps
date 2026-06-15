@@ -5899,6 +5899,112 @@ function subscribeEmployees(){
       });
     }
 
+
+    // ✅ حذف لمرة واحدة فقط: تكرارات طلب "انور فون شهداء السيدية" بمبلغ 35,750
+    // لا يحذف أي طلب آخر، ولا يعمل كتنظيف دائم.
+    function normalizeArabicForOneTimeDelete(value){
+      return String(value || "")
+        .replace(/[أإآ]/g, "ا")
+        .replace(/ى/g, "ي")
+        .replace(/ة/g, "ه")
+        .replace(/[ـ\u064B-\u065F\u0670]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function normalizeAmountForOneTimeDelete(value){
+      if (value == null || value === "") return null;
+      const n = Number(String(value).replace(/[^0-9.-]/g, ""));
+      return Number.isFinite(n) ? Math.round(n) : null;
+    }
+
+    function isOnlyAnwarPhoneSaydiya35750(order){
+      const o = order || {};
+      const name = normalizeArabicForOneTimeDelete(o.clientName || o.client || o.name || "");
+
+      // شرط الاسم ضيق حتى لا يمس أي طلب آخر
+      const sameClient = name.includes("انور") && name.includes("فون") && name.includes("شهداء") && name.includes("السيديه");
+      if (!sameClient) return false;
+
+      // شرط المبلغ ضيق: 35,750 فقط
+      const fields = [
+        o.adminInvoiceAmount,
+        o.invoiceAmount,
+        o.amount,
+        o.deliveredCash,
+        o.amountReceived,
+        o.receivedAmount,
+        o.total
+      ];
+      return fields.some(v => normalizeAmountForOneTimeDelete(v) === 35750);
+    }
+
+    async function deleteOnlyThisDuplicateOrderOnce(workDate){
+      try{
+        const safeDate = workDate || getWorkDateByKey(managerDaySelect.value || "today");
+        const flagRef = db.ref(`oneTimeFixes/delete_anwar_phone_saydiya_35750/${safeDate}`);
+        const flagSnap = await flagRef.once("value");
+        if (flagSnap.exists() && flagSnap.val() && flagSnap.val().done === true) {
+          if (managerAlert) managerAlert.textContent = "ℹ️ حذف تكرارات طلب انور فون شهداء السيدية 35,750 تم سابقاً لهذا اليوم، ولن يتكرر.";
+          return;
+        }
+
+        const snap = await db.ref(`orders/${safeDate}`).once("value");
+        if (!snap.exists()) {
+          await flagRef.update({ done:true, checkedAt: SERVER_TS, removed:0, reason:"no_orders_for_day" });
+          return;
+        }
+
+        const matches = [];
+        snap.forEach(orderSnap => {
+          const order = orderSnap.val() || {};
+          if (isOnlyAnwarPhoneSaydiya35750(order)) {
+            matches.push({
+              orderId: String(orderSnap.key || ""),
+              ref: orderSnap.ref,
+              order,
+              createdMs: tsToMs(order.createdAt || order.assignedAt || order.updatedAt || 0) || 0
+            });
+          }
+          return false;
+        });
+
+        if (matches.length <= 1) {
+          await flagRef.update({ done:true, checkedAt: SERVER_TS, removed:0, found:matches.length, reason:"no_duplicates" });
+          if (managerAlert) managerAlert.textContent = "✅ لا توجد تكرارات لهذا الطلب المحدد، أو موجود نسخة واحدة فقط.";
+          return;
+        }
+
+        // نبقي أقدم نسخة فقط ونحذف الباقي لنفس الطلب بالضبط
+        matches.sort((a,b) => {
+          const am = a.createdMs || Number.MAX_SAFE_INTEGER;
+          const bm = b.createdMs || Number.MAX_SAFE_INTEGER;
+          if (am !== bm) return am - bm;
+          return a.orderId.localeCompare(b.orderId);
+        });
+
+        const keep = matches[0];
+        const removeList = matches.slice(1);
+        await Promise.allSettled(removeList.map(x => x.ref.remove()));
+
+        await flagRef.update({
+          done:true,
+          checkedAt: SERVER_TS,
+          workDate:safeDate,
+          keptOrderId:keep.orderId,
+          removed:removeList.length,
+          removedOrderIds:removeList.map(x => x.orderId)
+        });
+
+        if (managerAlert) {
+          managerAlert.textContent = `✅ تم حذف ${removeList.length} تكرار فقط من طلب انور فون شهداء السيدية مبلغ 35,750، وبقيت نسخة واحدة. هذا الإجراء لن يتكرر لهذا اليوم.`;
+        }
+      }catch(err){
+        console.error("One-time duplicate delete failed:", err);
+        if (managerAlert) managerAlert.textContent = "⚠️ تعذر حذف تكرارات هذا الطلب فقط. راجع Console للتفاصيل.";
+      }
+    }
+
     function getAreaOrdersStats(){
       const stats = {};
 
@@ -10074,7 +10180,9 @@ function addEmployee(){
       subscribeClients();
       subscribeEmployees();
 
-      subscribeOrdersFor(getWorkDateByKey(managerDaySelect.value || "today"));
+      const managerLoginWorkDate = getWorkDateByKey(managerDaySelect.value || "today");
+      subscribeOrdersFor(managerLoginWorkDate);
+      deleteOnlyThisDuplicateOrderOnce(managerLoginWorkDate);
 
       // ✅ Attendance subscribe for manager
       subscribeAttendanceFor(getWorkDateByKey(managerDaySelect.value || "today"));
