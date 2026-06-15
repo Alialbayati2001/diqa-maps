@@ -4326,9 +4326,19 @@ function renderDriverAttendanceBox(tickOnly=false){
     }
 
     function showPopup(msg) {
-      // ✅ الاشعارات (Popup) فقط داخل صفحة الادمن
+      // ✅ FIX: لا تستخدم alert لأنّه يجمّد الموقع ويوقف التفاعل مع الصفحة
+      // التنبيه يظهر داخل لوحة المدير فقط، بدون نافذة منبثقة.
       if (managerCard && managerCard.classList.contains("hidden")) return;
-      alert(msg);
+      try {
+        const text = String(msg || "");
+        if (managerAlert) {
+          managerAlert.textContent = text;
+          managerAlert.style.color = "#fca5a5";
+        }
+        console.warn(text);
+      } catch(e) {
+        console.warn(msg);
+      }
     }
 
     
