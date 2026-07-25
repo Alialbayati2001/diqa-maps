@@ -738,6 +738,7 @@ background:#fff;
             <div class="att-row">
               <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 20m</span>
               <span class="badge">خروج تلقائي: <b>11:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
+              <span class="badge">📥 حفظ صورة الحضور تلقائياً بعد <b>11:30 PM</b></span>
               <button id="download-manager-attendance-image-btn" class="secondary">🖼️ تحميل صورة حضور المندوبين</button>
             </div>
             <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
@@ -753,6 +754,7 @@ background:#fff;
   <div class="att-row">
     <span class="badge">نفس نطاق الشركة</span>
     <span class="badge">خروج تلقائي: <b>11:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
+    <span class="badge">📥 الحفظ التلقائي: <b>11:31 PM</b> + تعويض الأيام الفائتة عند أول فتح</span>
     <button id="download-manager-employees-attendance-image-btn" class="secondary">🖼️ تحميل صورة حضور الموظفين</button>
   </div>
   <div style="margin-top:8px" class="list" id="manager-emp-attendance-list"></div>
@@ -8514,12 +8516,12 @@ function subscribeEmployees(){
         .replace(/'/g, '&#039;');
     }
 
-    function buildAttendanceRowsForImage(kind){
+    function buildAttendanceRowsForImage(kind, options = {}){
       const isEmployees = kind === 'employees';
-      const metaCache = isEmployees ? (employeesMetaCache || {}) : (driversMetaCache || {});
-      const attCache = isEmployees ? (empAttendanceCache || {}) : (attendanceCache || {});
+      const metaCache = options.metaCache || (isEmployees ? (employeesMetaCache || {}) : (driversMetaCache || {}));
+      const attCache = options.attCache || (isEmployees ? (empAttendanceCache || {}) : (attendanceCache || {}));
       const nameKey = isEmployees ? 'employeeName' : 'driverName';
-      const filterDriver = (!isEmployees && typeof getManagerSelectedDriverId === 'function') ? getManagerSelectedDriverId() : '';
+      const filterDriver = (!isEmployees && !options.ignoreManagerFilter && typeof getManagerSelectedDriverId === 'function') ? getManagerSelectedDriverId() : '';
 
       const allPeople = Object.entries(metaCache).map(([id, meta]) => ({
         id,
@@ -8562,11 +8564,11 @@ function subscribeEmployees(){
       return rows;
     }
 
-    function buildAttendanceReportHtml(kind){
+    function buildAttendanceReportHtml(kind, options = {}){
       const isEmployees = kind === 'employees';
       const title = isEmployees ? 'حضور الموظفين (دوام الشركة)' : 'الحضور (دوام الشركة) - المندوبين';
-      const dateKey = getWorkDateByKey(managerDaySelect.value || 'today');
-      const rows = buildAttendanceRowsForImage(kind);
+      const dateKey = options.dateKey || getWorkDateByKey(managerDaySelect.value || 'today');
+      const rows = buildAttendanceRowsForImage(kind, options);
       const presentCount = rows.filter(r => r.status !== 'غير حاضر').length;
       const activeCount = rows.filter(r => r.status === 'مستمر').length;
       const completedCount = rows.filter(r => r.status === 'مكتمل').length;
@@ -8631,16 +8633,16 @@ function subscribeEmployees(){
         </div>`;
     }
 
-    async function downloadAttendanceImage(kind){
+    async function downloadAttendanceImage(kind, options = {}){
       if (typeof html2canvas !== 'function'){
-        alert('مكتبة تحويل الصورة لم تُحمَّل بعد. حدّث الصفحة وجرب مرة ثانية.');
-        return;
+        if (!options.silent) alert('مكتبة تحويل الصورة لم تُحمَّل بعد. حدّث الصفحة وجرب مرة ثانية.');
+        return false;
       }
 
-      const rows = buildAttendanceRowsForImage(kind);
+      const rows = buildAttendanceRowsForImage(kind, options);
       if (!rows.length){
-        alert('لا توجد أسماء لعمل صورة حضور.');
-        return;
+        if (!options.silent) alert('لا توجد أسماء لعمل صورة حضور.');
+        return false;
       }
 
       const wrap = document.createElement('div');
@@ -8651,7 +8653,7 @@ function subscribeEmployees(){
       wrap.style.background = '#ffffff';
       wrap.style.padding = '0';
       wrap.style.zIndex = '-1';
-      wrap.innerHTML = buildAttendanceReportHtml(kind);
+      wrap.innerHTML = buildAttendanceReportHtml(kind, options);
       document.body.appendChild(wrap);
 
       try{
@@ -8663,13 +8665,17 @@ function subscribeEmployees(){
           windowWidth: 1200
         });
         const link = document.createElement('a');
-        const dateKey = getWorkDateByKey(managerDaySelect.value || 'today');
+        const dateKey = options.dateKey || getWorkDateByKey(managerDaySelect.value || 'today');
         link.download = `${kind === 'employees' ? 'حضور-الموظفين' : 'حضور-المندوبين'}-${dateKey}.png`;
         link.href = canvas.toDataURL('image/png');
+        document.body.appendChild(link);
         link.click();
+        link.remove();
+        return true;
       } catch(e){
         console.error(e);
-        alert('فشل تحميل صورة الحضور.');
+        if (!options.silent) alert('فشل تحميل صورة الحضور.');
+        return false;
       } finally {
         wrap.remove();
       }
@@ -8680,6 +8686,308 @@ function subscribeEmployees(){
     if (downloadManagerAttendanceImageBtn) downloadManagerAttendanceImageBtn.addEventListener('click', ()=>downloadAttendanceImage('drivers'));
     if (downloadManagerEmployeesAttendanceImageBtn) downloadManagerEmployeesAttendanceImageBtn.addEventListener('click', ()=>downloadAttendanceImage('employees'));
 
+
+    // =========================
+    // ✅ AUTO V2: حفظ صورة الحضور يومياً + تعويض كل الأيام الفائتة
+    // - التنفيذ الفعلي لليوم الحالي يبدأ 11:31 PM حتى تكتمل عمليات الخروج التلقائي 11:30.
+    // - إذا كان المتصفح مغلقاً، عند أول فتح لاحقاً يبدأ من أول يوم غير محفوظ ويكمل يوماً بعد يوم.
+    // - كل صورة تجمع حضور المندوبين + الموظفين.
+    // - لا يقفز فوق يوم فشل حفظه: يبقى آخر يوم مكتمل محفوظاً في localStorage ويعاود من بعده.
+    // - علامات v1 القديمة تبقى معتمدة حتى لا يعيد تنزيل يوم محفوظ مسبقاً.
+    // =========================
+    const AUTO_ATTENDANCE_DOWNLOAD_HOUR = 23;
+    const AUTO_ATTENDANCE_DOWNLOAD_MINUTE = 31;
+    const AUTO_ATTENDANCE_DOWNLOAD_CHECK_MS = 60 * 1000;
+    const AUTO_ATTENDANCE_STORAGE_PREFIX = 'diqa_auto_attendance_saved_v1_';
+    const AUTO_ATTENDANCE_LAST_COMPLETE_KEY = 'diqa_auto_attendance_last_complete_v2';
+    const AUTO_ATTENDANCE_CATCHUP_START_DATE = '2026-07-26'; // بداية نظام تعويض الأيام الفائتة
+    let autoAttendanceDownloadTimer = null;
+    let autoAttendanceDownloadRunning = false;
+
+    function getAutoAttendanceTargetDateKey(now = new Date()){
+      const cutoff = new Date(now);
+      cutoff.setHours(AUTO_ATTENDANCE_DOWNLOAD_HOUR, AUTO_ATTENDANCE_DOWNLOAD_MINUTE, 0, 0);
+
+      // بعد 11:31: اليوم صار جاهزاً للحفظ.
+      if (now.getTime() >= cutoff.getTime()) return toISODateLocal(now);
+
+      // قبل 11:31: آخر يوم جاهز هو أمس.
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return toISODateLocal(yesterday);
+    }
+
+    function autoAttendanceStorageKey(dateKey){
+      return AUTO_ATTENDANCE_STORAGE_PREFIX + String(dateKey || '');
+    }
+
+    function isValidAutoAttendanceDateKey(dateKey){
+      return /^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || '')) && !!dateKeyToLocalDate(dateKey);
+    }
+
+    function addDaysToAutoAttendanceDateKey(dateKey, days){
+      const d = dateKeyToLocalDate(dateKey);
+      if (!d) return '';
+      d.setDate(d.getDate() + Number(days || 0));
+      return toISODateLocal(d);
+    }
+
+    function compareAutoAttendanceDateKeys(a, b){
+      return String(a || '').localeCompare(String(b || ''));
+    }
+
+    function isAutoAttendanceSaved(dateKey){
+      try { return localStorage.getItem(autoAttendanceStorageKey(dateKey)) === '1'; }
+      catch (_) { return false; }
+    }
+
+    function markAutoAttendanceSaved(dateKey){
+      try { localStorage.setItem(autoAttendanceStorageKey(dateKey), '1'); }
+      catch (_) {}
+    }
+
+    function getAutoAttendanceLastCompleteDateKey(){
+      try {
+        const v = localStorage.getItem(AUTO_ATTENDANCE_LAST_COMPLETE_KEY) || '';
+        return isValidAutoAttendanceDateKey(v) ? v : '';
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function setAutoAttendanceLastCompleteDateKey(dateKey){
+      if (!isValidAutoAttendanceDateKey(dateKey)) return;
+      try { localStorage.setItem(AUTO_ATTENDANCE_LAST_COMPLETE_KEY, dateKey); }
+      catch (_) {}
+    }
+
+    function getLatestLegacyAutoAttendanceSavedDateKey(maxDateKey){
+      let latest = '';
+      try {
+        for (let i = 0; i < localStorage.length; i++){
+          const key = localStorage.key(i) || '';
+          if (!key.startsWith(AUTO_ATTENDANCE_STORAGE_PREFIX)) continue;
+          if (localStorage.getItem(key) !== '1') continue;
+          const dateKey = key.slice(AUTO_ATTENDANCE_STORAGE_PREFIX.length);
+          if (!isValidAutoAttendanceDateKey(dateKey)) continue;
+          if (maxDateKey && compareAutoAttendanceDateKeys(dateKey, maxDateKey) > 0) continue;
+          if (!latest || compareAutoAttendanceDateKeys(dateKey, latest) > 0) latest = dateKey;
+        }
+      } catch (_) {}
+      return latest;
+    }
+
+    function initializeAutoAttendanceLastComplete(latestReadyDateKey){
+      let lastComplete = getAutoAttendanceLastCompleteDateKey();
+      if (lastComplete && compareAutoAttendanceDateKeys(lastComplete, latestReadyDateKey) <= 0) {
+        return lastComplete;
+      }
+
+      // ترحيل النسخة السابقة: إذا سبق وحفظنا يوماً، نعتبر أحدث يوم محفوظ نقطة البداية.
+      const legacyLatest = getLatestLegacyAutoAttendanceSavedDateKey(latestReadyDateKey);
+      if (legacyLatest){
+        setAutoAttendanceLastCompleteDateKey(legacyLatest);
+        return legacyLatest;
+      }
+
+      // أول تشغيل للنسخة الجديدة: نبدأ من تاريخ تفعيل ميزة التعويض (2026-07-26).
+      // بهذا إذا لم تفتح الصفحة عدة أيام بعد تثبيت هذه النسخة، أول فتح لاحقاً يعوضها كلها.
+      let firstTracked = AUTO_ATTENDANCE_CATCHUP_START_DATE;
+      if (compareAutoAttendanceDateKeys(firstTracked, latestReadyDateKey) > 0) firstTracked = latestReadyDateKey;
+      const baseline = addDaysToAutoAttendanceDateKey(firstTracked, -1);
+      if (baseline) setAutoAttendanceLastCompleteDateKey(baseline);
+      return baseline;
+    }
+
+    function getAutoAttendanceMissingDateKeys(latestReadyDateKey){
+      if (!isValidAutoAttendanceDateKey(latestReadyDateKey)) return [];
+
+      let lastComplete = initializeAutoAttendanceLastComplete(latestReadyDateKey);
+      if (!lastComplete) return [latestReadyDateKey];
+
+      const dates = [];
+      let cursor = addDaysToAutoAttendanceDateKey(lastComplete, 1);
+      let guard = 0;
+
+      while (cursor && compareAutoAttendanceDateKeys(cursor, latestReadyDateKey) <= 0 && guard < 2000){
+        dates.push(cursor);
+        cursor = addDaysToAutoAttendanceDateKey(cursor, 1);
+        guard++;
+      }
+      return dates;
+    }
+
+    function sleepAutoAttendance(ms){
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function fetchAutoAttendanceMetaSnapshot(){
+      const [driversMetaSnap, employeesMetaSnap] = await Promise.all([
+        db.ref('driversMeta').once('value'),
+        db.ref('employeesMeta').once('value')
+      ]);
+      return {
+        driversMeta: driversMetaSnap.val() || {},
+        employeesMeta: employeesMetaSnap.val() || {}
+      };
+    }
+
+    async function fetchAutoAttendanceSnapshot(dateKey, sharedMeta = null){
+      const meta = sharedMeta || await fetchAutoAttendanceMetaSnapshot();
+      const [driversAttSnap, employeesAttSnap] = await Promise.all([
+        db.ref(`attendance/${dateKey}`).once('value'),
+        db.ref(`attendanceEmployees/${dateKey}`).once('value')
+      ]);
+
+      let driversAtt = driversAttSnap.val() || {};
+      let employeesAtt = employeesAttSnap.val() || {};
+
+      // قبل الصورة: تأكد من إغلاق أي جلسة بقيت مفتوحة حسب وقت نهاية الدوام.
+      await forceCloseOpenSessions(dateKey, driversAtt, 'attendance', AUTO_CLOSE_GUARD.drivers);
+      await forceCloseOpenSessions(dateKey, employeesAtt, 'attendanceEmployees', AUTO_CLOSE_GUARD.employees);
+
+      // نقرأ مرة ثانية لأن forceCloseOpenSessions قد يكون حدّث Firebase.
+      const [driversAttFinalSnap, employeesAttFinalSnap] = await Promise.all([
+        db.ref(`attendance/${dateKey}`).once('value'),
+        db.ref(`attendanceEmployees/${dateKey}`).once('value')
+      ]);
+      driversAtt = driversAttFinalSnap.val() || {};
+      employeesAtt = employeesAttFinalSnap.val() || {};
+
+      return {
+        driversMeta: meta.driversMeta || {},
+        employeesMeta: meta.employeesMeta || {},
+        driversAtt,
+        employeesAtt
+      };
+    }
+
+    function buildCombinedAttendanceArchiveHtml(dateKey, data){
+      const driversOptions = {
+        dateKey,
+        metaCache: data.driversMeta,
+        attCache: data.driversAtt,
+        ignoreManagerFilter: true
+      };
+      const employeesOptions = {
+        dateKey,
+        metaCache: data.employeesMeta,
+        attCache: data.employeesAtt,
+        ignoreManagerFilter: true
+      };
+
+      return `
+        <div class="daily-attendance-archive" dir="rtl" style="width:1120px;background:#e5e7eb;padding:18px;font-family:system-ui,-apple-system,'Segoe UI',Tahoma,Arial,sans-serif;box-sizing:border-box;">
+          <div style="background:#0b1120;color:#fff;border-radius:16px;padding:14px 18px;margin-bottom:16px;text-align:center;">
+            <div style="font-size:30px;font-weight:950;">شركة الدقة - الحضور اليومي الكامل</div>
+            <div style="font-size:20px;font-weight:800;margin-top:6px;">${escapeReportHtml(dateKey)}</div>
+          </div>
+          ${buildAttendanceReportHtml('drivers', driversOptions)}
+          <div style="height:18px;"></div>
+          ${buildAttendanceReportHtml('employees', employeesOptions)}
+        </div>`;
+    }
+
+    async function downloadCombinedAttendanceArchive(dateKey, data){
+      if (typeof html2canvas !== 'function') return false;
+
+      const hasDrivers = Object.keys(data.driversMeta || {}).length > 0;
+      const hasEmployees = Object.keys(data.employeesMeta || {}).length > 0;
+      if (!hasDrivers && !hasEmployees) return false;
+
+      const wrap = document.createElement('div');
+      wrap.style.position = 'fixed';
+      wrap.style.left = '-100000px';
+      wrap.style.top = '0';
+      wrap.style.width = '1120px';
+      wrap.style.background = '#ffffff';
+      wrap.style.padding = '0';
+      wrap.style.zIndex = '-1';
+      wrap.innerHTML = buildCombinedAttendanceArchiveHtml(dateKey, data);
+      document.body.appendChild(wrap);
+
+      try {
+        const target = wrap.firstElementChild;
+        const canvas = await html2canvas(target, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          windowWidth: 1200
+        });
+        const link = document.createElement('a');
+        link.download = `الحضور-اليومي-الكامل-${dateKey}.png`;
+        link.href = canvas.toDataURL('image/png');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        return true;
+      } catch (e) {
+        console.error('Auto attendance image download failed:', e);
+        return false;
+      } finally {
+        wrap.remove();
+      }
+    }
+
+    async function runAutoAttendanceDailyDownload(){
+      if (autoAttendanceDownloadRunning) return;
+
+      const latestReadyDateKey = getAutoAttendanceTargetDateKey(new Date());
+      if (!latestReadyDateKey) return;
+
+      const missingDates = getAutoAttendanceMissingDateKeys(latestReadyDateKey);
+      if (!missingDates.length) return;
+
+      autoAttendanceDownloadRunning = true;
+      try {
+        // أسماء الموظفين والمندوبين مشتركة لكل الأيام؛ نقرأها مرة واحدة فقط.
+        const sharedMeta = await fetchAutoAttendanceMetaSnapshot();
+
+        for (const dateKey of missingDates){
+          // إذا كانت صورة هذا اليوم محفوظة من النسخة السابقة، فقط نتقدم بالمؤشر ولا نعيد تنزيلها.
+          if (isAutoAttendanceSaved(dateKey)){
+            setAutoAttendanceLastCompleteDateKey(dateKey);
+            continue;
+          }
+
+          const data = await fetchAutoAttendanceSnapshot(dateKey, sharedMeta);
+          const ok = await downloadCombinedAttendanceArchive(dateKey, data);
+
+          if (!ok){
+            console.warn(`⚠️ لم يتم حفظ صورة الحضور: ${dateKey}. سيعاد المحاولة لاحقاً.`);
+            break;
+          }
+
+          markAutoAttendanceSaved(dateKey);
+          setAutoAttendanceLastCompleteDateKey(dateKey);
+          console.log(`✅ تم تنزيل صورة الحضور تلقائياً: ${dateKey}`);
+
+          // فاصل بسيط بين الأيام عند وجود عدة أيام فائتة.
+          // قد يطلب Chrome السماح للموقع بتحميل عدة ملفات تلقائياً؛ بعد السماح يكمل بشكل طبيعي.
+          await sleepAutoAttendance(1200);
+        }
+      } catch (e) {
+        console.error('Auto attendance daily catch-up error:', e);
+      } finally {
+        autoAttendanceDownloadRunning = false;
+      }
+    }
+
+    function startAutoAttendanceDailyDownload(){
+      if (autoAttendanceDownloadTimer) clearInterval(autoAttendanceDownloadTimer);
+      runAutoAttendanceDailyDownload();
+      autoAttendanceDownloadTimer = setInterval(runAutoAttendanceDailyDownload, AUTO_ATTENDANCE_DOWNLOAD_CHECK_MS);
+    }
+
+    // إذا رجع المستخدم للتبويب، نفحص فوراً كل الأيام الناقصة بدل انتظار الدقيقة التالية.
+    document.addEventListener('visibilitychange', ()=>{
+      if (!document.hidden) runAutoAttendanceDailyDownload();
+    });
+
+    // أيضاً عند رجوع اتصال الإنترنت نعيد المحاولة فوراً إذا كان هناك يوم فشل سابقاً.
+    window.addEventListener('online', ()=>runAutoAttendanceDailyDownload());
+
+    startAutoAttendanceDailyDownload();
 
 
 
