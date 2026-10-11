@@ -1115,8 +1115,8 @@ background:#fff;
         fetch(traccarApi("/api/positions"), { headers, cache: "no-store" })
       ]);
 
-      if (!devR.ok) throw new Error("devices failed: " + devR.status);
-      if (!posR.ok) throw new Error("positions failed: " + posR.status);
+      if (!devR.ok) throw new Error("Traccar /api/devices: HTTP " + devR.status + (devR.status === 401 || devR.status === 403 ? " (token/permissions)" : ""));
+      if (!posR.ok) throw new Error("Traccar /api/positions: HTTP " + posR.status + (posR.status === 401 || posR.status === 403 ? " (token/permissions)" : ""));
 
       const devices = await devR.json();
       const positions = await posR.json();
@@ -1126,8 +1126,10 @@ background:#fff;
 
       const data = (positions || []).map(p => {
         const dev = devById[String(p.deviceId)] || {};
-        const t = p.deviceTime || p.fixTime || p.serverTime || p.updatedAt || null;
-        const tMs = tsToMs(t) || Date.now();
+        // GPS fix time represents when this location was actually measured.
+        // Use deviceTime only when fixTime is missing; do not treat the HTTP fetch time as GPS time.
+        const t = p.fixTime || p.deviceTime || p.serverTime || p.updatedAt || null;
+        const tMs = tsToMs(t) || 0;
 
         return {
           deviceId: String(p.deviceId),
@@ -1138,7 +1140,7 @@ background:#fff;
           rawSpeed: (p.speed != null ? p.speed : (p.attributes && p.attributes.speed != null ? p.attributes.speed : null)),
           time: tMs
         };
-      }).filter(x => !Number.isNaN(x.lat) && !Number.isNaN(x.lng));
+      }).filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng) && Math.abs(x.lat) <= 90 && Math.abs(x.lng) <= 180);
 
       return { ok: true, data };
     }
@@ -1166,6 +1168,12 @@ background:#fff;
         }
 
         lastTraccarOkAt = Date.now();
+        // Diagnostics only; do not display secrets such as tokens.
+        window.diqaTraccarStatus = { ok: true, checkedAt: new Date().toISOString(), devicePositions: j.data.length, error: null };
+        if (managerAlert && managerAlert.dataset.traccarError === '1') {
+          managerAlert.textContent = '';
+          delete managerAlert.dataset.traccarError;
+        }
 
         const nextDrivers = {};
         const nextEmployees = {};
@@ -1175,9 +1183,9 @@ background:#fff;
 
           const lat = Number(p.lat);
           const lng = Number(p.lng);
-          if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+          if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
 
-          const whenMs = tsToMs(p.time) || Date.now();
+          const whenMs = tsToMs(p.time) || 0;
           const acc = (p.accuracy != null) ? Number(p.accuracy) : null;
 
           const st = calcLiveState(whenMs);
@@ -1277,11 +1285,14 @@ nextDrivers[key] = {
 
       } catch (e) {
         console.error("Traccar fetch error:", e);
-        if (managerAlert) {
-          managerAlert.textContent =
-            managerAlert.textContent ||
-            "⚠️ تعذر جلب مواقع Traccar الآن. إذا ظهر CORS نحتاج Proxy بسيط.";
+        const diagnostic = e && e.message ? String(e.message) : String(e);
+        window.diqaTraccarStatus = { ok: false, checkedAt: new Date().toISOString(), error: diagnostic };
+        if (managerAlert && (!managerAlert.textContent || managerAlert.dataset.traccarError === '1')) {
+          managerAlert.textContent = "⚠️ تعذر جلب مواقع Traccar: " + diagnostic + ". افحص Network إذا ظهرت Failed to fetch (قد يكون CORS أو الاتصال).";
+          managerAlert.dataset.traccarError = '1';
         }
+        // Keep last-known locations on screen; do not clear them on an API failure.
+        updateDriverMarkers();
       }
     }
 
@@ -9855,11 +9866,7 @@ function renderDriversSelect() {
           delete driverMarkers[id];
           return;
         }
-        const st = calcLiveState(loc.updatedAt);
-        if (st.isStale) {
-          map.removeLayer(driverMarkers[id]);
-          delete driverMarkers[id];
-        }
+        // Keep last known location even if offline; it is rendered in gray below.
       });
 
       Object.entries(driversLocationsCache).forEach(([id, loc]) => {
@@ -9867,7 +9874,7 @@ function renderDriversSelect() {
         if (typeof loc.lat !== "number" || typeof loc.lng !== "number") return;
 
         const st = calcLiveState(loc.updatedAt);
-        if (st.isStale) return;
+        // Stale position is still useful as last known location (gray marker).
 
         const liveState = st.isOnline ? "online" : (st.isWarn ? "warn" : "offline");
         const icon = makeDriverIcon(liveState);
@@ -9877,7 +9884,7 @@ function renderDriversSelect() {
         const speedText = Number.isFinite(Number(loc.speedKmh)) ? `<br/>السرعة: ${formatSpeedKmh(loc.speedKmh)}` : "";
         const speedSourceText = loc.speedSource === 'traccar' ? `<br/>مصدر السرعة: تراكر` : (loc.speedSource === 'map' ? `<br/>مصدر السرعة: من حركة الخريطة` : `<br/>مصدر السرعة: احتياطي`);
 
-        const stateText = st.isOnline ? "🟢 مباشر" : "🟡 آخر إشارة قديمة شوي";
+        const stateText = st.isOnline ? "🟢 مباشر" : (st.isWarn ? "🟡 إشارة متأخرة" : "⚪ غير متصل — آخر موقع معروف (ليس مباشراً)");
         const popupHtml =
           `مندوب: ${loc.name || id}<br/>` +
           `الحالة: ${stateText}<br/>` +
