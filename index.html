@@ -486,6 +486,15 @@ background:#fff;
 
           <!-- تنبيه نصي داخل الصفحة -->
           <p id="manager-alert" class="small" style="color:#fca5a5; margin:8px 0 0;"></p>
+          <div id="traccar-settings" class="att-box" style="margin-top:10px">
+            <label for="traccar-token-input">اتصال Traccar — ألصق Token جديد من حساب Traccar (لا تنشره داخل ملف الموقع)</label>
+            <input id="traccar-token-input" type="password" autocomplete="off" spellcheck="false" placeholder="Token" />
+            <div class="inline-actions">
+              <button type="button" id="traccar-test-btn" class="secondary">فحص الاتصال وحفظ التوكن مؤقتاً</button>
+              <button type="button" id="traccar-clear-btn" class="secondary">مسح التوكن</button>
+            </div>
+            <p class="small" id="traccar-test-status" aria-live="polite">التوكن يبقى فقط بذاكرة هذا التبويب حتى إغلاقه؛ لا يُحفظ في Firebase.</p>
+          </div>
 
           <div class="inline-actions">
             <label class="badge" style="cursor:pointer;">
@@ -995,13 +1004,12 @@ background:#fff;
     // ✅ رابط Traccar Web UI/API على Railway
     const TRACCAR_BASE_URL = "https://traccar-production-1667.up.railway.app";
 
-    // ✅ (مهم) Token من Traccar (Settings > Preferences > Token)
-    // ⚠️ يفضل تولّد Token جديد لأن هذا تم إرساله هنا
-    const TRACCAR_TOKEN = "SDBGAiEAykhkEUsDWIJVesQdfrRoFbppNIhriMlg4g2rdh4-MHICIQD6AOj9M6TNZhmDfeinNJG3y4lkPQJj3XbuGFMg4iteYHsiaSI6MTA4Njk4MTU3NTE4MjcyNjAzMiwidSI6MSwiZSI6IjIwMjYtMTAtMTdUMjE6MDA6MDAuMDAwKzAwOjAwIn0";
-
-    // ✅ نتركها موجودة (بدون حذف) إذا تحتاج لاحقاً، لكن حالياً التوكن هو المعتمد
-    const TRACCAR_EMAIL = "PUT_EMAIL_HERE";
-    const TRACCAR_PASSWORD = "PUT_PASSWORD_HERE";
+    // SECURITY: Never embed a Traccar credential in publicly hosted HTML.
+    // Production recommendation: authenticated server-side proxy, not browser-side tokens.
+    const TRACCAR_TOKEN_STORAGE = "diqa_traccar_token_session_v1";
+    let traccarRuntimeToken = "";
+    try { traccarRuntimeToken = sessionStorage.getItem(TRACCAR_TOKEN_STORAGE) || ""; } catch (_) {}
+    let traccarAuthRejected = false;
 
     // 2) خيار Proxy القديم (خليناه موجود بدون حذف)
     // إذا تحط Proxy خارجي يرجّع نفس JSON اللي كنت كاتبه، الموقع يشتغل أيضاً.
@@ -1086,26 +1094,58 @@ background:#fff;
     }
 
     function traccarAuthHeaders() {
-      const h = {};
-      if (TRACCAR_TOKEN && !TRACCAR_TOKEN.includes("PUT_")) {
-        h["Authorization"] = "Bearer " + TRACCAR_TOKEN;
-      }
-      return h;
+      return { "Authorization": "Bearer " + traccarRuntimeToken.trim(), "Accept": "application/json" };
     }
 
     function traccarTokenOk() {
-      return !!(TRACCAR_TOKEN && TRACCAR_TOKEN.length > 20 && !TRACCAR_TOKEN.includes("PUT_"));
+      return traccarRuntimeToken.trim().length > 20 && !traccarAuthRejected;
     }
+
+    async function testAndStoreTraccarToken() {
+      const field = document.getElementById("traccar-token-input");
+      const status = document.getElementById("traccar-test-status");
+      const btn = document.getElementById("traccar-test-btn");
+      const token = field.value.trim();
+      if (token.length <= 20) { status.textContent = "أدخل توكن صحيح من Traccar."; return; }
+      btn.disabled = true;
+      status.textContent = "جاري اختبار صلاحية الوصول إلى الأجهزة...";
+      try {
+        const r = await fetch(traccarApi("/api/devices"), {
+          headers: { Authorization: "Bearer " + token, Accept: "application/json" },
+          cache: "no-store"
+        });
+        if (!r.ok) throw new Error("HTTP " + r.status + (r.status === 401 ? " — التوكن مرفوض" : ""));
+        const devices = await r.json();
+        if (!Array.isArray(devices)) throw new Error("استجابة الأجهزة غير متوقعة");
+        traccarRuntimeToken = token;
+        traccarAuthRejected = false;
+        try { sessionStorage.setItem(TRACCAR_TOKEN_STORAGE, token); } catch (_) {}
+        field.value = "";
+        status.textContent = "✅ تم الاتصال بنجاح — عدد الأجهزة: " + devices.length + ". سيبدأ تحديث المواقع.";
+        if (managerAlert) { managerAlert.textContent = ""; delete managerAlert.dataset.traccarError; }
+        startTraccarPolling();
+      } catch (e) {
+        status.textContent = "❌ لم يُحفظ التوكن: " + (e.message || e) + ". افحص الحساب وصلاحياته أو CORS.";
+      } finally { btn.disabled = false; }
+    }
+
+    document.getElementById("traccar-test-btn").addEventListener("click", testAndStoreTraccarToken);
+    document.getElementById("traccar-clear-btn").addEventListener("click", () => {
+      traccarRuntimeToken = "";
+      traccarAuthRejected = false;
+      try { sessionStorage.removeItem(TRACCAR_TOKEN_STORAGE); } catch (_) {}
+      document.getElementById("traccar-token-input").value = "";
+      document.getElementById("traccar-test-status").textContent = "تم مسح التوكن المؤقت.";
+      stopTraccarPolling();
+    });
 
     async function fetchTraccarPositionsDirect() {
       if (!USE_TRACCAR) return null;
 
       const baseOk = TRACCAR_BASE_URL && !TRACCAR_BASE_URL.includes("PUT_YOUR_TRACCAR_HTTP_DOMAIN_HERE");
       if (!baseOk || !traccarTokenOk()) {
-        if (managerAlert && !managerAlert.textContent) {
-          managerAlert.textContent = "⚠️ TRACCAR_BASE_URL / TRACCAR_TOKEN غير مضبوطة.";
-        }
-        return null;
+        // No repeated 401 calls when no token is configured or it has been rejected.
+        return { ok: false, authRequired: true };
       }
 
       const headers = traccarAuthHeaders();
@@ -1115,6 +1155,10 @@ background:#fff;
         fetch(traccarApi("/api/positions"), { headers, cache: "no-store" })
       ]);
 
+      if (devR.status === 401 || devR.status === 403 || posR.status === 401 || posR.status === 403) {
+        traccarAuthRejected = true;
+        throw new Error("Traccar رفض التوكن (401/403). ألصق توكن جديد من لوحة المدير ثم اضغط فحص الاتصال.");
+      }
       if (!devR.ok) throw new Error("Traccar /api/devices: HTTP " + devR.status + (devR.status === 401 || devR.status === 403 ? " (token/permissions)" : ""));
       if (!posR.ok) throw new Error("Traccar /api/positions: HTTP " + posR.status + (posR.status === 401 || posR.status === 403 ? " (token/permissions)" : ""));
 
@@ -1163,6 +1207,10 @@ background:#fff;
           j = await fetchTraccarPositionsDirect();
         }
 
+        if (j && j.authRequired) {
+          window.diqaTraccarStatus = { ok: false, authRequired: true, error: "Traccar token required" };
+          return;
+        }
         if (!j || j.ok !== true || !Array.isArray(j.data)) {
           throw new Error("Bad response from Traccar source");
         }
@@ -1316,13 +1364,16 @@ nextDrivers[key] = {
         await fetchTraccarPositions();
       } finally {
         if (traccarPollTimer) clearTimeout(traccarPollTimer);
-        traccarPollTimer = setTimeout(traccarPollLoop, getDynamicTraccarPollMs());
+        if (traccarTokenOk() || (TRACCAR_PROXY_URL && !TRACCAR_PROXY_URL.includes("PUT_YOUR_PROXY_URL_HERE"))) {
+          traccarPollTimer = setTimeout(traccarPollLoop, getDynamicTraccarPollMs());
+        }
       }
     }
 
     function startTraccarPolling() {
       if (!USE_TRACCAR) return;
       stopTraccarPolling();
+      if (!traccarTokenOk() && !TRACCAR_PROXY_URL) return;
       traccarPollLoop();
     }
 
@@ -10570,7 +10621,7 @@ function addEmployee(){
 
       if (USE_TRACCAR) {
         appStatus.textContent = "";
-        managerAlert.textContent = managerAlert.textContent || "ℹ️ المواقع تُجلب من Traccar مباشرة (Token).";
+        managerAlert.textContent = managerAlert.textContent || (traccarTokenOk() ? "ℹ️ المواقع تُجلب من Traccar." : "⚠️ أدخل توكن Traccar في الإعدادات أعلاه ثم افحص الاتصال.");
       }
     };
 
