@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <title>اعمال شركة الدقة</title>
+  <title>اعمال شركة الدقة — Traccar Fix V4</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b1120'/%3E%3Ctext x='32' y='40' font-size='28' text-anchor='middle' fill='%2322c55e' font-family='Arial'%3ED%3C/text%3E%3C/svg%3E" />
 
@@ -493,7 +493,8 @@ background:#fff;
               <button type="button" id="traccar-test-btn" class="secondary">فحص الاتصال وحفظ التوكن مؤقتاً</button>
               <button type="button" id="traccar-clear-btn" class="secondary">مسح التوكن</button>
             </div>
-            <p class="small" id="traccar-test-status" aria-live="polite">التوكن يبقى فقط بذاكرة هذا التبويب حتى إغلاقه؛ لا يُحفظ في Firebase.</p>
+            <p class="small" style="color:#93c5fd">إصدار الربط: TRACCAR-FIX-V4-20261011 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
+             <p class="small" id="traccar-test-status" aria-live="polite">التوكن يبقى فقط بذاكرة هذا التبويب حتى إغلاقه؛ لا يُحفظ في Firebase.</p>
           </div>
 
           <div class="inline-actions">
@@ -1000,6 +1001,8 @@ background:#fff;
     // =========================
     // 1) خله true حتى تعتمد على Traccar للمواقع
     const USE_TRACCAR = true;
+    window.DIQA_BUILD_ID = "TRACCAR-FIX-V4-20261011";
+    console.info("DIQA BUILD:", window.DIQA_BUILD_ID);
 
     // ✅ رابط Traccar Web UI/API على Railway
     const TRACCAR_BASE_URL = "https://traccar-production-1667.up.railway.app";
@@ -1157,6 +1160,7 @@ background:#fff;
 
       if (devR.status === 401 || devR.status === 403 || posR.status === 401 || posR.status === 403) {
         traccarAuthRejected = true;
+        try { sessionStorage.removeItem(TRACCAR_TOKEN_STORAGE); } catch (_) {}
         throw new Error("Traccar رفض التوكن (401/403). ألصق توكن جديد من لوحة المدير ثم اضغط فحص الاتصال.");
       }
       if (!devR.ok) throw new Error("Traccar /api/devices: HTTP " + devR.status + (devR.status === 401 || devR.status === 403 ? " (token/permissions)" : ""));
@@ -1209,6 +1213,8 @@ background:#fff;
 
         if (j && j.authRequired) {
           window.diqaTraccarStatus = { ok: false, authRequired: true, error: "Traccar token required" };
+          const status = document.getElementById("traccar-test-status");
+          if (status && !traccarRuntimeToken) status.textContent = "⚠️ التتبع متوقف: أدخل توكن صالحاً واضغط فحص الاتصال.";
           return;
         }
         if (!j || j.ok !== true || !Array.isArray(j.data)) {
