@@ -1242,6 +1242,7 @@ background:#fff;
           }
 
 nextDrivers[key] = {
+            source: 'traccar',
             name: devName,
             lat,
             lng,
@@ -1258,11 +1259,9 @@ nextDrivers[key] = {
           };
         });
 
-        driversLocationsCache = nextDrivers;
-
-        // ✅ إذا المندوب فاتح واجهة موقعنا، نعتمد موقع المتصفح المحلي بدل Traccar مؤقتاً
-        // بدون أي حفظ في Firebase، وإذا أغلق الصفحة يرجع Traccar تلقائياً.
-        overlayBrowserDriverLocation();
+        traccarDriversLocationsCache = { ...traccarDriversLocationsCache, ...nextDrivers };
+        driversLocationsCache = { ...traccarDriversLocationsCache };
+        mergeBrowserLocations();
 
         employeesLocationsCache = nextEmployees;
 
@@ -1518,7 +1517,53 @@ nextDrivers[key] = {
 
     // ✅ موقع المتصفح للمندوب فقط عند فتح صفحة الموقع - بدون حفظ في Firebase
     let driverBrowserLocationCache = null;
+    // Each driver publishes browser GPS separately, so Traccar cannot overwrite it.
+    // A heartbeat is based on actual GPS fixes, not whether the tab merely exists.
     const BROWSER_LOCATION_FRESH_MS = 30000;
+    const BROWSER_LOCATION_MAX_ACCURACY_M = 150; // Prevent inaccurate browser fixes taking priority
+    let browserDriversLocationsCache = {};
+    let browserDriversLocationsRef = null;
+
+    function validGeoLocation(loc) {
+      return !!loc && Number.isFinite(Number(loc.lat)) && Number.isFinite(Number(loc.lng)) &&
+        Math.abs(Number(loc.lat)) <= 90 && Math.abs(Number(loc.lng)) <= 180 &&
+        !(Number(loc.lat) === 0 && Number(loc.lng) === 0);
+    }
+    function freshBrowserLocation(loc) {
+      const age = Date.now() - tsToMs(loc && loc.updatedAt);
+      const accuracy = Number(loc && loc.accuracy);
+      return validGeoLocation(loc) && age >= -5000 && age <= BROWSER_LOCATION_FRESH_MS &&
+        Number.isFinite(accuracy) && accuracy > 0 && accuracy <= BROWSER_LOCATION_MAX_ACCURACY_M;
+    }
+    function mergeBrowserLocations() {
+      // Traccar is the fallback; while browser GPS is fresh, it wins regardless of
+      // whether the Traccar API is working or has returned a location.
+      Object.entries(browserDriversLocationsCache || {}).forEach(([id, loc]) => {
+        if (!driversMetaCache[id] || !freshBrowserLocation(loc)) return;
+        driversLocationsCache[id] = {
+          ...(driversLocationsCache[id] || {}), ...loc,
+          lat: Number(loc.lat), lng: Number(loc.lng),
+          source: 'browser', active: true, liveState: 'online'
+        };
+      });
+      overlayBrowserDriverLocation();
+    }
+    function subscribeBrowserDriverLocations() {
+      if (browserDriversLocationsRef) return;
+      browserDriversLocationsRef = db.ref('browserDriversLocations');
+      browserDriversLocationsRef.on('value', snap => {
+        browserDriversLocationsCache = snap.val() || {};
+        // Recreate fallback from latest Traccar cache rather than preserving old browser overlay.
+        driversLocationsCache = {...traccarDriversLocationsCache};
+        mergeBrowserLocations();
+        renderDriversList();
+        updateDriverMarkers();
+        updateManagerAlertAndNotify();
+        updateDriverSelfLocationFromCache();
+        refreshOrdersUIAndMap();
+      }, err => console.warn('Browser GPS subscription failed (Firebase rules?):', err));
+    }
+    let traccarDriversLocationsCache = {};
 
     function isFreshBrowserDriverLocation(){
       return !!(
@@ -1526,7 +1571,7 @@ nextDrivers[key] = {
         currentSessionRole === "driver" &&
         currentDriverId &&
         String(driverBrowserLocationCache.driverId || "") === String(currentDriverId) &&
-        Date.now() - Number(driverBrowserLocationCache.updatedAt || 0) <= BROWSER_LOCATION_FRESH_MS
+        freshBrowserLocation(driverBrowserLocationCache)
       );
     }
 
@@ -5839,7 +5884,10 @@ function initMap() {
         });
       }
 
-      if (USE_TRACCAR) startTraccarPolling();
+      if (USE_TRACCAR) {
+        subscribeBrowserDriverLocations();
+        startTraccarPolling();
+      }
     }
 // =========================
 // ✅ Employees subscribe
@@ -9885,8 +9933,9 @@ function renderDriversSelect() {
         const speedSourceText = loc.speedSource === 'traccar' ? `<br/>مصدر السرعة: تراكر` : (loc.speedSource === 'map' ? `<br/>مصدر السرعة: من حركة الخريطة` : `<br/>مصدر السرعة: احتياطي`);
 
         const stateText = st.isOnline ? "🟢 مباشر" : (st.isWarn ? "🟡 إشارة متأخرة" : "⚪ غير متصل — آخر موقع معروف (ليس مباشراً)");
+        const sourceText = loc.source === 'browser' ? 'GPS موقع الدقة' : 'Traccar';
         const popupHtml =
-          `مندوب: ${loc.name || id}<br/>` +
+          `مندوب: ${loc.name || id}<br/>مصدر الموقع: ${sourceText}<br/>` +
           `الحالة: ${stateText}<br/>` +
           `آخر تحديث: ${formatTime(loc.updatedAt)}${accText}${speedText}${speedSourceText}`;
 
@@ -10372,7 +10421,7 @@ function addEmployee(){
           const lng = pos.coords.longitude;
           const acc = Math.round(pos.coords.accuracy || 0);
 
-          if (acc && acc > MAX_BAD_ACCURACY) {
+          if (acc && acc > (USE_TRACCAR ? BROWSER_LOCATION_MAX_ACCURACY_M : MAX_BAD_ACCURACY)) {
             trackingStatus.textContent = `⚠️ دقة ضعيفة ±${acc}m — فعّل Precise/GPS`;
             return;
           }
@@ -10406,6 +10455,18 @@ function addEmployee(){
 
           driverBrowserLocationCache = liveBrowserLoc;
           driversLocationsCache[currentDriverId] = liveBrowserLoc;
+          if (USE_TRACCAR) {
+            // Timestamp comes from the fix, not a page-open heartbeat.
+            // Write only the driver's own node (Firebase rules must permit this).
+            db.ref(`browserDriversLocations/${currentDriverId}`).set({
+              name: currentDriverNameLabel.textContent || '', lat, lng,
+              accuracy: acc, updatedAt: now, source: 'browser',
+              speedKmh: browserSpeedKmh
+            }).catch(e => {
+              console.warn('Browser GPS Firebase write failed:', e);
+              trackingStatus.textContent = '⚠️ GPS يعمل محلياً، لكن إرسال الموقع للمدير فشل. تحقق من Firebase Rules.';
+            });
+          }
 
           if (!USE_TRACCAR && locRef) {
             locRef.update({
