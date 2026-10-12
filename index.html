@@ -49,7 +49,7 @@
     .small{font-size:11px;color:#9ca3af}
     .status-dot{width:8px;height:8px;border-radius:999px;display:inline-block;margin-left:6px}
     .online{background:#22c55e}
-    .offline{background:#6b7280}
+    .offline{background:#ef4444}
     .inline-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}
     .cb{transform:scale(1.1); margin-left:8px}
     @media(max-width:768px){#map{height:420px}}
@@ -69,7 +69,7 @@
     }
     .driver-pin.online{background:#22c55e}
     .driver-pin.warn{background:#f59e0b}
-    .driver-pin.offline{background:#6b7280}
+    .driver-pin.offline{background:#ef4444}
 
     /* =========================
        ✅ NEW UI for Orders (Added only)
@@ -493,7 +493,7 @@ background:#fff;
               <button type="button" id="traccar-test-btn" class="secondary">فحص الاتصال وحفظ التوكن مؤقتاً</button>
               <button type="button" id="traccar-clear-btn" class="secondary">مسح التوكن</button>
             </div>
-            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-ETA-SAFETY-V6-20261012 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
+            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-LAST-KNOWN-GPS-TRACCAR-V7-20261012 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
              <p class="small" id="traccar-test-status" aria-live="polite">التوكن يبقى فقط بذاكرة هذا التبويب حتى إغلاقه؛ لا يُحفظ في Firebase.</p>
           </div>
 
@@ -1001,7 +1001,7 @@ background:#fff;
     // =========================
     // 1) خله true حتى تعتمد على Traccar للمواقع
     const USE_TRACCAR = true;
-    window.DIQA_BUILD_ID = "DIQA-ETA-SAFETY-V6-20261012";
+    window.DIQA_BUILD_ID = "DIQA-LAST-KNOWN-GPS-TRACCAR-V7-20261012";
     console.info("DIQA BUILD:", window.DIQA_BUILD_ID);
 
     // ✅ رابط Traccar Web UI/API على Railway
@@ -1032,8 +1032,8 @@ background:#fff;
     });
 
     // ✅ سياسة “ذكية” للاستقرار (أخضر/أصفر/Offline)
-    const WARN_MS  = 2 * 60 * 1000; // بعد دقيقتين يصير أصفر
-    const STALE_MS = 5 * 60 * 1000; // بعد 5 دقائق يصير Offline فعلاً
+    const WARN_MS  = 60 * 1000; // بعد دقيقة من آخر إحداثيات فعلية برتقالي
+    const STALE_MS = 3 * 60 * 1000; // بعد أكثر من 3 دقائق أحمر
 
     // ✅ تحويل timestamp إلى milliseconds بشكل آمن (يصلح خطأ ثواني/ميلي ثانية)
     function tsToMs(ts) {
@@ -1317,9 +1317,12 @@ nextDrivers[key] = {
           };
         });
 
-        traccarDriversLocationsCache = { ...traccarDriversLocationsCache, ...nextDrivers };
-        driversLocationsCache = { ...traccarDriversLocationsCache };
-        mergeBrowserLocations();
+        Object.entries(nextDrivers).forEach(([id, loc]) => {
+          if (!traccarDriversLocationsCache[id] || tsToMs(loc.updatedAt) >= tsToMs(traccarDriversLocationsCache[id].updatedAt)) {
+            traccarDriversLocationsCache[id] = loc;
+          }
+        });
+        rebuildDriversLocationsCache();
 
         employeesLocationsCache = nextEmployees;
 
@@ -1596,27 +1599,45 @@ nextDrivers[key] = {
       return validGeoLocation(loc) && age >= -5000 && age <= BROWSER_LOCATION_FRESH_MS &&
         Number.isFinite(accuracy) && accuracy > 0 && accuracy <= BROWSER_LOCATION_MAX_ACCURACY_M;
     }
-    function mergeBrowserLocations() {
-      // Traccar is the fallback; while browser GPS is fresh, it wins regardless of
-      // whether the Traccar API is working or has returned a location.
-      Object.entries(browserDriversLocationsCache || {}).forEach(([id, loc]) => {
-        if (!driversMetaCache[id] || !freshBrowserLocation(loc)) return;
-        driversLocationsCache[id] = {
-          ...(driversLocationsCache[id] || {}), ...loc,
-          lat: Number(loc.lat), lng: Number(loc.lng),
-          source: 'browser', active: true, liveState: 'online'
-        };
-      });
-      overlayBrowserDriverLocation();
+    // آخر موقع صحيح، من أي مصدر، يحتفظ به المدير حتى لو انقطع الإنترنت أو API.
+    const LAST_KNOWN_DRIVERS_KEY = 'diqa_last_known_driver_positions_v1';
+    let lastKnownDriversLocationsCache = {};
+    try {
+      const saved = JSON.parse(localStorage.getItem(LAST_KNOWN_DRIVERS_KEY) || '{}');
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+        Object.entries(saved).forEach(([id, loc]) => {
+          if (validGeoLocation(loc) && tsToMs(loc.updatedAt)) lastKnownDriversLocationsCache[id] = loc;
+        });
+      }
+    } catch (e) { console.warn('Last known GPS cache unavailable:', e); }
+
+    function rebuildDriversLocationsCache() {
+      const merged = { ...lastKnownDriversLocationsCache };
+      const consider = (id, loc) => {
+        if (!validGeoLocation(loc)) return;
+        const incoming = tsToMs(loc.updatedAt);
+        const previous = tsToMs(merged[id] && merged[id].updatedAt);
+        if (!incoming || incoming > Date.now() + 60000) return;
+        // المصدر ذو الإحداثيات الأحدث يفوز؛ لا يستبدل موقع قديم موقع أحدث.
+        if (!merged[id] || incoming >= previous) {
+          merged[id] = { ...loc, lat: Number(loc.lat), lng: Number(loc.lng), updatedAt: incoming };
+        }
+      };
+      Object.entries(traccarDriversLocationsCache || {}).forEach(([id, loc]) => consider(id, loc));
+      Object.entries(browserDriversLocationsCache || {}).forEach(([id, loc]) => consider(id, loc));
+      if (isFreshBrowserDriverLocation()) consider(String(currentDriverId), driverBrowserLocationCache);
+      driversLocationsCache = merged;
+      lastKnownDriversLocationsCache = { ...merged };
+      try { localStorage.setItem(LAST_KNOWN_DRIVERS_KEY, JSON.stringify(merged)); } catch (_) {}
     }
+    function mergeBrowserLocations() { rebuildDriversLocationsCache(); }
     function subscribeBrowserDriverLocations() {
       if (browserDriversLocationsRef) return;
       browserDriversLocationsRef = db.ref('browserDriversLocations');
       browserDriversLocationsRef.on('value', snap => {
         browserDriversLocationsCache = snap.val() || {};
-        // Recreate fallback from latest Traccar cache rather than preserving old browser overlay.
-        driversLocationsCache = {...traccarDriversLocationsCache};
-        mergeBrowserLocations();
+        // لا نمسح آخر موقع؛ نأخذ الأحدث من GPS أو Traccar أو المخزون المحلي.
+        rebuildDriversLocationsCache();
         renderDriversList();
         updateDriverMarkers();
         updateManagerAlertAndNotify();
@@ -1636,15 +1657,7 @@ nextDrivers[key] = {
       );
     }
 
-    function overlayBrowserDriverLocation(){
-      if (!isFreshBrowserDriverLocation()) return;
-      const id = String(currentDriverId);
-      driversLocationsCache[id] = {
-        ...(driversLocationsCache[id] || {}),
-        ...driverBrowserLocationCache,
-        source: "browser"
-      };
-    }
+    function overlayBrowserDriverLocation(){ rebuildDriversLocationsCache(); }
 
     let driversMetaCache = {};
     let employeesMetaCache = {};
@@ -9912,7 +9925,7 @@ function renderDriversSelect() {
 
           if (st.isOnline) statusEl.appendChild(document.createTextNode(`نشط - ${formatTime(loc.updatedAt)}${accText}${speedText}${speedSourceText}`));
           else if (st.isWarn) statusEl.appendChild(document.createTextNode(`متأخر شوي - ${formatTime(loc.updatedAt)}${accText}${speedText}${speedSourceText}`));
-          else statusEl.appendChild(document.createTextNode(`غير متصل${speedText}${speedSourceText}`));
+          else statusEl.appendChild(document.createTextNode(`غير متصل — آخر موقع ${formatTime(loc.updatedAt)}${speedText}${speedSourceText}`));
         }
 
         left.appendChild(nameEl);
@@ -10005,7 +10018,7 @@ function renderDriversSelect() {
         const speedText = Number.isFinite(Number(loc.speedKmh)) ? `<br/>السرعة: ${formatSpeedKmh(loc.speedKmh)}` : "";
         const speedSourceText = loc.speedSource === 'traccar' ? `<br/>مصدر السرعة: تراكر` : (loc.speedSource === 'map' ? `<br/>مصدر السرعة: من حركة الخريطة` : `<br/>مصدر السرعة: احتياطي`);
 
-        const stateText = st.isOnline ? "🟢 مباشر" : (st.isWarn ? "🟡 إشارة متأخرة" : "⚪ غير متصل — آخر موقع معروف (ليس مباشراً)");
+        const stateText = st.isOnline ? "🟢 مباشر" : (st.isWarn ? "🟠 اتصال متأخر — آخر موقع معروف" : "🔴 منقطع أكثر من 3 دقائق — آخر موقع معروف");
         const sourceText = loc.source === 'browser' ? 'GPS موقع الدقة' : 'Traccar';
         const popupHtml =
           `مندوب: ${loc.name || id}<br/>مصدر الموقع: ${sourceText}<br/>` +
@@ -10028,6 +10041,15 @@ function renderDriversSelect() {
     }
 
     
+    // لون الموقع يتغير حسب توقيت آخر FIX حتى إذا لم تصل رسائل جديدة من GPS/Traccar.
+    setInterval(() => {
+      if (typeof driversLocationsCache === 'undefined') return;
+      if (currentSessionRole === 'manager' || currentSessionRole === 'limited_manager') {
+        renderDriversList();
+        updateDriverMarkers();
+      }
+    }, 10000);
+
     function makeEmployeeIcon(liveState) {
       // reuse simple icon; liveState kept for future styling if needed
       return L.divIcon({
@@ -10528,6 +10550,7 @@ function addEmployee(){
 
           driverBrowserLocationCache = liveBrowserLoc;
           driversLocationsCache[currentDriverId] = liveBrowserLoc;
+          rebuildDriversLocationsCache();
           if (USE_TRACCAR) {
             // Timestamp comes from the fix, not a page-open heartbeat.
             // Write only the driver's own node (Firebase rules must permit this).
