@@ -500,7 +500,7 @@ background:#fff;
             </div>
             <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-GREEN-LIVE-GPS-TRACCAR-V8-20261012 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
              <p class="small" id="traccar-test-status" aria-live="polite">التوكن يبقى فقط بذاكرة هذا التبويب حتى إغلاقه؛ لا يُحفظ في Firebase.</p>
-              <div id="traccar-device-mapping" class="small" style="margin-top:8px;line-height:1.8">بعد الاتصال ستظهر أجهزة Traccar هنا لربطها بالمندوبين إذا لم تتطابق الأسماء.</div>
+              <div id="traccar-live-diagnostics" class="small" style="margin-top:8px;color:#93c5fd">حالة Traccar: لم يتم فحص الاتصال بعد.</div><div id="traccar-device-mapping" class="small" style="margin-top:8px;line-height:1.8">بعد الاتصال ستظهر أجهزة Traccar هنا لربطها بالمندوبين إذا لم تتطابق الأسماء.</div>
           </div>
 
           <div class="inline-actions">
@@ -1155,6 +1155,10 @@ background:#fff;
       stopTraccarPolling();
     });
 
+    function showTraccarLiveDiagnostics(message) {
+      const el = document.getElementById('traccar-live-diagnostics');
+      if (el) el.textContent = message;
+    }
     // Device-to-driver mapping: explicit selection when a device name differs from the driver name.
     const TRACCAR_DEVICE_LINKS_KEY = 'diqa_traccar_device_driver_links_v1';
     let traccarDeviceLinks = {};
@@ -1281,6 +1285,7 @@ background:#fff;
 
         if (j && j.authRequired) {
           window.diqaTraccarStatus = { ok: false, authRequired: true, error: "Traccar token required" };
+          showTraccarLiveDiagnostics('Traccar غير متصل في لوحة الدقة: يرجى إدخال Token صالح. فتح Traccar بتبويب آخر لا ينقل تسجيل الدخول تلقائياً.');
           const status = document.getElementById("traccar-test-status");
           if (status && !traccarRuntimeToken) status.textContent = "⚠️ التتبع متوقف: أدخل توكن صالحاً واضغط فحص الاتصال.";
           return;
@@ -1290,6 +1295,12 @@ background:#fff;
         }
 
         lastTraccarOkAt = Date.now();
+        const linked = j.data.filter(p => findTraccarDriverId(p.deviceId, p.name));
+        const freshLinked = linked.filter(p => calcLiveState(p.time).isOnline);
+        const ali = j.data.filter(p => normalizedPersonName(p.name).includes(normalizedPersonName('علي فاضل')));
+        const aliText = ali.length ? (' | علي فاضل: ' + (findTraccarDriverId(ali[0].deviceId, ali[0].name) ? 'مرتبط' : 'غير مرتبط') + '، عمر الإحداثيات ' + (tsToMs(ali[0].time) ? Math.max(0, Math.floor((Date.now()-tsToMs(ali[0].time))/1000)) + ' ثانية' : 'غير معروف')) : ' | لم يستلم موقع علي فاضل';
+        showTraccarLiveDiagnostics('Traccar متصل | المواقع المستلمة: ' + j.data.length + ' | المرتبطة بالمندوبين: ' + linked.length + ' | المباشرة المرتبطة: ' + freshLinked.length + aliText);
+
         // Diagnostics only; do not display secrets such as tokens.
         window.diqaTraccarStatus = { ok: true, checkedAt: new Date().toISOString(), devicePositions: j.data.length, matchedDrivers: j.data.filter(p => findTraccarDriverId(p.deviceId, p.name)).length, error: null };
         if (managerAlert && managerAlert.dataset.traccarError === '1') {
@@ -1403,6 +1414,7 @@ nextDrivers[key] = {
         console.error("Traccar fetch error:", e);
         const diagnostic = e && e.message ? String(e.message) : String(e);
         window.diqaTraccarStatus = { ok: false, checkedAt: new Date().toISOString(), error: diagnostic };
+        showTraccarLiveDiagnostics('فشل جلب Traccar: ' + diagnostic);
         if (managerAlert && (!managerAlert.textContent || managerAlert.dataset.traccarError === '1')) {
           managerAlert.textContent = "⚠️ تعذر جلب مواقع Traccar: " + diagnostic + ". افحص Network إذا ظهرت Failed to fetch (قد يكون CORS أو الاتصال).";
           managerAlert.dataset.traccarError = '1';
