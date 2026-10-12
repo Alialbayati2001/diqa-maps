@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <title>اعمال شركة الدقة — Traccar Fix V4</title>
+  <title>اعمال شركة الدقة — Traccar Fix V5 ETA Guard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b1120'/%3E%3Ctext x='32' y='40' font-size='28' text-anchor='middle' fill='%2322c55e' font-family='Arial'%3ED%3C/text%3E%3C/svg%3E" />
 
@@ -493,7 +493,7 @@ background:#fff;
               <button type="button" id="traccar-test-btn" class="secondary">فحص الاتصال وحفظ التوكن مؤقتاً</button>
               <button type="button" id="traccar-clear-btn" class="secondary">مسح التوكن</button>
             </div>
-            <p class="small" style="color:#93c5fd">إصدار الربط: TRACCAR-FIX-V4-20261011 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
+            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-ETA-SAFETY-V6-20261012 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
              <p class="small" id="traccar-test-status" aria-live="polite">التوكن يبقى فقط بذاكرة هذا التبويب حتى إغلاقه؛ لا يُحفظ في Firebase.</p>
           </div>
 
@@ -1001,7 +1001,7 @@ background:#fff;
     // =========================
     // 1) خله true حتى تعتمد على Traccar للمواقع
     const USE_TRACCAR = true;
-    window.DIQA_BUILD_ID = "TRACCAR-FIX-V4-20261011";
+    window.DIQA_BUILD_ID = "DIQA-ETA-SAFETY-V6-20261012";
     console.info("DIQA BUILD:", window.DIQA_BUILD_ID);
 
     // ✅ رابط Traccar Web UI/API على Railway
@@ -1026,6 +1026,10 @@ background:#fff;
 
     let traccarPollTimer = null;
     let lastTraccarOkAt = 0;
+    window.addEventListener("online", () => {
+      const status = document.getElementById("traccar-test-status");
+      if (status && traccarTokenOk()) status.textContent = "عاد الاتصال بالإنترنت، ستُحدَّث المواقع في الدورة القادمة.";
+    });
 
     // ✅ سياسة “ذكية” للاستقرار (أخضر/أصفر/Offline)
     const WARN_MS  = 2 * 60 * 1000; // بعد دقيقتين يصير أصفر
@@ -2775,7 +2779,7 @@ function openInGoogleMaps(lat, lng) {
       try {
         if (!order || !order.id || !bag) return;
         localStorage.setItem(getOrderEtaStorageKey(order, workDateKey), JSON.stringify({
-          etaMinutes: Number.isFinite(Number(bag.etaMinutes)) ? Number(bag.etaMinutes) : null,
+          etaMinutes: (bag.etaMinutes != null && bag.etaMinutes !== "" && Number.isFinite(Number(bag.etaMinutes))) ? Number(bag.etaMinutes) : null,
           etaText: String(bag.etaText || '—'),
           speedKmh: Number.isFinite(Number(bag.speedKmh)) ? Number(bag.speedKmh) : null,
           speedText: String(bag.speedText || '—'),
@@ -2852,7 +2856,7 @@ function openInGoogleMaps(lat, lng) {
       const oldBag = loadOrderEtaMemory(order, workDateKey);
       if (frozenByLowSpeed && oldBag && oldBag.etaText && oldBag.etaText !== '—') {
         return {
-          etaMinutes: Number.isFinite(Number(oldBag.etaMinutes)) ? Number(oldBag.etaMinutes) : null,
+          etaMinutes: (oldBag.etaMinutes != null && oldBag.etaMinutes !== "" && Number.isFinite(Number(oldBag.etaMinutes))) ? Number(oldBag.etaMinutes) : null,
           etaText: String(oldBag.etaText || 'حوالي 10-15 دقيقة'),
           speedKmh: currentSpeedKmh,
           speedText: currentSpeedText,
@@ -2866,12 +2870,12 @@ function openInGoogleMaps(lat, lng) {
 
 
     function getOrderDispatchEtaMinutes(order, driverLoc){
-      const savedEta = Number(order && order.etaMinutes);
+      const savedEta = (order && order.etaMinutes != null && order.etaMinutes !== "") ? Number(order.etaMinutes) : NaN;
       if (Number.isFinite(savedEta) && savedEta >= 0) {
         return Math.max(0, Math.round(savedEta));
       }
       const etaBag = buildEtaTextForOrder(order, driverLoc);
-      const etaMinutes = Number(etaBag && etaBag.etaMinutes);
+      const etaMinutes = (etaBag && etaBag.etaMinutes != null && etaBag.etaMinutes !== "") ? Number(etaBag.etaMinutes) : NaN;
       return Number.isFinite(etaMinutes) && etaMinutes >= 0 ? Math.max(0, Math.round(etaMinutes)) : null;
     }
 
@@ -2932,7 +2936,7 @@ function openInGoogleMaps(lat, lng) {
       return JSON.stringify({
         workDateKey: String(workDateKey || ''),
         orderId: String(orderId || ''),
-        etaMinutes: Number.isFinite(Number(etaBag && etaBag.etaMinutes)) ? Number(etaBag.etaMinutes) : null,
+        etaMinutes: (etaBag && etaBag.etaMinutes != null && etaBag.etaMinutes !== "" && Number.isFinite(Number(etaBag.etaMinutes))) ? Number(etaBag.etaMinutes) : null,
         etaText: String((etaBag && etaBag.etaText) || '—'),
         speedKmh: Number.isFinite(Number(etaBag && etaBag.speedKmh)) ? Number(etaBag.speedKmh) : null,
         speedText: String((etaBag && etaBag.speedText) || '—'),
@@ -3169,7 +3173,7 @@ function openInGoogleMaps(lat, lng) {
       if (!loc) return null;
       const lat = Number(loc.lat);
       const lng = Number(loc.lng);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(Number(clientLat)) || !Number.isFinite(Number(clientLng))) return null;
+      if (loc.lat == null || loc.lng == null || clientLat == null || clientLng == null || !Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(Number(clientLat)) || !Number.isFinite(Number(clientLng))) return null;
       const distanceM = haversineMeters(lat, lng, Number(clientLat), Number(clientLng));
       const speedKmh = getPreferredDriverSpeedKmh(loc);
       const etaMin = calcEtaMinutes(distanceM, speedKmh, ETA_FALLBACK_SPEED_KMH);
@@ -3225,6 +3229,9 @@ function openInGoogleMaps(lat, lng) {
     }
 
     function getDriverEtaInfoForClient(driverId, clientLat, clientLng, orderId){
+      if (!driverId || clientLat == null || clientLng == null || clientLat === "" || clientLng === "" ||
+          !Number.isFinite(Number(clientLat)) || !Number.isFinite(Number(clientLng)) ||
+          Math.abs(Number(clientLat)) > 90 || Math.abs(Number(clientLng)) > 180) return null;
       const cached = getCachedDriverRouteInfo(driverId, orderId, clientLat, clientLng);
       if (cached) return cached;
       ensureDriverRouteInfo(driverId, orderId, clientLat, clientLng);
@@ -3233,11 +3240,12 @@ function openInGoogleMaps(lat, lng) {
 
     function getDriverActiveOrdersForTarget(driverId){
       return Object.entries(ordersCache || {})
-        .map(([orderId, order]) => ({ orderId, ...(order || {}) }))
+        .filter(([, order]) => order && typeof order === 'object' && !Array.isArray(order))
+        .map(([orderId, order]) => ({ ...order, orderId }))
         .filter((o)=>{
           if (String(o.assignedDriverId || '') !== String(driverId || '')) return false;
           if (o.status === 'delivered' || o.status === 'returned') return false;
-          return Number.isFinite(Number(o.lat)) && Number.isFinite(Number(o.lng));
+          return o.lat != null && o.lng != null && o.lat !== "" && o.lng !== "" && Number.isFinite(Number(o.lat)) && Number.isFinite(Number(o.lng)) && Math.abs(Number(o.lat)) <= 90 && Math.abs(Number(o.lng)) <= 180;
         });
     }
 
@@ -3250,8 +3258,11 @@ function openInGoogleMaps(lat, lng) {
       let bestDistance = Infinity;
       activeOrders.forEach((o)=>{
         const info = getDriverEtaInfoForClient(driverId, o.lat, o.lng, o.orderId);
-        const etaVal = Number.isFinite(Number(info && info.etaMin)) ? Number(info.etaMin) : Infinity;
-        const distVal = Number.isFinite(Number(info && info.distanceM)) ? Number(info.distanceM) : Infinity;
+        // Missing route/location is unknown, never an ETA of zero.
+        const etaVal = info && info.etaMin != null && Number.isFinite(Number(info.etaMin))
+          ? Number(info.etaMin) : Infinity;
+        const distVal = info && info.distanceM != null && Number.isFinite(Number(info.distanceM))
+          ? Number(info.distanceM) : Infinity;
         if (etaVal < bestEta || (etaVal === bestEta && distVal < bestDistance)) {
           bestEta = etaVal;
           bestDistance = distVal;
@@ -3284,7 +3295,7 @@ function openInGoogleMaps(lat, lng) {
         if (!order) return;
         const lat = Number(order.lat);
         const lng = Number(order.lng);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        if (order.lat == null || order.lng == null || order.lat === "" || order.lng === "" || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
           plan[String(order.id || order.orderId || idx)] = {
             index: idx + 1,
             legDistanceM: null,
@@ -3305,8 +3316,8 @@ function openInGoogleMaps(lat, lng) {
           legInfo = getDriverEtaInfoForClient(currentDriverId, lat, lng, order.id || order.orderId || idx);
         }
 
-        const legDistanceM = legInfo && Number.isFinite(Number(legInfo.distanceM)) ? Number(legInfo.distanceM) : null;
-        const legEtaMin = legInfo && Number.isFinite(Number(legInfo.etaMin)) ? Number(legInfo.etaMin) : null;
+        const legDistanceM = legInfo && legInfo.distanceM != null && Number.isFinite(Number(legInfo.distanceM)) ? Number(legInfo.distanceM) : null;
+        const legEtaMin = legInfo && legInfo.etaMin != null && Number.isFinite(Number(legInfo.etaMin)) ? Number(legInfo.etaMin) : null;
         const cumulativeOk = Number.isFinite(legEtaMin);
         if (cumulativeOk) cumulativeMin += Number(legEtaMin);
 
@@ -3358,7 +3369,8 @@ function openInGoogleMaps(lat, lng) {
 
       const etaInfo = getDriverEtaInfoForClient(driverId, lat, lng, nearestOrderId);
       const speedText = etaInfo ? formatSpeedKmh(getPreferredDriverSpeedKmh(etaInfo)) : '—';
-      const etaText = (etaInfo && Number.isFinite(etaInfo.etaMin)) ? formatEtaMinutes(etaInfo.etaMin) : '—';
+      const etaText = (etaInfo && etaInfo.etaMin != null && Number.isFinite(Number(etaInfo.etaMin)))
+        ? formatEtaMinutes(Number(etaInfo.etaMin)) : '—';
       const etaNote = (etaInfo && etaInfo.usedFallback) ? 'تقريبي' : 'مروري فعلي';
 
       return {
@@ -7329,7 +7341,7 @@ function subscribeEmployees(){
         cashCollected: false,
         priority: nextP,           // ✅ NEW
         priorityManual: false,
-        etaMinutes: Number.isFinite(Number(etaBag.etaMinutes)) ? Number(etaBag.etaMinutes) : null,
+        etaMinutes: (etaBag.etaMinutes != null && etaBag.etaMinutes !== "" && Number.isFinite(Number(etaBag.etaMinutes))) ? Number(etaBag.etaMinutes) : null,
         etaText: String(etaBag.etaText || '—'),
         etaUpdatedAt: SERVER_TS,
         createdAt: SERVER_TS,
@@ -7496,9 +7508,11 @@ function subscribeEmployees(){
           const etaInfo = getDriverEtaInfoForClient(x.assignedDriverId, x.lat, x.lng);
           if (etaInfo) {
             extra += ` | يبعد: ${formatMetersSmart(etaInfo.distanceM)}`;
-            extra += etaInfo.usedFallback
-              ? ` | الوصول التقريبي: ${formatEtaMinutes(etaInfo.etaMin)}`
-              : ` | الوصول المتوقع: ${formatEtaMinutes(etaInfo.etaMin)}`;
+            if (etaInfo && etaInfo.etaMin != null && Number.isFinite(Number(etaInfo.etaMin))) {
+              extra += etaInfo.usedFallback
+                ? ` | الوصول التقريبي: ${formatEtaMinutes(Number(etaInfo.etaMin))}`
+                : ` | الوصول المتوقع: ${formatEtaMinutes(Number(etaInfo.etaMin))}`;
+            }
             if (Number.isFinite(Number(etaInfo.speedKmh))) extra += ` | السرعة: ${formatSpeedKmh(etaInfo.speedKmh)}`;
             if (isNearestActiveOrderForDriver(x.id, x.assignedDriverId)) extra += ` | الأقرب لهذا المندوب الآن`;
           }
@@ -9236,9 +9250,11 @@ function subscribeEmployees(){
             const etaInfo = getDriverEtaInfoForClient(x.assignedDriverId, x.lat, x.lng);
             if (etaInfo) {
               stTxt += ` | يبعد: ${formatMetersSmart(etaInfo.distanceM)}`;
-              stTxt += etaInfo.usedFallback
-                ? ` | الوصول التقريبي: ${formatEtaMinutes(etaInfo.etaMin)}`
-                : ` | الوصول المتوقع: ${formatEtaMinutes(etaInfo.etaMin)}`;
+              if (etaInfo && etaInfo.etaMin != null && Number.isFinite(Number(etaInfo.etaMin))) {
+                stTxt += etaInfo.usedFallback
+                  ? ` | الوصول التقريبي: ${formatEtaMinutes(Number(etaInfo.etaMin))}`
+                  : ` | الوصول المتوقع: ${formatEtaMinutes(Number(etaInfo.etaMin))}`;
+              }
               if (Number.isFinite(Number(etaInfo.speedKmh))) stTxt += ` | السرعة: ${formatSpeedKmh(etaInfo.speedKmh)}`;
               if (isNearestActiveOrderForDriver(x.id, x.assignedDriverId)) stTxt += ` | هذا الزبون الأقرب على هذا المندوب الآن`;
             }
