@@ -500,6 +500,7 @@ background:#fff;
             </div>
             <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-GREEN-LIVE-GPS-TRACCAR-V8-20261012 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
              <p class="small" id="traccar-test-status" aria-live="polite">التوكن يبقى فقط بذاكرة هذا التبويب حتى إغلاقه؛ لا يُحفظ في Firebase.</p>
+              <div id="traccar-device-mapping" class="small" style="margin-top:8px;line-height:1.8">بعد الاتصال ستظهر أجهزة Traccar هنا لربطها بالمندوبين إذا لم تتطابق الأسماء.</div>
           </div>
 
           <div class="inline-actions">
@@ -1130,6 +1131,8 @@ background:#fff;
         if (!r.ok) throw new Error("HTTP " + r.status + (r.status === 401 ? " — التوكن مرفوض" : ""));
         const devices = await r.json();
         if (!Array.isArray(devices)) throw new Error("استجابة الأجهزة غير متوقعة");
+        traccarLastDevices = devices;
+        renderTraccarDeviceMapping();
         traccarRuntimeToken = token;
         traccarAuthRejected = false;
         try { sessionStorage.setItem(TRACCAR_TOKEN_STORAGE, token); } catch (_) {}
@@ -1151,6 +1154,59 @@ background:#fff;
       document.getElementById("traccar-test-status").textContent = "تم مسح التوكن المؤقت.";
       stopTraccarPolling();
     });
+
+    // Device-to-driver mapping: explicit selection when a device name differs from the driver name.
+    const TRACCAR_DEVICE_LINKS_KEY = 'diqa_traccar_device_driver_links_v1';
+    let traccarDeviceLinks = {};
+    let traccarLastDevices = [];
+    try { traccarDeviceLinks = JSON.parse(localStorage.getItem(TRACCAR_DEVICE_LINKS_KEY) || '{}') || {}; } catch (_) {}
+    const normalizedPersonName = v => String(v || '').normalize('NFKC').toLowerCase()
+      .replace(/[\u064b-\u065f\u0670\u0640]/g,'')
+      .replace(/[أإآ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه')
+      .replace(/[^a-z0-9\u0621-\u064a]+/g,'');
+    function findTraccarDriverId(devId, devName) {
+      const linked = traccarDeviceLinks[String(devId)];
+      if (linked && driversMetaCache && driversMetaCache[linked]) return linked;
+      const norm = normalizedPersonName(devName);
+      if (!norm) return null;
+      const matches = Object.entries(driversMetaCache || {}).filter(([id, meta]) =>
+        normalizedPersonName(id) === norm || normalizedPersonName(meta && meta.name) === norm);
+      return matches.length === 1 ? matches[0][0] : null;
+    }
+    function renderTraccarDeviceMapping() {
+      const holder = document.getElementById('traccar-device-mapping');
+      if (!holder) return;
+      holder.replaceChildren();
+      if (!traccarLastDevices.length) {
+        holder.textContent = 'لا توجد أجهزة مستلمة بعد. اختبر الاتصال أولاً.';
+        return;
+      }
+      const title = document.createElement('div');
+      title.textContent = 'ربط أجهزة Traccar بالمندوبين (احفظ الربط على هذا المتصفح):';
+      holder.appendChild(title);
+      traccarLastDevices.forEach(dev => {
+        const line = document.createElement('div');
+        line.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px';
+        const label = document.createElement('span');
+        label.textContent = String(dev.name || dev.id) + ' (#' + dev.id + ')';
+        label.style.minWidth = '130px';
+        const select = document.createElement('select');
+        select.style.cssText = 'width:auto;flex:1;min-width:180px;margin:0';
+        select.add(new Option('غير مربوط', ''));
+        Object.entries(driversMetaCache || {}).forEach(([id, meta]) => select.add(new Option(meta.name || id, id)));
+        select.value = findTraccarDriverId(dev.id, dev.name) || '';
+        select.addEventListener('change', () => {
+          if (select.value) traccarDeviceLinks[String(dev.id)] = select.value;
+          else delete traccarDeviceLinks[String(dev.id)];
+          try { localStorage.setItem(TRACCAR_DEVICE_LINKS_KEY, JSON.stringify(traccarDeviceLinks)); } catch (_) {}
+          // Reset device cache to prevent old raw device-ID markers remaining after assignment.
+          traccarDriversLocationsCache = {};
+          fetchTraccarPositions();
+        });
+        line.append(label, select);
+        holder.appendChild(line);
+      });
+    }
 
     async function fetchTraccarPositionsDirect() {
       if (!USE_TRACCAR) return null;
@@ -1179,6 +1235,8 @@ background:#fff;
       const devices = await devR.json();
       const positions = await posR.json();
 
+      traccarLastDevices = Array.isArray(devices) ? devices : [];
+      renderTraccarDeviceMapping();
       const devById = {};
       (devices || []).forEach(d => { if (d && d.id != null) devById[String(d.id)] = d; });
 
@@ -1233,7 +1291,7 @@ background:#fff;
 
         lastTraccarOkAt = Date.now();
         // Diagnostics only; do not display secrets such as tokens.
-        window.diqaTraccarStatus = { ok: true, checkedAt: new Date().toISOString(), devicePositions: j.data.length, error: null };
+        window.diqaTraccarStatus = { ok: true, checkedAt: new Date().toISOString(), devicePositions: j.data.length, matchedDrivers: j.data.filter(p => findTraccarDriverId(p.deviceId, p.name)).length, error: null };
         if (managerAlert && managerAlert.dataset.traccarError === '1') {
           managerAlert.textContent = '';
           delete managerAlert.dataset.traccarError;
@@ -1256,18 +1314,10 @@ background:#fff;
           const devName = (p.name || devId);
           const rawSpeedKmh = normalizeSpeedKmhFromTraccar(p.rawSpeed);
 
-          let key = devId;
-          const slug = slugify(devName);
-          if (slug && driversMetaCache && driversMetaCache[slug]) {
-            key = slug;
-          } else {
-            const found = Object.entries(driversMetaCache || {}).find(([id, meta]) => {
-              return meta && meta.name && String(meta.name).trim() === String(devName).trim();
-            });
-            if (found && found[0]) key = found[0];
-          }
+          // Map Traccar's device ID to the SAME Firebase driver ID used by GPS.
+          const key = findTraccarDriverId(devId, devName);
+          if (!key) return; // Unmatched device: expose in mapping UI, do not create phantom driver.
 
-          
           // ✅ Also map Traccar device to an Employee (if matched by name)
           let empKey = null;
           const empSlug = slugify(devName);
@@ -1619,19 +1669,30 @@ nextDrivers[key] = {
 
     function rebuildDriversLocationsCache() {
       const merged = { ...lastKnownDriversLocationsCache };
-      const consider = (id, loc) => {
-        if (!validGeoLocation(loc)) return;
-        const incoming = tsToMs(loc.updatedAt);
-        const previous = tsToMs(merged[id] && merged[id].updatedAt);
-        if (!incoming || incoming > Date.now() + 60000) return;
-        // المصدر ذو الإحداثيات الأحدث يفوز؛ لا يستبدل موقع قديم موقع أحدث.
-        if (!merged[id] || incoming >= previous) {
-          merged[id] = { ...loc, lat: Number(loc.lat), lng: Number(loc.lng), updatedAt: incoming };
-        }
-      };
-      Object.entries(traccarDriversLocationsCache || {}).forEach(([id, loc]) => consider(id, loc));
-      Object.entries(browserDriversLocationsCache || {}).forEach(([id, loc]) => consider(id, loc));
-      if (isFreshBrowserDriverLocation()) consider(String(currentDriverId), driverBrowserLocationCache);
+      const allIds = new Set([
+        ...Object.keys(lastKnownDriversLocationsCache || {}),
+        ...Object.keys(traccarDriversLocationsCache || {}),
+        ...Object.keys(browserDriversLocationsCache || {})
+      ]);
+      if (currentDriverId) allIds.add(String(currentDriverId));
+      allIds.forEach(id => {
+        const candidates = [
+          traccarDriversLocationsCache[id],
+          browserDriversLocationsCache[id],
+          (isFreshBrowserDriverLocation() && String(currentDriverId) === id) ? driverBrowserLocationCache : null
+        ].filter(loc => validGeoLocation(loc) && tsToMs(loc.updatedAt) > 0 && tsToMs(loc.updatedAt) <= Date.now() + 60000);
+        const gpsLive = candidates.filter(loc => loc.source === 'browser' && freshBrowserLocation(loc))
+          .sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
+        const traccarLive = candidates.filter(loc => loc.source === 'traccar' && calcLiveState(loc.updatedAt).isOnline)
+          .sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
+        const newest = candidates.sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
+        // While browser GPS is truly live it wins; if inactive choose live Traccar,
+        // even when its fix is slightly older than a recently stopped GPS fix.
+        const chosen = gpsLive || traccarLive || newest || merged[id];
+        if (validGeoLocation(chosen)) merged[id] = {
+          ...chosen, lat: Number(chosen.lat), lng: Number(chosen.lng), updatedAt: tsToMs(chosen.updatedAt)
+        };
+      });
       driversLocationsCache = merged;
       lastKnownDriversLocationsCache = { ...merged };
       try { localStorage.setItem(LAST_KNOWN_DRIVERS_KEY, JSON.stringify(merged)); } catch (_) {}
@@ -5950,6 +6011,7 @@ function initMap() {
         driversMetaUnsubRef = db.ref("driversMeta");
         driversMetaUnsubRef.on("value", snap => {
           driversMetaCache = snap.val() || {};
+          renderTraccarDeviceMapping();
           renderDriversSelect();
           renderDriversList();
           updateManagerAlertAndNotify();
