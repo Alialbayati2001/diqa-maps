@@ -92,7 +92,8 @@
       width:18px;height:18px;border-radius:999px;
       border:2px solid rgba(255,255,255,.9);
       box-shadow:0 12px 28px rgba(0,0,0,.45);
-      background:#60a5fa; /* أزرق */
+      background:#3b82f6; /* أزرق */
+      box-shadow:0 0 0 5px rgba(59,130,246,.25),0 12px 28px rgba(0,0,0,.45);
     }
 
     /* ✅ NEW: حضور */
@@ -1642,6 +1643,7 @@ nextDrivers[key] = {
         updateDriverMarkers();
         updateManagerAlertAndNotify();
         updateDriverSelfLocationFromCache();
+        updateDriverSelfTrackOnMap();
         refreshOrdersUIAndMap();
       }, err => console.warn('Browser GPS subscription failed (Firebase rules?):', err));
     }
@@ -4338,11 +4340,16 @@ function renderDriverAttendanceBox(tickOnly=false){
         if (found) loc = found;
       }
 
-      if (loc && typeof loc.lat === "number" && typeof loc.lng === "number") {
-        driverSelfLatLng = { lat: Number(loc.lat), lng: Number(loc.lng) };
-      } else {
-        driverSelfLatLng = null;
+      // Keep the local GPS fix in preference to remote caches when it is newer.
+      const local = driverBrowserLocationCache;
+      if (local && String(local.driverId) === String(currentDriverId) &&
+          validGeoLocation(local) && (!loc || tsToMs(local.updatedAt) >= tsToMs(loc.updatedAt))) {
+        loc = local;
       }
+      if (validGeoLocation(loc)) {
+        driverSelfLatLng = { lat: Number(loc.lat), lng: Number(loc.lng) };
+      }
+      // Never clear the last valid self position merely because a poll has no result.
     }
 
     // ✅ NEW: تحديث نقطة/مسار المندوب على خريطة المندوب فقط
@@ -10516,12 +10523,16 @@ function addEmployee(){
           const lng = pos.coords.longitude;
           const acc = Math.round(pos.coords.accuracy || 0);
 
+          // Draw the blue self pin even if the GPS accuracy is poor. Publishing to
+          // the manager remains subject to the accuracy limit below.
+          if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
+              Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) return;
+          driverSelfLatLng = { lat, lng };
+          updateDriverSelfTrackOnMap();
           if (acc && acc > (USE_TRACCAR ? BROWSER_LOCATION_MAX_ACCURACY_M : MAX_BAD_ACCURACY)) {
-            trackingStatus.textContent = `⚠️ دقة ضعيفة ±${acc}m — فعّل Precise/GPS`;
+            trackingStatus.textContent = `📍 موقعك ظاهر بالأزرق، لكن الدقة ضعيفة ±${acc}m — فعّل Precise/GPS`;
             return;
           }
-
-          driverSelfLatLng = { lat, lng };
 
           const prevBrowserBaseLoc = driversLocationsCache[currentDriverId] || null;
           const computedSpeedKmh = computeSpeedKmhFromPoints(prevBrowserBaseLoc, lat, lng, now);
