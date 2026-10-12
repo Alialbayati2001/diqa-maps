@@ -492,14 +492,14 @@ background:#fff;
           <!-- تنبيه نصي داخل الصفحة -->
           <p id="manager-alert" class="small" style="color:#fca5a5; margin:8px 0 0;"></p>
           <div id="traccar-settings" class="att-box" style="margin-top:10px">
-            <label for="traccar-token-input">اتصال Traccar — ألصق Token جديد من حساب Traccar (لا تنشره داخل ملف الموقع)</label>
+            <label for="traccar-token-input">اتصال Traccar — التوكن مضمّن في HTML (اتصال تلقائي)</label>
             <input id="traccar-token-input" type="password" autocomplete="off" spellcheck="false" placeholder="Token" />
             <div class="inline-actions">
               <button type="button" id="traccar-test-btn" class="secondary">فحص الاتصال وحفظ التوكن مؤقتاً</button>
               <button type="button" id="traccar-clear-btn" class="secondary">مسح التوكن</button>
             </div>
-            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-GREEN-LIVE-GPS-TRACCAR-V8-20261012 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
-             <p class="small" id="traccar-test-status" aria-live="polite">التوكن يبقى فقط بذاكرة هذا التبويب حتى إغلاقه؛ لا يُحفظ في Firebase.</p>
+            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-GPS-TRACCAR-AUTO-V12-20261013 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
+             <p class="small" id="traccar-test-status" aria-live="polite">التوكن مضمّن داخل ملف HTML، ويحاول الاتصال تلقائياً عند فتح المدير. انتبه: التوكن ظاهر لمن يشاهد مصدر الصفحة.</p>
               <div id="traccar-live-diagnostics" class="small" style="margin-top:8px;color:#93c5fd">حالة Traccar: لم يتم فحص الاتصال بعد.</div><div id="traccar-device-mapping" class="small" style="margin-top:8px;line-height:1.8">بعد الاتصال ستظهر أجهزة Traccar هنا لربطها بالمندوبين إذا لم تتطابق الأسماء.</div>
           </div>
 
@@ -1007,7 +1007,7 @@ background:#fff;
     // =========================
     // 1) خله true حتى تعتمد على Traccar للمواقع
     const USE_TRACCAR = true;
-    window.DIQA_BUILD_ID = "DIQA-GREEN-LIVE-GPS-TRACCAR-V8-20261012";
+    window.DIQA_BUILD_ID = "DIQA-GPS-TRACCAR-AUTO-V12-20261013";
     console.info("DIQA BUILD:", window.DIQA_BUILD_ID);
 
     // ✅ رابط Traccar Web UI/API على Railway
@@ -1016,8 +1016,8 @@ background:#fff;
     // SECURITY: Never embed a Traccar credential in publicly hosted HTML.
     // Production recommendation: authenticated server-side proxy, not browser-side tokens.
     const TRACCAR_TOKEN_STORAGE = "diqa_traccar_token_session_v1";
-    let traccarRuntimeToken = "";
-    try { traccarRuntimeToken = sessionStorage.getItem(TRACCAR_TOKEN_STORAGE) || ""; } catch (_) {}
+    const TRACCAR_EMBEDDED_TOKEN = 'RzBFAiAuVHdcGem0CeIdlRKdTaQtR6cLb5OuuuwfLRDom2GEBQIhAMnfDibculyRpefpsq6gLTDvpIZ0NJe5DJmIyBBjPbtXeyJpIjo2MjExODQ0MTE0OTg5MTE3MTIyLCJ1IjoxLCJlIjoiMjAyNi0xMC0xOVQyMTowMDowMC4wMDArMDA6MDAifQ';
+    let traccarRuntimeToken = TRACCAR_EMBEDDED_TOKEN;
     let traccarAuthRejected = false;
 
     // 2) خيار Proxy القديم (خليناه موجود بدون حذف)
@@ -1147,12 +1147,12 @@ background:#fff;
 
     document.getElementById("traccar-test-btn").addEventListener("click", testAndStoreTraccarToken);
     document.getElementById("traccar-clear-btn").addEventListener("click", () => {
-      traccarRuntimeToken = "";
+      traccarRuntimeToken = TRACCAR_EMBEDDED_TOKEN;
       traccarAuthRejected = false;
       try { sessionStorage.removeItem(TRACCAR_TOKEN_STORAGE); } catch (_) {}
       document.getElementById("traccar-token-input").value = "";
-      document.getElementById("traccar-test-status").textContent = "تم مسح التوكن المؤقت.";
-      stopTraccarPolling();
+      document.getElementById("traccar-test-status").textContent = "تم استرجاع التوكن المضمّن وجاري إعادة الاتصال.";
+      startTraccarPolling();
     });
 
     function showTraccarLiveDiagnostics(message) {
