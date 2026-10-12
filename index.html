@@ -1679,6 +1679,8 @@ nextDrivers[key] = {
       }
     } catch (e) { console.warn('Last known GPS cache unavailable:', e); }
 
+    // Unified last-known location: never replace a newer recorded fix with an older fix.
+    // The FIX timestamp, not the Traccar API response time, determines status.
     function rebuildDriversLocationsCache() {
       const merged = { ...lastKnownDriversLocationsCache };
       const allIds = new Set([
@@ -1689,25 +1691,39 @@ nextDrivers[key] = {
       if (currentDriverId) allIds.add(String(currentDriverId));
       allIds.forEach(id => {
         const candidates = [
+          lastKnownDriversLocationsCache[id],
           traccarDriversLocationsCache[id],
           browserDriversLocationsCache[id],
           (isFreshBrowserDriverLocation() && String(currentDriverId) === id) ? driverBrowserLocationCache : null
         ].filter(loc => validGeoLocation(loc) && tsToMs(loc.updatedAt) > 0 && tsToMs(loc.updatedAt) <= Date.now() + 60000);
+        // GPS has priority only while there are actual fresh browser fixes.
         const gpsLive = candidates.filter(loc => loc.source === 'browser' && freshBrowserLocation(loc))
           .sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
+        // If GPS stopped, take a live Traccar fix. Otherwise keep the most recent
+        // real fix from either source, including a stored last-known position.
         const traccarLive = candidates.filter(loc => loc.source === 'traccar' && calcLiveState(loc.updatedAt).isOnline)
           .sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
         const newest = candidates.sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
-        // While browser GPS is truly live it wins; if inactive choose live Traccar,
-        // even when its fix is slightly older than a recently stopped GPS fix.
-        const chosen = gpsLive || traccarLive || newest || merged[id];
-        if (validGeoLocation(chosen)) merged[id] = {
+        const chosen = gpsLive || traccarLive || newest;
+        if (chosen) merged[id] = {
           ...chosen, lat: Number(chosen.lat), lng: Number(chosen.lng), updatedAt: tsToMs(chosen.updatedAt)
         };
       });
       driversLocationsCache = merged;
       lastKnownDriversLocationsCache = { ...merged };
       try { localStorage.setItem(LAST_KNOWN_DRIVERS_KEY, JSON.stringify(merged)); } catch (_) {}
+    }
+    function getDriverLocationSource(loc) {
+      return loc && loc.source === 'traccar' ? 'Traccar' : (loc && loc.source === 'browser' ? 'GPS الموقع' : 'غير معروف');
+    }
+    function getDriverLastSeenText(updatedAt) {
+      const t = tsToMs(updatedAt);
+      if (!t) return 'غير معروف';
+      const seconds = Math.max(0, Math.floor((Date.now() - t) / 1000));
+      if (seconds < 60) return `قبل ${seconds} ثانية`;
+      if (seconds < 3600) return `قبل ${Math.floor(seconds / 60)} دقيقة`;
+      if (seconds < 86400) return `قبل ${Math.floor(seconds / 3600)} ساعة`;
+      return `قبل ${Math.floor(seconds / 86400)} يوم`;
     }
     function mergeBrowserLocations() { rebuildDriversLocationsCache(); }
     function subscribeBrowserDriverLocations() {
@@ -10003,20 +10019,17 @@ function renderDriversSelect() {
         dot.className = "status-dot " + dotClass;
         statusEl.appendChild(dot);
 
-        if (!loc) {
-          statusEl.appendChild(document.createTextNode("لا يوجد موقع"));
-        } else if (loc.gpsOk === false) {
-          statusEl.appendChild(document.createTextNode("GPS مطفي/مرفوض"));
+        if (!loc || !validGeoLocation(loc)) {
+          statusEl.appendChild(document.createTextNode("لا يوجد موقع معروف"));
         } else {
           const st = calcLiveState(loc.updatedAt);
+          const source = getDriverLocationSource(loc);
+          const seen = getDriverLastSeenText(loc.updatedAt);
           const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
           const accText = acc ? ` | ±${acc}m` : "";
           const speedText = Number.isFinite(Number(loc.speedKmh)) ? ` | السرعة: ${formatSpeedKmh(loc.speedKmh)}` : "";
-          const speedSourceText = loc.speedSource === 'traccar' ? ' | المصدر: تراكر' : (loc.speedSource === 'map' ? ' | المصدر: من الحركة' : ' | المصدر: احتياطي');
-
-          if (st.isOnline) statusEl.appendChild(document.createTextNode(`نشط - ${formatTime(loc.updatedAt)}${accText}${speedText}${speedSourceText}`));
-          else if (st.isWarn) statusEl.appendChild(document.createTextNode(`متأخر شوي - ${formatTime(loc.updatedAt)}${accText}${speedText}${speedSourceText}`));
-          else statusEl.appendChild(document.createTextNode(`غير متصل — آخر موقع ${formatTime(loc.updatedAt)}${speedText}${speedSourceText}`));
+          const state = st.isOnline ? 'مباشر 🟢' : (st.isWarn ? 'آخر موقع 🟠' : 'آخر موقع 🔴 (منقطع أكثر من 3 دقائق)');
+          statusEl.appendChild(document.createTextNode(`${state} | المصدر: ${source} | ${seen} | الساعة: ${formatTime(loc.updatedAt)}${accText}${speedText}`));
         }
 
         left.appendChild(nameEl);
@@ -10110,11 +10123,12 @@ function renderDriversSelect() {
         const speedSourceText = loc.speedSource === 'traccar' ? `<br/>مصدر السرعة: تراكر` : (loc.speedSource === 'map' ? `<br/>مصدر السرعة: من حركة الخريطة` : `<br/>مصدر السرعة: احتياطي`);
 
         const stateText = st.isOnline ? "🟢 مباشر" : (st.isWarn ? "🟠 اتصال متأخر — آخر موقع معروف" : "🔴 منقطع أكثر من 3 دقائق — آخر موقع معروف");
-        const sourceText = loc.source === 'browser' ? 'GPS موقع الدقة' : 'Traccar';
+        const sourceText = getDriverLocationSource(loc);
+        const lastSeenText = getDriverLastSeenText(loc.updatedAt);
         const popupHtml =
           `مندوب: ${loc.name || id}<br/>مصدر الموقع: ${sourceText}<br/>` +
           `الحالة: ${stateText}<br/>` +
-          `آخر تحديث: ${formatTime(loc.updatedAt)}${accText}${speedText}${speedSourceText}`;
+          `آخر ظهور: ${formatTime(loc.updatedAt)} (${lastSeenText})${accText}${speedText}${speedSourceText}`;
 
         if (!driverMarkers[id]) {
           const marker = L.marker([loc.lat, loc.lng], {
