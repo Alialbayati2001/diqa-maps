@@ -92,9 +92,13 @@
       width:18px;height:18px;border-radius:999px;
       border:2px solid rgba(255,255,255,.9);
       box-shadow:0 12px 28px rgba(0,0,0,.45);
-      background:#3b82f6; /* أزرق */
-      box-shadow:0 0 0 5px rgba(59,130,246,.25),0 12px 28px rgba(0,0,0,.45);
+      background:#22c55e; /* أخضر للموقع المباشر */
+      box-shadow:0 0 0 5px rgba(34,197,94,.25),0 12px 28px rgba(0,0,0,.45);
     }
+
+    .self-pin.online{background:#22c55e;box-shadow:0 0 0 5px rgba(34,197,94,.25),0 12px 28px rgba(0,0,0,.45)}
+    .self-pin.warn{background:#f59e0b;box-shadow:0 0 0 5px rgba(245,158,11,.25),0 12px 28px rgba(0,0,0,.45)}
+    .self-pin.offline{background:#ef4444;box-shadow:0 0 0 5px rgba(239,68,68,.25),0 12px 28px rgba(0,0,0,.45)}
 
     /* ✅ NEW: حضور */
     .att-box{margin-top:8px;padding:10px;border-radius:14px;border:1px solid #1f2937;background:#020617}
@@ -494,7 +498,7 @@ background:#fff;
               <button type="button" id="traccar-test-btn" class="secondary">فحص الاتصال وحفظ التوكن مؤقتاً</button>
               <button type="button" id="traccar-clear-btn" class="secondary">مسح التوكن</button>
             </div>
-            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-LAST-KNOWN-GPS-TRACCAR-V7-20261012 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
+            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-GREEN-LIVE-GPS-TRACCAR-V8-20261012 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
              <p class="small" id="traccar-test-status" aria-live="polite">التوكن يبقى فقط بذاكرة هذا التبويب حتى إغلاقه؛ لا يُحفظ في Firebase.</p>
           </div>
 
@@ -1002,7 +1006,7 @@ background:#fff;
     // =========================
     // 1) خله true حتى تعتمد على Traccar للمواقع
     const USE_TRACCAR = true;
-    window.DIQA_BUILD_ID = "DIQA-LAST-KNOWN-GPS-TRACCAR-V7-20261012";
+    window.DIQA_BUILD_ID = "DIQA-GREEN-LIVE-GPS-TRACCAR-V8-20261012";
     console.info("DIQA BUILD:", window.DIQA_BUILD_ID);
 
     // ✅ رابط Traccar Web UI/API على Railway
@@ -1076,10 +1080,11 @@ background:#fff;
     }
 
     // ✅ NEW: Icon لموقع المندوب نفسه (خريطة المندوب فقط)
-    function makeSelfIcon(){
+    function makeSelfIcon(state = "online"){
+      const cls = state === "warn" ? "warn" : (state === "offline" ? "offline" : "online");
       return L.divIcon({
         className: "",
-        html: `<div class="self-pin"></div>`,
+        html: `<div class="self-pin ${cls}"></div>`,
         iconSize: [18, 18],
         iconAnchor: [9, 9],
         popupAnchor: [0, -10]
@@ -4347,7 +4352,7 @@ function renderDriverAttendanceBox(tickOnly=false){
         loc = local;
       }
       if (validGeoLocation(loc)) {
-        driverSelfLatLng = { lat: Number(loc.lat), lng: Number(loc.lng) };
+        driverSelfLatLng = { lat: Number(loc.lat), lng: Number(loc.lng), updatedAt: tsToMs(loc.updatedAt) };
       }
       // Never clear the last valid self position merely because a poll has no result.
     }
@@ -4383,17 +4388,22 @@ function renderDriverAttendanceBox(tickOnly=false){
       const lat = driverSelfLatLng.lat;
       const lng = driverSelfLatLng.lng;
 
-      // أضف للنقاط
-      pushDriverPathPoint(lat, lng, Date.now());
+      // أضف للنقاط بناءً على وقت الإحداثيات الحقيقي وليس وقت إعادة الرسم
+      const fixTime = tsToMs(driverSelfLatLng.updatedAt) || 0;
+      if (fixTime) pushDriverPathPoint(lat, lng, fixTime);
+      const st = calcLiveState(fixTime);
+      const liveState = st.isOnline ? "online" : (st.isWarn ? "warn" : "offline");
 
       // Marker
-      const popup = `موقعك الآن ✅<br/>آخر تحديث: <b>${formatTime(Date.now())}</b>`;
+      const stateLabel = st.isOnline ? "🟢 موقع مباشر" : (st.isWarn ? "🟠 تحديث متأخر" : "🔴 آخر موقع معروف");
+      const popup = `${stateLabel}<br/>آخر تحديث: <b>${fixTime ? formatTime(fixTime) : "غير معروف"}</b>`;
       if (!driverSelfMarker){
-        driverSelfMarker = L.marker([lat, lng], { icon: makeSelfIcon(), title: "موقعك" }).addTo(driverMap);
+        driverSelfMarker = L.marker([lat, lng], { icon: makeSelfIcon(liveState), title: "موقعك" }).addTo(driverMap);
         driverSelfMarker.bindPopup(popup);
       } else {
         driverSelfMarker.setLatLng([lat, lng]);
         driverSelfMarker.setPopupContent(popup);
+        driverSelfMarker.setIcon(makeSelfIcon(liveState));
       }
 
       // Polyline
@@ -10055,6 +10065,7 @@ function renderDriversSelect() {
         renderDriversList();
         updateDriverMarkers();
       }
+      if (currentSessionRole === "driver") updateDriverSelfTrackOnMap();
     }, 10000);
 
     function makeEmployeeIcon(liveState) {
@@ -10527,7 +10538,7 @@ function addEmployee(){
           // the manager remains subject to the accuracy limit below.
           if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
               Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) return;
-          driverSelfLatLng = { lat, lng };
+          driverSelfLatLng = { lat, lng, updatedAt: Date.now() };
           updateDriverSelfTrackOnMap();
           if (acc && acc > (USE_TRACCAR ? BROWSER_LOCATION_MAX_ACCURACY_M : MAX_BAD_ACCURACY)) {
             trackingStatus.textContent = `📍 موقعك ظاهر بالأزرق، لكن الدقة ضعيفة ±${acc}m — فعّل Precise/GPS`;
