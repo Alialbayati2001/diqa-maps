@@ -455,13 +455,23 @@ background:#fff;
       pointer-events: none;
     }
     #map .diqa-area-name.leaflet-tooltip::before { display:none !important; }
-    /* Reliable unmodified OpenStreetMap tiles: roads and labels stay legible. */
+    /* Dark view of OpenStreetMap: no API key, with light road/place labels. */
     #map .leaflet-tile-pane img.leaflet-tile,
     #driver-map .leaflet-tile-pane img.leaflet-tile {
-      filter: none !important;
+      filter: invert(1) hue-rotate(180deg) brightness(1.36) contrast(.83) saturate(.72) !important;
       opacity: 1 !important;
     }
-    #map, #driver-map { background:#e8edf2; }
+    #map, #driver-map { background:#364457; }
+    /* Crowded drivers retain their exact coordinates; only artwork becomes a point. */
+    #map .diqa-exact-position-dot {
+      display:block;position:absolute;left:41px;top:38px;
+      width:14px;height:14px;border:3px solid #fff;border-radius:50%;
+      background:#16a34a;box-shadow:0 1px 6px #0009;
+      pointer-events:none;
+    }
+    #map .diqa-exact-position-dot.warn {background:#f59e0b;}
+    #map .diqa-exact-position-dot.offline {background:#ef4444;}
+
 
 </style>
 </head>
@@ -1148,7 +1158,7 @@ background:#fff;
       return L.divIcon({
         className: 'diqa-driver-marker',
         html: `<svg class="diqa-driver-leader" aria-hidden="true"><line x1="48" y1="48" x2="48" y2="48" /></svg><div class="diqa-original-icon"><img src="${DIQA_ORIGINAL_MARKER_IMAGES[key]}" alt=""><span class="diqa-original-icon-name">${name}</span></div>`,
-        iconSize: [97,52], iconAnchor: [48,48], popupAnchor: [0,-46]
+        iconSize: [97,52], iconAnchor: [48,45], popupAnchor: [0,-43]
       });
     }
 
@@ -10320,65 +10330,47 @@ function renderDriversSelect() {
     }
 
 
-    // Real-position clustering: NO marker, SVG or label is ever displaced.
-    // If cards would overlap at this zoom, keep one real marker and show the
-    // remaining names in its popup. Zooming in separates them automatically.
+    // The centre of the small round tip in the original image is the exact GPS/Traccar point.
+    // Image tip at source pixels ~= (323,299) of 652x347, displayed at (48,45).
+    // All markers use their exact reported GPS/Traccar coordinates.
+    // Crowded markers are only displayed as a small point AT THE SAME coordinate.
+    // Never shift GPS coordinates, never represent multiple drivers at another driver's point.
     function layoutDriverCardsWithoutOverlap() {
-      if (!map || !map.getPane('diqaDriversTopPane')) return;
+      if (!map) return;
       const entries = Object.entries(driverMarkers).filter(([id,m]) =>
-        m && map.hasLayer(m) && m._icon && driversMetaCache &&
-        Object.prototype.hasOwnProperty.call(driversMetaCache,id)
-      ).map(([id,marker]) => ({id, marker, point:map.latLngToContainerPoint(marker.getLatLng())}))
-       .sort((a,b)=>a.id.localeCompare(b.id));
-      // Reset on every update, including when GPS/Traccar changes.
+        m && map.hasLayer(m) && m._icon &&
+        Object.prototype.hasOwnProperty.call(driversMetaCache || {}, id)
+      ).map(([id, marker]) => ({id,marker,point:map.latLngToContainerPoint(marker.getLatLng())}))
+       .sort((a,b) => a.id.localeCompare(b.id));
       for (const e of entries) {
+        const el=e.marker._icon;
+        el.classList.remove('diqa-crowded-point');
+        const badge=el.querySelector('.diqa-cluster-count');
+        if (badge) badge.remove();
+        const art=el.querySelector('.diqa-original-icon');
+        if (art) {art.style.transform='scale(0.48)';art.style.visibility='visible';}
+        const old=el.querySelector('.diqa-exact-position-dot');
+        if (old) old.remove();
         e.marker.setOpacity(1);
-        e.marker._icon.style.pointerEvents = '';
-        const oldBadge = e.marker._icon.querySelector('.diqa-cluster-count');
-        if (oldBadge) oldBadge.remove();
-        const art = e.marker._icon.querySelector('.diqa-original-icon');
-        if (art) art.style.transform = 'scale(0.48)';
-        const line = e.marker._icon.querySelector('.diqa-driver-leader');
-        if (line) line.style.display = 'none';
+        el.style.pointerEvents='';
         if (e.marker._diqaOwnPopup) e.marker.setPopupContent(e.marker._diqaOwnPopup);
       }
-      // A 97 × 52 px label has an anchor near its lower center.
-      const near = (a,b) => Math.abs(a.point.x-b.point.x) < 100 &&
-                             Math.abs(a.point.y-b.point.y) < 54;
-      const unseen = new Set(entries.map(e=>e.id));
+      // Keep the full label on the first driver; the rest become distinct,
+      // clickable pins at their own real coordinates. No clustering or offsets.
+      const full=[];
       for (const e of entries) {
-        if (!unseen.has(e.id)) continue;
-        const group=[e]; unseen.delete(e.id);
-        for(let i=0;i<group.length;i++) {
-          for(const next of entries) {
-            if(unseen.has(next.id) && near(group[i],next)) {
-              unseen.delete(next.id); group.push(next);
-            }
-          }
-        }
-        if(group.length===1) continue;
-        // The retained marker stays at THAT driver's actual coordinates.
-        // Hidden members are present in the popup, never shown at false points.
-        const first=group[0];
-        for (const hidden of group.slice(1)) {
-          hidden.marker.setOpacity(0);
-          hidden.marker._icon.style.pointerEvents='none';
-        }
-        const badge=document.createElement('span');
-        badge.className='diqa-cluster-count';
-        badge.textContent='+'+(group.length-1);
-        first.marker._icon.appendChild(badge);
-        const items=group.map(g=>{
-          const meta=driversMetaCache[g.id]||{};
-          const loc=driversLocationsCache[g.id]||{};
-          const name=escapeDriverMapText(meta.name||loc.name||g.id);
-          const st=calcLiveState(loc.updatedAt);
-          const status=st.isOnline?'🟢':st.isWarn?'🟠':'🔴';
-          const lat=g.marker.getLatLng().lat.toFixed(6);
-          const lng=g.marker.getLatLng().lng.toFixed(6);
-          return `<div style="padding:5px 0;border-bottom:1px solid #ddd">${status} <b>${name}</b><br><small>الموقع الحقيقي: ${lat}, ${lng}</small></div>`;
-        }).join('');
-        first.marker.setPopupContent(`<div dir="rtl" style="min-width:210px"><b>${group.length} مندوبين متقاربين</b><div style="margin:6px 0">كبّر الخريطة حتى تظهر أيقوناتهم منفصلة عند تباعدها.</div>${items}</div>`);
+        const overlap=full.some(f => Math.abs(e.point.x-f.point.x)<105 && Math.abs(e.point.y-f.point.y)<58);
+        if (!overlap) {full.push(e);continue;}
+        const el=e.marker._icon;
+        el.classList.add('diqa-crowded-point');
+        const art=el.querySelector('.diqa-original-icon');
+        if (art) art.style.visibility='hidden';
+        const loc=driversLocationsCache[e.id]||{};
+        const state=calcLiveState(loc.updatedAt);
+        const dot=document.createElement('span');
+        dot.className='diqa-exact-position-dot '+(state.isOnline?'online':state.isWarn?'warn':'offline');
+        dot.title=(driversMetaCache[e.id]&&driversMetaCache[e.id].name)||loc.name||e.id;
+        el.appendChild(dot);
       }
     }
 
