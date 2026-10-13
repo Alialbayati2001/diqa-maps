@@ -422,15 +422,22 @@ background:#fff;
 
     /* DIQA: exact original motorcycle artwork, without background boxes. */
     #map .diqa-driver-marker { border:0!important; box-shadow:none!important; background:transparent!important; overflow:visible!important; }
-    #map .diqa-original-icon {position:relative; width:97px; height:52px; background:transparent!important; overflow:visible; transform:none!important;}
+    #map .diqa-original-icon {position:relative; width:202px; height:108px; background:transparent!important; overflow:visible; transform:scale(0.48); transform-origin:top left;}
     #map .diqa-original-icon img {display:block;width:100%;height:100%;object-fit:fill;pointer-events:none;background:transparent!important;}
-    #map .diqa-original-icon-name {position:absolute; left:46%; width:49%; top:26%; height:38%; display:flex;align-items:center;justify-content:center;direction:rtl;text-align:center; color:#fff; font-family:Tahoma,Arial,system-ui,sans-serif;font-weight:900; font-size:8px;line-height:1.18;overflow-wrap:anywhere;text-shadow:0 1px 2px rgba(0,0,0,.24);pointer-events:none;}
-    /* Small crosshair: this dot sits on the unmodified geographic coordinate. */
-    #map .diqa-driver-marker::after {
-      content:"";position:absolute;left:45px;top:45px;width:6px;height:6px;
-      background:#fff;border:1px solid #111827;border-radius:50%;
-      box-shadow:0 0 0 1px rgba(255,255,255,.7);pointer-events:none;
+    #map .diqa-original-icon-name {position:absolute; left:46%; width:49%; top:26%; height:38%; display:flex;align-items:center;justify-content:center;direction:rtl;text-align:center; color:#fff; font-family:Tahoma,Arial,system-ui,sans-serif;font-weight:900; font-size:17px;line-height:1.18;overflow-wrap:anywhere;text-shadow:0 1px 2px rgba(0,0,0,.24);pointer-events:none;}
+
+    #map .diqa-cluster-count {
+      position:absolute; right:-9px; top:-11px;
+      background:#0f172a; color:#fff; border:2px solid white;
+      border-radius:20px; min-width:26px; height:26px;
+      display:flex; align-items:center; justify-content:center;
+      font:700 12px Tahoma,Arial,sans-serif; box-shadow:0 2px 6px #0008;
+      z-index:5; pointer-events:none;
     }
+    /* Legacy connector hidden: locations are no longer visually displaced. */
+    #map .diqa-driver-leader { position:absolute;inset:0;width:1px;height:1px;overflow:visible;pointer-events:none;display:none; }
+    #map .diqa-driver-leader line { stroke:rgba(255,255,255,.78);stroke-width:1.6;stroke-dasharray:3 3;filter:drop-shadow(0 1px 1px rgba(0,0,0,.65)); }
+    #map .diqa-driver-marker .diqa-original-icon { transition:transform .18s ease-out; }
     /* Area names: quiet, white, permanently visible, without a bubble. */
     #map .diqa-area-name.leaflet-tooltip {
       background: transparent !important;
@@ -448,12 +455,13 @@ background:#fff;
       pointer-events: none;
     }
     #map .diqa-area-name.leaflet-tooltip::before { display:none !important; }
-    /* Slight dark style but keep labels readable */
+    /* Reliable unmodified OpenStreetMap tiles: roads and labels stay legible. */
     #map .leaflet-tile-pane img.leaflet-tile,
     #driver-map .leaflet-tile-pane img.leaflet-tile {
-      filter: none;
+      filter: none !important;
+      opacity: 1 !important;
     }
-    #map, #driver-map { background:#4d5967; }
+    #map, #driver-map { background:#e8edf2; }
 
 </style>
 </head>
@@ -533,7 +541,7 @@ background:#fff;
               <button type="button" id="traccar-test-btn" class="secondary">فحص الاتصال وحفظ التوكن لجميع الأجهزة</button>
               <button type="button" id="traccar-clear-btn" class="secondary">مسح التوكن المشترك</button>
             </div>
-            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-REAL-COORDINATES-20261013 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
+            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-GPS-TRACCAR-SHARED-20261013 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
              <p class="small" id="traccar-test-status" aria-live="polite">يتم تحميل التوكن المشترك تلقائياً من Firebase. تغيير التوكن هنا ينعكس على الأجهزة المفتوحة.</p>
               <div id="traccar-live-diagnostics" class="small" style="margin-top:8px;color:#93c5fd">حالة Traccar: لم يتم فحص الاتصال بعد.</div><div id="traccar-device-mapping" class="small" style="margin-top:8px;line-height:1.8">بعد الاتصال ستظهر أجهزة Traccar هنا، وبإمكان المدير تحديد المندوب المقابل لكل جهاز.</div>
           </div>
@@ -1042,7 +1050,7 @@ background:#fff;
     // =========================
     // 1) خله true حتى تعتمد على Traccar للمواقع
     const USE_TRACCAR = true;
-    window.DIQA_BUILD_ID = "DIQA-REAL-COORDINATES-20261013";
+    window.DIQA_BUILD_ID = "DIQA-OSM-REAL-GPS-20261013-FIX";
     console.info("DIQA BUILD:", window.DIQA_BUILD_ID);
 
     // ✅ رابط Traccar Web UI/API على Railway
@@ -1139,7 +1147,7 @@ background:#fff;
       const name = escapeDriverMapText(driverName || 'مندوب');
       return L.divIcon({
         className: 'diqa-driver-marker',
-        html: `<div class="diqa-original-icon"><img src="${DIQA_ORIGINAL_MARKER_IMAGES[key]}" alt=""><span class="diqa-original-icon-name">${name}</span></div>`,
+        html: `<svg class="diqa-driver-leader" aria-hidden="true"><line x1="48" y1="48" x2="48" y2="48" /></svg><div class="diqa-original-icon"><img src="${DIQA_ORIGINAL_MARKER_IMAGES[key]}" alt=""><span class="diqa-original-icon-name">${name}</span></div>`,
         iconSize: [97,52], iconAnchor: [48,48], popupAnchor: [0,-46]
       });
     }
@@ -1890,13 +1898,15 @@ nextDrivers[key] = {
           browserDriversLocationsCache[id],
           (isFreshBrowserDriverLocation() && String(currentDriverId) === id) ? driverBrowserLocationCache : null
         ].filter(loc => validGeoLocation(loc) && tsToMs(loc.updatedAt) > 0 && tsToMs(loc.updatedAt) <= Date.now() + 60000);
-        // TRUE COORDINATES ONLY: select the newest valid device fix by its own
-        // timestamp. Never prefer a stale GPS reading over a newer Traccar fix
-        // (or vice versa), and never synthesize/map-shift a coordinate.
-        const chosen = candidates.sort((a, b) =>
-          tsToMs(b.updatedAt) - tsToMs(a.updatedAt) ||
-          (a.source === 'traccar' ? -1 : 1)
-        )[0];
+        // GPS has priority only while there are actual fresh browser fixes.
+        const gpsLive = candidates.filter(loc => loc.source === 'browser' && freshBrowserLocation(loc))
+          .sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
+        // If GPS stopped, take a live Traccar fix. Otherwise keep the most recent
+        // real fix from either source, including a stored last-known position.
+        const traccarLive = candidates.filter(loc => loc.source === 'traccar' && calcLiveState(loc.updatedAt).isOnline)
+          .sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
+        const newest = candidates.sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
+        const chosen = gpsLive || traccarLive || newest;
         if (chosen) merged[id] = {
           ...chosen, lat: Number(chosen.lat), lng: Number(chosen.lng), updatedAt: tsToMs(chosen.updatedAt)
         };
@@ -5370,14 +5380,15 @@ function pointInPolygon(lat, lng, points){
 function initMap() {
       if (map) return;
       map = L.map("map").setView([33.3152, 44.3661], 11);
+      map.on('zoomend moveend resize', () => layoutDriverCardsWithoutOverlap());
       // Markers are in a dedicated higher Leaflet pane so area labels never cover them.
       if (!map.getPane('diqaDriversTopPane')) {
         map.createPane('diqaDriversTopPane');
         map.getPane('diqaDriversTopPane').style.zIndex = '750';
       }
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
-        attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+        attribution: "&copy; OpenStreetMap"
       }).addTo(map);
 
       // =========================
@@ -5428,9 +5439,9 @@ function initMap() {
     function initDriverMap(){
       if (driverMap) return;
       driverMap = L.map("driver-map").setView([33.3152, 44.3661], 12);
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
-        attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+        attribution: "&copy; OpenStreetMap"
       }).addTo(driverMap);
 
       // =========================
@@ -10308,6 +10319,69 @@ function renderDriversSelect() {
       });
     }
 
+
+    // Real-position clustering: NO marker, SVG or label is ever displaced.
+    // If cards would overlap at this zoom, keep one real marker and show the
+    // remaining names in its popup. Zooming in separates them automatically.
+    function layoutDriverCardsWithoutOverlap() {
+      if (!map || !map.getPane('diqaDriversTopPane')) return;
+      const entries = Object.entries(driverMarkers).filter(([id,m]) =>
+        m && map.hasLayer(m) && m._icon && driversMetaCache &&
+        Object.prototype.hasOwnProperty.call(driversMetaCache,id)
+      ).map(([id,marker]) => ({id, marker, point:map.latLngToContainerPoint(marker.getLatLng())}))
+       .sort((a,b)=>a.id.localeCompare(b.id));
+      // Reset on every update, including when GPS/Traccar changes.
+      for (const e of entries) {
+        e.marker.setOpacity(1);
+        e.marker._icon.style.pointerEvents = '';
+        const oldBadge = e.marker._icon.querySelector('.diqa-cluster-count');
+        if (oldBadge) oldBadge.remove();
+        const art = e.marker._icon.querySelector('.diqa-original-icon');
+        if (art) art.style.transform = 'scale(0.48)';
+        const line = e.marker._icon.querySelector('.diqa-driver-leader');
+        if (line) line.style.display = 'none';
+        if (e.marker._diqaOwnPopup) e.marker.setPopupContent(e.marker._diqaOwnPopup);
+      }
+      // A 97 × 52 px label has an anchor near its lower center.
+      const near = (a,b) => Math.abs(a.point.x-b.point.x) < 100 &&
+                             Math.abs(a.point.y-b.point.y) < 54;
+      const unseen = new Set(entries.map(e=>e.id));
+      for (const e of entries) {
+        if (!unseen.has(e.id)) continue;
+        const group=[e]; unseen.delete(e.id);
+        for(let i=0;i<group.length;i++) {
+          for(const next of entries) {
+            if(unseen.has(next.id) && near(group[i],next)) {
+              unseen.delete(next.id); group.push(next);
+            }
+          }
+        }
+        if(group.length===1) continue;
+        // The retained marker stays at THAT driver's actual coordinates.
+        // Hidden members are present in the popup, never shown at false points.
+        const first=group[0];
+        for (const hidden of group.slice(1)) {
+          hidden.marker.setOpacity(0);
+          hidden.marker._icon.style.pointerEvents='none';
+        }
+        const badge=document.createElement('span');
+        badge.className='diqa-cluster-count';
+        badge.textContent='+'+(group.length-1);
+        first.marker._icon.appendChild(badge);
+        const items=group.map(g=>{
+          const meta=driversMetaCache[g.id]||{};
+          const loc=driversLocationsCache[g.id]||{};
+          const name=escapeDriverMapText(meta.name||loc.name||g.id);
+          const st=calcLiveState(loc.updatedAt);
+          const status=st.isOnline?'🟢':st.isWarn?'🟠':'🔴';
+          const lat=g.marker.getLatLng().lat.toFixed(6);
+          const lng=g.marker.getLatLng().lng.toFixed(6);
+          return `<div style="padding:5px 0;border-bottom:1px solid #ddd">${status} <b>${name}</b><br><small>الموقع الحقيقي: ${lat}, ${lng}</small></div>`;
+        }).join('');
+        first.marker.setPopupContent(`<div dir="rtl" style="min-width:210px"><b>${group.length} مندوبين متقاربين</b><div style="margin:6px 0">كبّر الخريطة حتى تظهر أيقوناتهم منفصلة عند تباعدها.</div>${items}</div>`);
+      }
+    }
+
     function updateDriverMarkers() {
       if (!map) return;
 
@@ -10344,8 +10418,7 @@ function renderDriversSelect() {
         const popupHtml =
           `مندوب: ${loc.name || id}<br/>مصدر الموقع: ${sourceText}<br/>` +
           `الحالة: ${stateText}<br/>` +
-          `آخر ظهور: ${formatTime(loc.updatedAt)} (${lastSeenText})${accText}${speedText}${speedSourceText}` +
-          `<br/>الإحداثيات الحقيقية: ${Number(loc.lat).toFixed(6)}, ${Number(loc.lng).toFixed(6)}`;
+          `آخر ظهور: ${formatTime(loc.updatedAt)} (${lastSeenText})${accText}${speedText}${speedSourceText}`;
 
         if (!driverMarkers[id]) {
           const marker = L.marker([loc.lat, loc.lng], {
@@ -10355,22 +10428,16 @@ function renderDriversSelect() {
             zIndexOffset: 2000
           }).addTo(map);
           marker.bindPopup(popupHtml);
-          marker._diqaIconKey = liveState + '|' + ((driversMetaCache[id] && driversMetaCache[id].name) || loc.name || id);
+          marker._diqaOwnPopup = popupHtml;
           driverMarkers[id] = marker;
         } else {
-          // Real GPS/Traccar lat/lng only. Never apply fake offsets to separate riders.
-          const marker = driverMarkers[id];
-          const current = marker.getLatLng();
-          // GPS coordinate never changes due to zoom; only update on an actual GPS/Traccar change.
-          if (current.lat !== loc.lat || current.lng !== loc.lng) marker.setLatLng([loc.lat, loc.lng]);
-          marker.setPopupContent(popupHtml);
-          const nextIconKey = liveState + '|' + ((driversMetaCache[id] && driversMetaCache[id].name) || loc.name || id);
-          if (marker._diqaIconKey !== nextIconKey) {
-            marker.setIcon(icon);
-            marker._diqaIconKey = nextIconKey;
-          }
+          driverMarkers[id].setLatLng([loc.lat, loc.lng]);
+          driverMarkers[id]._diqaOwnPopup = popupHtml;
+          driverMarkers[id].setPopupContent(popupHtml);
+          driverMarkers[id].setIcon(icon);
         }
       });
+      layoutDriverCardsWithoutOverlap();
     }
 
     
@@ -10843,8 +10910,6 @@ function addEmployee(){
           }
 
           const now = Date.now();
-          const fixTime = Number(pos.timestamp) || now;
-          if (fixTime > now + 5000 || now - fixTime > 30000) return; // لا ننشر قراءة GPS قديمة كأنها مباشرة
           if (now - lastSentAt < MIN_SEND_INTERVAL_MS) return;
           lastSentAt = now;
 
@@ -10856,7 +10921,7 @@ function addEmployee(){
           // the manager remains subject to the accuracy limit below.
           if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
               Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) return;
-          driverSelfLatLng = { lat, lng, updatedAt: fixTime };
+          driverSelfLatLng = { lat, lng, updatedAt: Date.now() };
           updateDriverSelfTrackOnMap();
           if (acc && acc > (USE_TRACCAR ? BROWSER_LOCATION_MAX_ACCURACY_M : MAX_BAD_ACCURACY)) {
             trackingStatus.textContent = `📍 موقعك ظاهر بالأزرق، لكن الدقة ضعيفة ±${acc}m — فعّل Precise/GPS`;
@@ -10864,7 +10929,7 @@ function addEmployee(){
           }
 
           const prevBrowserBaseLoc = driversLocationsCache[currentDriverId] || null;
-          const computedSpeedKmh = computeSpeedKmhFromPoints(prevBrowserBaseLoc, lat, lng, fixTime);
+          const computedSpeedKmh = computeSpeedKmhFromPoints(prevBrowserBaseLoc, lat, lng, now);
           const browserSpeedKmh = getPreferredDriverSpeedKmh({
             traccarSpeedKmh: prevBrowserBaseLoc && prevBrowserBaseLoc.traccarSpeedKmh,
             computedSpeedKmh,
@@ -10881,7 +10946,7 @@ function addEmployee(){
             gpsError: null,
             active: true,
             liveState: "online",
-            updatedAt: fixTime,
+            updatedAt: now,
             source: "browser",
             computedSpeedKmh,
             speedKmh: browserSpeedKmh,
