@@ -422,7 +422,7 @@ background:#fff;
 
     /* DIQA: exact original motorcycle artwork, without background boxes. */
     #map .diqa-driver-marker { border:0!important; box-shadow:none!important; background:transparent!important; overflow:visible!important; }
-    #map .diqa-original-icon {position:relative; width:202px; height:108px; background:transparent!important; overflow:visible;}
+    #map .diqa-original-icon {position:relative; width:202px; height:108px; background:transparent!important; overflow:visible; transform:scale(0.60); transform-origin:top left;}
     #map .diqa-original-icon img {display:block;width:100%;height:100%;object-fit:fill;pointer-events:none;background:transparent!important;}
     #map .diqa-original-icon-name {position:absolute; left:46%; width:49%; top:26%; height:38%; display:flex;align-items:center;justify-content:center;direction:rtl;text-align:center; color:#fff; font-family:Tahoma,Arial,system-ui,sans-serif;font-weight:900; font-size:17px;line-height:1.18;overflow-wrap:anywhere;text-shadow:0 1px 2px rgba(0,0,0,.24);pointer-events:none;}
     /* Slight dark style but keep labels readable */
@@ -1117,7 +1117,7 @@ background:#fff;
       return L.divIcon({
         className: 'diqa-driver-marker',
         html: `<div class="diqa-original-icon"><img src="${DIQA_ORIGINAL_MARKER_IMAGES[key]}" alt=""><span class="diqa-original-icon-name">${name}</span></div>`,
-        iconSize: [202,108], iconAnchor: [101,100], popupAnchor: [0,-94]
+        iconSize: [121,65], iconAnchor: [60,60], popupAnchor: [0,-56]
       });
     }
 
