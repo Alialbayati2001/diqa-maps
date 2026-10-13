@@ -492,14 +492,14 @@ background:#fff;
           <!-- تنبيه نصي داخل الصفحة -->
           <p id="manager-alert" class="small" style="color:#fca5a5; margin:8px 0 0;"></p>
           <div id="traccar-settings" class="att-box" style="margin-top:10px">
-            <label for="traccar-token-input">اتصال Traccar — التوكن مضمّن في HTML (اتصال تلقائي)</label>
+            <label for="traccar-token-input">اتصال Traccar — توكن مشترك لجميع الأجهزة (Firebase)</label>
             <input id="traccar-token-input" type="password" autocomplete="off" spellcheck="false" placeholder="Token" />
             <div class="inline-actions">
-              <button type="button" id="traccar-test-btn" class="secondary">فحص الاتصال وحفظ التوكن مؤقتاً</button>
-              <button type="button" id="traccar-clear-btn" class="secondary">مسح التوكن</button>
+              <button type="button" id="traccar-test-btn" class="secondary">فحص الاتصال وحفظ التوكن لجميع الأجهزة</button>
+              <button type="button" id="traccar-clear-btn" class="secondary">مسح التوكن المشترك</button>
             </div>
-            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-GPS-TRACCAR-AUTO-V12-20261013 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
-             <p class="small" id="traccar-test-status" aria-live="polite">التوكن مضمّن داخل ملف HTML، ويحاول الاتصال تلقائياً عند فتح المدير. انتبه: التوكن ظاهر لمن يشاهد مصدر الصفحة.</p>
+            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-GPS-TRACCAR-SHARED-20261013 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
+             <p class="small" id="traccar-test-status" aria-live="polite">يتم تحميل التوكن المشترك تلقائياً من Firebase. تغيير التوكن هنا ينعكس على الأجهزة المفتوحة.</p>
               <div id="traccar-live-diagnostics" class="small" style="margin-top:8px;color:#93c5fd">حالة Traccar: لم يتم فحص الاتصال بعد.</div><div id="traccar-device-mapping" class="small" style="margin-top:8px;line-height:1.8">بعد الاتصال ستظهر أجهزة Traccar هنا لربطها بالمندوبين إذا لم تتطابق الأسماء.</div>
           </div>
 
@@ -1007,7 +1007,7 @@ background:#fff;
     // =========================
     // 1) خله true حتى تعتمد على Traccar للمواقع
     const USE_TRACCAR = true;
-    window.DIQA_BUILD_ID = "DIQA-GPS-TRACCAR-AUTO-V12-20261013";
+    window.DIQA_BUILD_ID = "DIQA-GPS-TRACCAR-SHARED-20261013";
     console.info("DIQA BUILD:", window.DIQA_BUILD_ID);
 
     // ✅ رابط Traccar Web UI/API على Railway
@@ -1120,6 +1120,7 @@ background:#fff;
       const status = document.getElementById("traccar-test-status");
       const btn = document.getElementById("traccar-test-btn");
       const token = field.value.trim();
+      if (currentSessionRole !== "manager") { status.textContent = "⛔ خاص بالمدير فقط."; return; }
       if (token.length <= 20) { status.textContent = "أدخل توكن صحيح من Traccar."; return; }
       btn.disabled = true;
       status.textContent = "جاري اختبار صلاحية الوصول إلى الأجهزة...";
@@ -1135,9 +1136,9 @@ background:#fff;
         renderTraccarDeviceMapping();
         traccarRuntimeToken = token;
         traccarAuthRejected = false;
-        try { sessionStorage.setItem(TRACCAR_TOKEN_STORAGE, token); } catch (_) {}
+        await db.ref(TRACCAR_SHARED_DB_PATH).set({ token, updatedAt: SERVER_TS });
         field.value = "";
-        status.textContent = "✅ تم الاتصال بنجاح — عدد الأجهزة: " + devices.length + ". سيبدأ تحديث المواقع.";
+        status.textContent = "✅ تم فحص التوكن وحفظه في Firebase لجميع الأجهزة — عدد الأجهزة: " + devices.length + ".";
         if (managerAlert) { managerAlert.textContent = ""; delete managerAlert.dataset.traccarError; }
         startTraccarPolling();
       } catch (e) {
@@ -1146,13 +1147,14 @@ background:#fff;
     }
 
     document.getElementById("traccar-test-btn").addEventListener("click", testAndStoreTraccarToken);
-    document.getElementById("traccar-clear-btn").addEventListener("click", () => {
-      traccarRuntimeToken = TRACCAR_EMBEDDED_TOKEN;
-      traccarAuthRejected = false;
-      try { sessionStorage.removeItem(TRACCAR_TOKEN_STORAGE); } catch (_) {}
-      document.getElementById("traccar-token-input").value = "";
-      document.getElementById("traccar-test-status").textContent = "تم استرجاع التوكن المضمّن وجاري إعادة الاتصال.";
-      startTraccarPolling();
+    document.getElementById("traccar-clear-btn").addEventListener("click", async () => {
+      const status = document.getElementById("traccar-test-status");
+      if (currentSessionRole !== "manager") { status.textContent = "⛔ خاص بالمدير فقط."; return; }
+      if (!confirm("مسح توكن Traccar المشترك من جميع الأجهزة؟")) return;
+      try {
+        await db.ref(TRACCAR_SHARED_DB_PATH).remove();
+        status.textContent = "تم مسح التوكن المشترك. سيعود الاتصال الاحتياطي إن وجد.";
+      } catch (e) { status.textContent = "❌ تعذر المسح من Firebase: " + (e.message || e); }
     });
 
     function showTraccarLiveDiagnostics(message) {
@@ -1230,7 +1232,7 @@ background:#fff;
 
       if (devR.status === 401 || devR.status === 403 || posR.status === 401 || posR.status === 403) {
         traccarAuthRejected = true;
-        try { sessionStorage.removeItem(TRACCAR_TOKEN_STORAGE); } catch (_) {}
+        // The shared token is kept in Firebase until the manager replaces it.
         throw new Error("Traccar رفض التوكن (401/403). ألصق توكن جديد من لوحة المدير ثم اضغط فحص الاتصال.");
       }
       if (!devR.ok) throw new Error("Traccar /api/devices: HTTP " + devR.status + (devR.status === 401 || devR.status === 403 ? " (token/permissions)" : ""));
@@ -1519,6 +1521,29 @@ nextDrivers[key] = {
 
     const db = firebase.database();
     const SERVER_TS = firebase.database.ServerValue.TIMESTAMP;
+
+    // Shared Traccar token. This uses the existing Firebase RTDB; no separate files.
+    // IMPORTANT: RTDB rules must restrict reading and writing this path.
+    const TRACCAR_SHARED_DB_PATH = "appSettings/traccarShared";
+    let traccarSharedTokenSeen = false;
+    db.ref(TRACCAR_SHARED_DB_PATH).on("value", (snapshot) => {
+      const cfg = snapshot.val();
+      const next = cfg && typeof cfg.token === "string" ? cfg.token.trim() : "";
+      const changed = traccarRuntimeToken !== (next || TRACCAR_EMBEDDED_TOKEN);
+      traccarRuntimeToken = next || TRACCAR_EMBEDDED_TOKEN;
+      traccarAuthRejected = false;
+      traccarSharedTokenSeen = true;
+      const status = document.getElementById("traccar-test-status");
+      if (status && !document.getElementById("traccar-test-btn").disabled) {
+        status.textContent = next ? "✅ التوكن المشترك محمّل من Firebase وجاهز على هذا الجهاز." : "لم يُحفظ توكن مشترك بعد؛ الاتصال يستخدم التوكن الاحتياطي الموجود في النسخة الحالية.";
+      }
+      if (changed && currentSessionRole === "manager") startTraccarPolling();
+    }, (error) => {
+      const status = document.getElementById("traccar-test-status");
+      if (status) status.textContent = "⚠️ لم تسمح قواعد Firebase بقراءة التوكن المشترك: " + error.message;
+      console.warn("Traccar shared token Firebase read failed:", error);
+    });
+
 
     const MANAGER_PASSWORD = "Adgj1357";
 
