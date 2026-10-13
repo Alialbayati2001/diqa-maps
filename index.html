@@ -1068,15 +1068,26 @@ background:#fff;
       };
     }
 
-    // ✅ Icon ملوّن حسب الحالة (Leaflet divIcon)
-    function makeDriverIcon(state) {
-      const cls = (state === "warn") ? "warn" : (state === "online" ? "online" : "offline");
+    // Manager markers: visually distinct from customer dots; name is always shown.
+    function escapeDriverMapText(value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, c => ({
+        '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+      })[c]);
+    }
+    function makeDriverIcon(state, driverName) {
+      const cls = state === "warn" ? "warn" : (state === "online" ? "online" : "offline");
+      const name = escapeDriverMapText(driverName || "مندوب");
       return L.divIcon({
-        className: "",
-        html: `<div class="driver-pin ${cls}"></div>`,
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
-        popupAnchor: [0, -10]
+        className: "diqa-driver-marker",
+        html: `<div class="diqa-driver-wrap ${cls}">
+          <div class="diqa-driver-name">${name}</div>
+          <div class="diqa-driver-core" aria-hidden="true">
+            <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="17" r="2.5"/><circle cx="18" cy="17" r="2.5"/><path d="M8.5 17h5l-2.6-5H8.8"/><path d="M13.5 17 16 12h2.5"/><path d="M10.5 12h3.4"/><path d="M7.2 12.2 5.7 9.8H4"/></svg>
+          </div>
+        </div>`,
+        iconSize: [46, 48],
+        iconAnchor: [23, 44],
+        popupAnchor: [0, -77]
       });
     }
 
@@ -8982,7 +8993,40 @@ function subscribeEmployees(){
             .attendance-table th{font-size:19px;background:#f3f4f6;color:#111827;}
             .attendance-table td.name{text-align:right;font-size:19px;font-weight:950;}
             .attendance-foot{margin-top:12px;padding-top:10px;border-top:3px solid #111827;text-align:center;font-size:16px;font-weight:900;color:#dc2626;}
-          </style>
+         
+    /* DIQA — manager map: prominent motorcycle courier marker + permanently visible name */
+    #map .diqa-driver-marker { background:transparent!important; border:0!important; overflow:visible!important; }
+    #map .diqa-driver-wrap { position:relative; width:46px; height:48px; overflow:visible; pointer-events:auto; }
+    #map .diqa-driver-core {
+      position:absolute;left:3px;top:2px;width:40px;height:40px;
+      display:flex;align-items:center;justify-content:center;
+      border:3px solid #fff;border-radius:13px 13px 13px 4px;
+      background:#16a34a;color:white;
+      box-shadow:0 2px 0 #0f172a,0 0 0 2px #0f172a,0 6px 16px rgba(0,0,0,.6);
+      transform:rotate(-45deg);
+    }
+    #map .diqa-driver-core svg{transform:rotate(45deg);filter:drop-shadow(0 1px 1px rgba(0,0,0,.4));}
+    #map .diqa-driver-wrap.warn .diqa-driver-core{background:#e89107;}
+    #map .diqa-driver-wrap.offline .diqa-driver-core{background:#dc2626;}
+    #map .diqa-driver-name{
+      position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);
+      display:inline-flex;align-items:center;justify-content:center;
+      width:max-content;max-width:170px;padding:5px 10px;
+      color:#fff;background:#0f172a;border:2px solid #fff;
+      border-radius:9px;box-shadow:0 3px 0 rgba(0,0,0,.35),0 5px 12px rgba(0,0,0,.5);
+      font-size:13px;font-weight:900;line-height:1.2;letter-spacing:0;
+      white-space:normal;text-align:center;direction:rtl;overflow-wrap:anywhere;
+      pointer-events:none;
+    }
+    #map .diqa-driver-name::after{
+      content:"";position:absolute;top:100%;left:calc(50% - 5px);
+      border:5px solid transparent;border-top-color:#fff;
+    }
+    #map .diqa-driver-wrap.online .diqa-driver-name{border-bottom-color:#22c55e;}
+    #map .diqa-driver-wrap.warn .diqa-driver-name{border-bottom-color:#f59e0b;}
+    #map .diqa-driver-wrap.offline .diqa-driver-name{border-bottom-color:#ef4444;}
+
+ </style>
           <div class="attendance-head">
             <div class="attendance-title">${escapeReportHtml(title)}</div>
             <div class="attendance-date">التاريخ: ${escapeReportHtml(dateKey)}</div>
@@ -10245,7 +10289,7 @@ function renderDriversSelect() {
         // Stale position is still useful as last known location (gray marker).
 
         const liveState = st.isOnline ? "online" : (st.isWarn ? "warn" : "offline");
-        const icon = makeDriverIcon(liveState);
+        const icon = makeDriverIcon(liveState, loc.name || id);
 
         const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
         const accText = acc ? `<br/>الدقة: ±${acc}m` : "";
@@ -10263,7 +10307,8 @@ function renderDriversSelect() {
         if (!driverMarkers[id]) {
           const marker = L.marker([loc.lat, loc.lng], {
             title: loc.name || id,
-            icon
+            icon,
+            zIndexOffset: 2000
           }).addTo(map);
           marker.bindPopup(popupHtml);
           driverMarkers[id] = marker;
