@@ -422,9 +422,15 @@ background:#fff;
 
     /* DIQA: exact original motorcycle artwork, without background boxes. */
     #map .diqa-driver-marker { border:0!important; box-shadow:none!important; background:transparent!important; overflow:visible!important; }
-    #map .diqa-original-icon {position:relative; width:202px; height:108px; background:transparent!important; overflow:visible; transform:scale(0.48); transform-origin:top left;}
+    #map .diqa-original-icon {position:relative; width:97px; height:52px; background:transparent!important; overflow:visible; transform:none!important;}
     #map .diqa-original-icon img {display:block;width:100%;height:100%;object-fit:fill;pointer-events:none;background:transparent!important;}
-    #map .diqa-original-icon-name {position:absolute; left:46%; width:49%; top:26%; height:38%; display:flex;align-items:center;justify-content:center;direction:rtl;text-align:center; color:#fff; font-family:Tahoma,Arial,system-ui,sans-serif;font-weight:900; font-size:17px;line-height:1.18;overflow-wrap:anywhere;text-shadow:0 1px 2px rgba(0,0,0,.24);pointer-events:none;}
+    #map .diqa-original-icon-name {position:absolute; left:46%; width:49%; top:26%; height:38%; display:flex;align-items:center;justify-content:center;direction:rtl;text-align:center; color:#fff; font-family:Tahoma,Arial,system-ui,sans-serif;font-weight:900; font-size:8px;line-height:1.18;overflow-wrap:anywhere;text-shadow:0 1px 2px rgba(0,0,0,.24);pointer-events:none;}
+    /* Small crosshair: this dot sits on the unmodified geographic coordinate. */
+    #map .diqa-driver-marker::after {
+      content:"";position:absolute;left:45px;top:45px;width:6px;height:6px;
+      background:#fff;border:1px solid #111827;border-radius:50%;
+      box-shadow:0 0 0 1px rgba(255,255,255,.7);pointer-events:none;
+    }
     /* Area names: quiet, white, permanently visible, without a bubble. */
     #map .diqa-area-name.leaflet-tooltip {
       background: transparent !important;
@@ -445,7 +451,7 @@ background:#fff;
     /* Slight dark style but keep labels readable */
     #map .leaflet-tile-pane img.leaflet-tile,
     #driver-map .leaflet-tile-pane img.leaflet-tile {
-      filter: invert(1) hue-rotate(180deg) brightness(1.32) contrast(0.86) saturate(0.72);
+      filter: none;
     }
     #map, #driver-map { background:#4d5967; }
 
@@ -527,7 +533,7 @@ background:#fff;
               <button type="button" id="traccar-test-btn" class="secondary">فحص الاتصال وحفظ التوكن لجميع الأجهزة</button>
               <button type="button" id="traccar-clear-btn" class="secondary">مسح التوكن المشترك</button>
             </div>
-            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-GPS-TRACCAR-SHARED-20261013 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
+            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-REAL-COORDINATES-20261013 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
              <p class="small" id="traccar-test-status" aria-live="polite">يتم تحميل التوكن المشترك تلقائياً من Firebase. تغيير التوكن هنا ينعكس على الأجهزة المفتوحة.</p>
               <div id="traccar-live-diagnostics" class="small" style="margin-top:8px;color:#93c5fd">حالة Traccar: لم يتم فحص الاتصال بعد.</div><div id="traccar-device-mapping" class="small" style="margin-top:8px;line-height:1.8">بعد الاتصال ستظهر أجهزة Traccar هنا، وبإمكان المدير تحديد المندوب المقابل لكل جهاز.</div>
           </div>
@@ -1036,7 +1042,7 @@ background:#fff;
     // =========================
     // 1) خله true حتى تعتمد على Traccar للمواقع
     const USE_TRACCAR = true;
-    window.DIQA_BUILD_ID = "DIQA-GPS-TRACCAR-SHARED-20261013";
+    window.DIQA_BUILD_ID = "DIQA-REAL-COORDINATES-20261013";
     console.info("DIQA BUILD:", window.DIQA_BUILD_ID);
 
     // ✅ رابط Traccar Web UI/API على Railway
@@ -1884,15 +1890,13 @@ nextDrivers[key] = {
           browserDriversLocationsCache[id],
           (isFreshBrowserDriverLocation() && String(currentDriverId) === id) ? driverBrowserLocationCache : null
         ].filter(loc => validGeoLocation(loc) && tsToMs(loc.updatedAt) > 0 && tsToMs(loc.updatedAt) <= Date.now() + 60000);
-        // GPS has priority only while there are actual fresh browser fixes.
-        const gpsLive = candidates.filter(loc => loc.source === 'browser' && freshBrowserLocation(loc))
-          .sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
-        // If GPS stopped, take a live Traccar fix. Otherwise keep the most recent
-        // real fix from either source, including a stored last-known position.
-        const traccarLive = candidates.filter(loc => loc.source === 'traccar' && calcLiveState(loc.updatedAt).isOnline)
-          .sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
-        const newest = candidates.sort((a,b) => tsToMs(b.updatedAt)-tsToMs(a.updatedAt))[0];
-        const chosen = gpsLive || traccarLive || newest;
+        // TRUE COORDINATES ONLY: select the newest valid device fix by its own
+        // timestamp. Never prefer a stale GPS reading over a newer Traccar fix
+        // (or vice versa), and never synthesize/map-shift a coordinate.
+        const chosen = candidates.sort((a, b) =>
+          tsToMs(b.updatedAt) - tsToMs(a.updatedAt) ||
+          (a.source === 'traccar' ? -1 : 1)
+        )[0];
         if (chosen) merged[id] = {
           ...chosen, lat: Number(chosen.lat), lng: Number(chosen.lng), updatedAt: tsToMs(chosen.updatedAt)
         };
@@ -5371,9 +5375,9 @@ function initMap() {
         map.createPane('diqaDriversTopPane');
         map.getPane('diqaDriversTopPane').style.zIndex = '750';
       }
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
         maxZoom: 19,
-        attribution: "&copy; OpenStreetMap"
+        attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
       }).addTo(map);
 
       // =========================
@@ -5424,9 +5428,9 @@ function initMap() {
     function initDriverMap(){
       if (driverMap) return;
       driverMap = L.map("driver-map").setView([33.3152, 44.3661], 12);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
         maxZoom: 19,
-        attribution: "&copy; OpenStreetMap"
+        attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
       }).addTo(driverMap);
 
       // =========================
@@ -10340,7 +10344,8 @@ function renderDriversSelect() {
         const popupHtml =
           `مندوب: ${loc.name || id}<br/>مصدر الموقع: ${sourceText}<br/>` +
           `الحالة: ${stateText}<br/>` +
-          `آخر ظهور: ${formatTime(loc.updatedAt)} (${lastSeenText})${accText}${speedText}${speedSourceText}`;
+          `آخر ظهور: ${formatTime(loc.updatedAt)} (${lastSeenText})${accText}${speedText}${speedSourceText}` +
+          `<br/>الإحداثيات الحقيقية: ${Number(loc.lat).toFixed(6)}, ${Number(loc.lng).toFixed(6)}`;
 
         if (!driverMarkers[id]) {
           const marker = L.marker([loc.lat, loc.lng], {
@@ -10350,11 +10355,20 @@ function renderDriversSelect() {
             zIndexOffset: 2000
           }).addTo(map);
           marker.bindPopup(popupHtml);
+          marker._diqaIconKey = liveState + '|' + ((driversMetaCache[id] && driversMetaCache[id].name) || loc.name || id);
           driverMarkers[id] = marker;
         } else {
-          driverMarkers[id].setLatLng([loc.lat, loc.lng]);
-          driverMarkers[id].setPopupContent(popupHtml);
-          driverMarkers[id].setIcon(icon);
+          // Real GPS/Traccar lat/lng only. Never apply fake offsets to separate riders.
+          const marker = driverMarkers[id];
+          const current = marker.getLatLng();
+          // GPS coordinate never changes due to zoom; only update on an actual GPS/Traccar change.
+          if (current.lat !== loc.lat || current.lng !== loc.lng) marker.setLatLng([loc.lat, loc.lng]);
+          marker.setPopupContent(popupHtml);
+          const nextIconKey = liveState + '|' + ((driversMetaCache[id] && driversMetaCache[id].name) || loc.name || id);
+          if (marker._diqaIconKey !== nextIconKey) {
+            marker.setIcon(icon);
+            marker._diqaIconKey = nextIconKey;
+          }
         }
       });
     }
@@ -10829,6 +10843,8 @@ function addEmployee(){
           }
 
           const now = Date.now();
+          const fixTime = Number(pos.timestamp) || now;
+          if (fixTime > now + 5000 || now - fixTime > 30000) return; // لا ننشر قراءة GPS قديمة كأنها مباشرة
           if (now - lastSentAt < MIN_SEND_INTERVAL_MS) return;
           lastSentAt = now;
 
@@ -10840,7 +10856,7 @@ function addEmployee(){
           // the manager remains subject to the accuracy limit below.
           if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
               Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) return;
-          driverSelfLatLng = { lat, lng, updatedAt: Date.now() };
+          driverSelfLatLng = { lat, lng, updatedAt: fixTime };
           updateDriverSelfTrackOnMap();
           if (acc && acc > (USE_TRACCAR ? BROWSER_LOCATION_MAX_ACCURACY_M : MAX_BAD_ACCURACY)) {
             trackingStatus.textContent = `📍 موقعك ظاهر بالأزرق، لكن الدقة ضعيفة ±${acc}m — فعّل Precise/GPS`;
@@ -10848,7 +10864,7 @@ function addEmployee(){
           }
 
           const prevBrowserBaseLoc = driversLocationsCache[currentDriverId] || null;
-          const computedSpeedKmh = computeSpeedKmhFromPoints(prevBrowserBaseLoc, lat, lng, now);
+          const computedSpeedKmh = computeSpeedKmhFromPoints(prevBrowserBaseLoc, lat, lng, fixTime);
           const browserSpeedKmh = getPreferredDriverSpeedKmh({
             traccarSpeedKmh: prevBrowserBaseLoc && prevBrowserBaseLoc.traccarSpeedKmh,
             computedSpeedKmh,
@@ -10865,7 +10881,7 @@ function addEmployee(){
             gpsError: null,
             active: true,
             liveState: "online",
-            updatedAt: now,
+            updatedAt: fixTime,
             source: "browser",
             computedSpeedKmh,
             speedKmh: browserSpeedKmh,
