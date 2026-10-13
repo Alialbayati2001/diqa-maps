@@ -1186,7 +1186,7 @@ background:#fff;
       if (!holder) return;
       // Avoid destroying an open selector on each 10-second polling update.
       const signature = JSON.stringify({
-        devices: traccarLastDevices.map(d => [d.id, d.name]),
+        devices: traccarLastDevices.map(d => [d.id, d.name, d.uniqueId]),
         drivers: Object.entries(driversMetaCache || {}).map(([id, m]) => [id, m && m.name]),
         links: traccarDeviceLinks
       });
@@ -1204,7 +1204,7 @@ background:#fff;
       const table = document.createElement('div');
       table.style.cssText = 'display:grid;grid-template-columns:minmax(145px,1fr) minmax(190px,1.3fr);gap:7px;align-items:center';
       const deviceHead = document.createElement('div');
-      deviceHead.textContent = 'حساب Traccar / رقم ID';
+      deviceHead.textContent = 'اسم حساب Traccar / ID / Identifier';
       deviceHead.style.cssText = 'color:#93c5fd;font-weight:700';
       const driverHead = document.createElement('div');
       driverHead.textContent = 'المندوب في موقع الدقّة';
@@ -1218,8 +1218,11 @@ background:#fff;
         name.textContent = String(dev.name || 'بدون اسم');
         const id = document.createElement('span');
         id.textContent = '  — ID: ' + String(dev.id);
+        const identifier = document.createElement('div');
+        identifier.textContent = 'Identifier: ' + String(dev.uniqueId ?? dev.identifier ?? 'غير متوفر');
+        identifier.style.cssText = 'color:#fbbf24;font-size:12px;direction:ltr;text-align:right;unicode-bidi:plaintext;overflow-wrap:anywhere;margin-top:5px';
         id.style.cssText = 'color:#93c5fd;font-size:12px;direction:ltr;unicode-bidi:isolate';
-        label.append(name, id);
+        label.append(name, id, identifier);
         const select = document.createElement('select');
         select.style.cssText = 'width:100%;min-width:0;margin:0';
         select.setAttribute('aria-label', 'مندوب الدقّة لجهاز Traccar ' + String(dev.id));
@@ -1239,14 +1242,19 @@ background:#fff;
             return;
           }
           select.disabled = true;
+          const oldLinks = { ...traccarDeviceLinks };
+          traccarDeviceLinks[deviceKey] = targetId || '';
+          applyTraccarMappingImmediately(oldLinks);
           try {
             // Empty value is saved explicitly to prevent automatic name matching.
             await db.ref(TRACCAR_DEVICE_LINKS_DB_PATH).child(deviceKey).set(targetId || '');
             const status = document.getElementById('traccar-test-status');
             if (status) status.textContent = '✅ تم حفظ ربط جهاز Traccar ID ' + deviceKey + ' لجميع الأجهزة.';
-            traccarDriversLocationsCache = {};
+            select.disabled = false;
             fetchTraccarPositions();
           } catch (e) {
+            traccarDeviceLinks = oldLinks;
+            applyTraccarMappingImmediately();
             select.disabled = false;
             const status = document.getElementById('traccar-test-status');
             if (status) status.textContent = '❌ فشل حفظ الربط في Firebase: ' + (e.message || e);
@@ -1257,6 +1265,42 @@ background:#fff;
         table.append(label, select);
       });
       holder.appendChild(table);
+    }
+
+    // Refresh device assignments instantly from the last successfully received GPS fixes.
+    // Reassign the same Traccar fix to the newly selected driver without waiting for polling.
+    let traccarLastPositions = [];
+    function applyTraccarMappingImmediately(previousLinks) {
+      const oldAssigned = previousLinks || {};
+      // Remove stale Traccar ownership on reassignment; browser GPS remains untouched.
+      const changedIds = new Set();
+      for (const deviceId of new Set([...Object.keys(oldAssigned), ...Object.keys(traccarDeviceLinks)])) {
+        if (oldAssigned[deviceId] !== traccarDeviceLinks[deviceId]) {
+          if (oldAssigned[deviceId]) changedIds.add(oldAssigned[deviceId]);
+          if (traccarDeviceLinks[deviceId]) changedIds.add(traccarDeviceLinks[deviceId]);
+        }
+      }
+      if (!previousLinks) Object.keys(traccarDriversLocationsCache || {}).forEach(id => changedIds.add(id));
+      for (const id of changedIds) {
+        delete traccarDriversLocationsCache[id];
+        if (lastKnownDriversLocationsCache[id]?.source === 'traccar') delete lastKnownDriversLocationsCache[id];
+      }
+      for (const fix of traccarLastPositions) {
+        const driverId = findTraccarDriverId(fix.deviceId, fix.name);
+        if (!driverId || !Number.isFinite(fix.lat) || !Number.isFinite(fix.lng) || !tsToMs(fix.time)) continue;
+        const loc = { source: 'traccar', name: fix.name, lat: fix.lat, lng: fix.lng,
+          updatedAt: tsToMs(fix.time), accuracy: fix.accuracy,
+          active: !calcLiveState(fix.time).isStale,
+          liveState: calcLiveState(fix.time).isOnline ? 'online' : (calcLiveState(fix.time).isWarn ? 'warn' : 'offline'),
+          traccarSpeedKmh: normalizeSpeedKmhFromTraccar(fix.rawSpeed) };
+        if (!traccarDriversLocationsCache[driverId] || loc.updatedAt >= tsToMs(traccarDriversLocationsCache[driverId].updatedAt))
+          traccarDriversLocationsCache[driverId] = loc;
+      }
+      rebuildDriversLocationsCache();
+      updateDriverMarkers();
+      updateDriverSelfLocationFromCache();
+      updateDriverSelfTrackOnMap();
+      renderDriversList();
     }
 
     async function fetchTraccarPositionsDirect() {
@@ -1342,6 +1386,7 @@ background:#fff;
         }
 
         lastTraccarOkAt = Date.now();
+        traccarLastPositions = j.data;
         const linked = j.data.filter(p => findTraccarDriverId(p.deviceId, p.name));
         const freshLinked = linked.filter(p => calcLiveState(p.time).isOnline);
         const ali = j.data.filter(p => normalizedPersonName(p.name).includes(normalizedPersonName('علي فاضل')));
@@ -1593,9 +1638,13 @@ nextDrivers[key] = {
     // Firebase real-time shared mapping: changes propagate to all open sessions.
     db.ref(TRACCAR_DEVICE_LINKS_DB_PATH).on('value', snapshot => {
       const data = snapshot.val();
+      const oldLinks = { ...traccarDeviceLinks };
       traccarDeviceLinks = data && typeof data === 'object' ? data : {};
       renderTraccarDeviceMapping();
-      // Existing position polling will apply the latest device links automatically.
+      if (JSON.stringify(oldLinks) !== JSON.stringify(traccarDeviceLinks)) {
+        applyTraccarMappingImmediately(oldLinks);
+        if (traccarTokenOk()) fetchTraccarPositions();
+      }
     }, error => {
       const status = document.getElementById('traccar-test-status');
       if (status) status.textContent = '⚠️ تعذرت قراءة ربط الأجهزة من Firebase: ' + error.message;
