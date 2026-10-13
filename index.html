@@ -420,119 +420,32 @@ background:#fff;
     .order-delayed-item{border:1px solid #7f1d1d !important;background:rgba(239,68,68,.10) !important;}
     .order-delayed-text{color:#fca5a5 !important;font-weight:800;}
 
-    /* DIQA — manager map: clean capsule driver marker */
+    /* DIQA — manager map: SVG motorcycle bubble marker */
     #map .diqa-driver-marker {
       background: transparent !important;
       border: 0 !important;
+      box-shadow: none !important;
       overflow: visible !important;
-      width: 180px !important;
+      width: 170px !important;
       height: 88px !important;
     }
-    #map .diqa-driver-card{
-      position:absolute;
-      left:50%;
-      bottom:0;
-      transform:translateX(-50%);
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      width:max-content;
-      max-width:180px;
+    #map .diqa-driver-marker,
+    #map .diqa-driver-marker * {
+      background: transparent !important;
+    }
+    #map .diqa-driver-svg-wrap{
+      width:170px;
+      height:88px;
       overflow:visible;
       pointer-events:auto;
-      filter:drop-shadow(0 8px 18px rgba(0,0,0,.22));
     }
-    #map .diqa-driver-bubble{
-      position:relative;
-      display:flex;
-      align-items:center;
-      justify-content:flex-start;
-      gap:10px;
-      min-height:52px;
-      min-width:108px;
-      max-width:180px;
-      padding:8px 14px 8px 12px;
-      border-radius:28px;
-      border:4px solid #ffffff;
-      box-shadow:0 2px 0 rgba(255,255,255,.25) inset, 0 8px 16px rgba(0,0,0,.14);
-      color:#fff;
-      direction:ltr;
-      overflow:visible;
-    }
-    #map .diqa-driver-card.online .diqa-driver-bubble{background:linear-gradient(180deg,#27c85a 0%,#13a043 100%);}
-    #map .diqa-driver-card.warn .diqa-driver-bubble{background:linear-gradient(180deg,#f3b321 0%,#df9408 100%);}
-    #map .diqa-driver-card.offline .diqa-driver-bubble{background:linear-gradient(180deg,#ff4a48 0%,#ec2222 100%);}
-    #map .diqa-driver-bubble::after{
-      content:"";
-      position:absolute;
-      left:50%;
-      bottom:-16px;
-      transform:translateX(-50%);
-      width:24px;
-      height:18px;
-      background:#fff;
-      clip-path:polygon(50% 100%, 0 0, 100% 0);
-      z-index:0;
-    }
-    #map .diqa-driver-bubble::before{
-      content:"";
-      position:absolute;
-      left:50%;
-      bottom:-11px;
-      transform:translateX(-50%);
-      width:18px;
-      height:13px;
-      background:#16a34a;
-      clip-path:polygon(50% 100%, 0 0, 100% 0);
-      z-index:1;
-    }
-    #map .diqa-driver-card.warn .diqa-driver-bubble::before{background:#e6980a;}
-    #map .diqa-driver-card.offline .diqa-driver-bubble::before{background:#ef2323;}
-    #map .diqa-driver-ico{
-      width:34px;
-      height:34px;
-      min-width:34px;
-      border-radius:999px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      color:#fff;
-      flex:0 0 34px;
-    }
-    #map .diqa-driver-ico svg{display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.16));}
-    #map .diqa-driver-name{
-      color:#fff;
-      font-size:13px;
-      font-weight:900;
-      line-height:1.15;
-      text-align:center;
-      white-space:normal;
-      overflow-wrap:anywhere;
-      letter-spacing:0;
-      text-shadow:0 1px 1px rgba(0,0,0,.18);
-      direction:rtl;
-      flex:1;
-      min-width:0;
-      padding-top:1px;
-    }
-    #map .diqa-driver-dot{
-      width:14px;
-      height:14px;
-      margin-top:8px;
-      border-radius:999px;
-      border:4px solid #ffffff;
-      box-shadow:0 4px 8px rgba(0,0,0,.18);
-      background:#19a847;
-    }
-    #map .diqa-driver-card.warn .diqa-driver-dot{background:#e6980a;}
-    #map .diqa-driver-card.offline .diqa-driver-dot{background:#ef2323;}
 
-    /* Softer darkened OpenStreetMap with clearer, lighter labels */
+    /* Slight dark style but keep labels readable */
     #map .leaflet-tile-pane img.leaflet-tile,
     #driver-map .leaflet-tile-pane img.leaflet-tile {
-      filter: invert(1) hue-rotate(180deg) brightness(1.16) contrast(0.93) saturate(0.78);
+      filter: invert(1) hue-rotate(180deg) brightness(1.43) contrast(0.80) saturate(0.68);
     }
-    #map, #driver-map { background:#293342; }
+    #map, #driver-map { background:#5a6675; }
 
 </style>
 </head>
@@ -1188,30 +1101,72 @@ background:#fff;
         '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
       })[c]);
     }
+    function escapeSvgText(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function splitDriverNameLines(name) {
+      const clean = String(name || 'مندوب').trim().replace(/\s+/g, ' ');
+      if (!clean) return ['مندوب'];
+      const parts = clean.split(' ');
+      if (parts.length === 1) return [clean];
+      if (clean.length <= 12) return [clean];
+      if (parts.length === 2) return [parts[0], parts[1]];
+      const mid = Math.ceil(parts.length / 2);
+      return [parts.slice(0, mid).join(' '), parts.slice(mid).join(' ')];
+    }
+
+    function buildDriverMarkerSvg(state, driverName) {
+      const lines = splitDriverNameLines(driverName);
+      const fillTop = state === 'warn' ? '#F0B126' : (state === 'online' ? '#27C65A' : '#FF4747');
+      const fillBottom = state === 'warn' ? '#DA9207' : (state === 'online' ? '#119E42' : '#E11E1E');
+      const line1 = escapeSvgText(lines[0] || 'مندوب');
+      const line2 = lines[1] ? escapeSvgText(lines[1]) : '';
+      const textBlock = line2
+        ? `<text x="100" y="32.5" text-anchor="middle" font-size="12.3" font-weight="700" fill="#fff" font-family="Arial, Tahoma, sans-serif"><tspan x="100" dy="0">${line1}</tspan><tspan x="100" dy="14.5">${line2}</tspan></text>`
+        : `<text x="100" y="39.5" text-anchor="middle" font-size="13.6" font-weight="700" fill="#fff" font-family="Arial, Tahoma, sans-serif">${line1}</text>`;
+      return `<div class="diqa-driver-svg-wrap"><svg xmlns="http://www.w3.org/2000/svg" width="170" height="88" viewBox="0 0 170 88" aria-hidden="true">
+        <defs>
+          <linearGradient id="bubbleGrad-${state}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${fillTop}"/>
+            <stop offset="100%" stop-color="${fillBottom}"/>
+          </linearGradient>
+          <filter id="shadow-${state}" x="-25%" y="-25%" width="150%" height="160%">
+            <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000" flood-opacity="0.16"/>
+          </filter>
+        </defs>
+        <g filter="url(#shadow-${state})">
+          <rect x="9" y="7" rx="22" ry="22" width="152" height="40" fill="url(#bubbleGrad-${state})" stroke="#fff" stroke-width="4"/>
+          <path d="M77 46 L85 58 L93 46 Z" fill="#fff"/>
+          <path d="M79.5 46 L85 54 L90.5 46 Z" fill="${fillBottom}"/>
+          <circle cx="85" cy="70" r="6.8" fill="${fillBottom}" stroke="#fff" stroke-width="4"/>
+          <g transform="translate(24 18)">
+            <circle cx="8" cy="16.5" r="4" fill="none" stroke="#fff" stroke-width="2.1"/>
+            <circle cx="27" cy="16.5" r="4" fill="none" stroke="#fff" stroke-width="2.1"/>
+            <path d="M12 16.5h8.8l-4.4-7.6H12.5" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M20.8 16.5l4.6-7.6h5.8" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M15.5 9h6.4" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"/>
+            <path d="M12.1 9.2 9.9 6.4H7.3" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M25.2 9l1.9-1.9" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/>
+            <path d="M22.6 12h5.9" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/>
+          </g>
+          ${textBlock}
+        </g>
+      </svg></div>`;
+    }
+
     function makeDriverIcon(state, driverName) {
-      const cls = state === "warn" ? "warn" : (state === "online" ? "online" : "offline");
-      const name = escapeDriverMapText(driverName || "مندوب");
       return L.divIcon({
-        className: "diqa-driver-marker",
-        html: `<div class="diqa-driver-card ${cls}">
-          <div class="diqa-driver-bubble">
-            <div class="diqa-driver-ico" aria-hidden="true">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="6" cy="17" r="2.5"/>
-                <circle cx="18" cy="17" r="2.5"/>
-                <path d="M8.5 17h5l-2.6-5H8.8"/>
-                <path d="M13.5 17 16 12h2.5"/>
-                <path d="M10.5 12h3.4"/>
-                <path d="M7.2 12.2 5.7 9.8H4"/>
-              </svg>
-            </div>
-            <div class="diqa-driver-name">${name}</div>
-          </div>
-          <div class="diqa-driver-dot"></div>
-        </div>`,
-        iconSize: [180, 88],
-        iconAnchor: [90, 84],
-        popupAnchor: [0, -86]
+        className: 'diqa-driver-marker',
+        html: buildDriverMarkerSvg(state, driverName),
+        iconSize: [170, 88],
+        iconAnchor: [85, 78],
+        popupAnchor: [0, -80]
       });
     }
 
