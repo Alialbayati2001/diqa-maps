@@ -500,7 +500,7 @@ background:#fff;
             </div>
             <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-GPS-TRACCAR-SHARED-20261013 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
              <p class="small" id="traccar-test-status" aria-live="polite">يتم تحميل التوكن المشترك تلقائياً من Firebase. تغيير التوكن هنا ينعكس على الأجهزة المفتوحة.</p>
-              <div id="traccar-live-diagnostics" class="small" style="margin-top:8px;color:#93c5fd">حالة Traccar: لم يتم فحص الاتصال بعد.</div><div id="traccar-device-mapping" class="small" style="margin-top:8px;line-height:1.8">بعد الاتصال ستظهر أجهزة Traccar هنا لربطها بالمندوبين إذا لم تتطابق الأسماء.</div>
+              <div id="traccar-live-diagnostics" class="small" style="margin-top:8px;color:#93c5fd">حالة Traccar: لم يتم فحص الاتصال بعد.</div><div id="traccar-device-mapping" class="small" style="margin-top:8px;line-height:1.8">بعد الاتصال ستظهر أجهزة Traccar هنا، وبإمكان المدير تحديد المندوب المقابل لكل جهاز.</div>
           </div>
 
           <div class="inline-actions">
@@ -1161,11 +1161,11 @@ background:#fff;
       const el = document.getElementById('traccar-live-diagnostics');
       if (el) el.textContent = message;
     }
-    // Device-to-driver mapping: explicit selection when a device name differs from the driver name.
+    // Shared device-to-driver mapping stored in Firebase for all manager browsers.
+    const TRACCAR_DEVICE_LINKS_DB_PATH = 'appSettings/traccarDeviceLinks';
     const TRACCAR_DEVICE_LINKS_KEY = 'diqa_traccar_device_driver_links_v1';
     let traccarDeviceLinks = {};
     let traccarLastDevices = [];
-    try { traccarDeviceLinks = JSON.parse(localStorage.getItem(TRACCAR_DEVICE_LINKS_KEY) || '{}') || {}; } catch (_) {}
     const normalizedPersonName = v => String(v || '').normalize('NFKC').toLowerCase()
       .replace(/[\u064b-\u065f\u0670\u0640]/g,'')
       .replace(/[أإآ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه')
@@ -1173,6 +1173,8 @@ background:#fff;
     function findTraccarDriverId(devId, devName) {
       const linked = traccarDeviceLinks[String(devId)];
       if (linked && driversMetaCache && driversMetaCache[linked]) return linked;
+      // Explicitly unlinked devices must not be relinked automatically by name.
+      if (Object.prototype.hasOwnProperty.call(traccarDeviceLinks, String(devId))) return null;
       const norm = normalizedPersonName(devName);
       if (!norm) return null;
       const matches = Object.entries(driversMetaCache || {}).filter(([id, meta]) =>
@@ -1182,36 +1184,79 @@ background:#fff;
     function renderTraccarDeviceMapping() {
       const holder = document.getElementById('traccar-device-mapping');
       if (!holder) return;
+      // Avoid destroying an open selector on each 10-second polling update.
+      const signature = JSON.stringify({
+        devices: traccarLastDevices.map(d => [d.id, d.name]),
+        drivers: Object.entries(driversMetaCache || {}).map(([id, m]) => [id, m && m.name]),
+        links: traccarDeviceLinks
+      });
+      if (holder.dataset.signature === signature) return;
+      holder.dataset.signature = signature;
       holder.replaceChildren();
       if (!traccarLastDevices.length) {
         holder.textContent = 'لا توجد أجهزة مستلمة بعد. اختبر الاتصال أولاً.';
         return;
       }
       const title = document.createElement('div');
-      title.textContent = 'ربط أجهزة Traccar بالمندوبين (احفظ الربط على هذا المتصفح):';
+      title.textContent = 'ربط أجهزة Traccar بمندوبي الدقّة — يُحفظ تلقائياً في Firebase لكل الأجهزة';
+      title.style.cssText = 'font-weight:700;margin:10px 0';
       holder.appendChild(title);
+      const table = document.createElement('div');
+      table.style.cssText = 'display:grid;grid-template-columns:minmax(145px,1fr) minmax(190px,1.3fr);gap:7px;align-items:center';
+      const deviceHead = document.createElement('div');
+      deviceHead.textContent = 'حساب Traccar / رقم ID';
+      deviceHead.style.cssText = 'color:#93c5fd;font-weight:700';
+      const driverHead = document.createElement('div');
+      driverHead.textContent = 'المندوب في موقع الدقّة';
+      driverHead.style.cssText = 'color:#93c5fd;font-weight:700';
+      table.append(deviceHead, driverHead);
       traccarLastDevices.forEach(dev => {
-        const line = document.createElement('div');
-        line.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px';
-        const label = document.createElement('span');
-        label.textContent = String(dev.name || dev.id) + ' (#' + dev.id + ')';
-        label.style.minWidth = '130px';
+        if (dev == null || dev.id == null) return;
+        const label = document.createElement('div');
+        label.style.cssText = 'padding:10px 8px;border:1px solid #334155;border-radius:10px;background:#0b1120;min-width:0;overflow-wrap:anywhere';
+        const name = document.createElement('strong');
+        name.textContent = String(dev.name || 'بدون اسم');
+        const id = document.createElement('span');
+        id.textContent = '  — ID: ' + String(dev.id);
+        id.style.cssText = 'color:#93c5fd;font-size:12px;direction:ltr;unicode-bidi:isolate';
+        label.append(name, id);
         const select = document.createElement('select');
-        select.style.cssText = 'width:auto;flex:1;min-width:180px;margin:0';
-        select.add(new Option('غير مربوط', ''));
-        Object.entries(driversMetaCache || {}).forEach(([id, meta]) => select.add(new Option(meta.name || id, id)));
+        select.style.cssText = 'width:100%;min-width:0;margin:0';
+        select.setAttribute('aria-label', 'مندوب الدقّة لجهاز Traccar ' + String(dev.id));
+        select.add(new Option('— غير مربوط —', ''));
+        Object.entries(driversMetaCache || {}).sort((a,b) => String(a[1]?.name || a[0]).localeCompare(String(b[1]?.name || b[0]), 'ar'))
+          .forEach(([driverId, meta]) => select.add(new Option(meta.name || driverId, driverId)));
         select.value = findTraccarDriverId(dev.id, dev.name) || '';
-        select.addEventListener('change', () => {
-          if (select.value) traccarDeviceLinks[String(dev.id)] = select.value;
-          else delete traccarDeviceLinks[String(dev.id)];
-          try { localStorage.setItem(TRACCAR_DEVICE_LINKS_KEY, JSON.stringify(traccarDeviceLinks)); } catch (_) {}
-          // Reset device cache to prevent old raw device-ID markers remaining after assignment.
-          traccarDriversLocationsCache = {};
-          fetchTraccarPositions();
+        select.addEventListener('change', async () => {
+          if (currentSessionRole !== 'manager') { renderTraccarDeviceMapping(); return; }
+          const targetId = select.value;
+          const deviceKey = String(dev.id);
+          // A device belongs to at most one driver, and a driver to at most one device.
+          if (targetId && Object.entries(traccarDeviceLinks).some(([key, assigned]) => key !== deviceKey && assigned === targetId)) {
+            select.value = findTraccarDriverId(dev.id, dev.name) || '';
+            const status = document.getElementById('traccar-test-status');
+            if (status) status.textContent = '⚠️ هذا المندوب مربوط بجهاز Traccar آخر. فك الربط القديم أولاً.';
+            return;
+          }
+          select.disabled = true;
+          try {
+            // Empty value is saved explicitly to prevent automatic name matching.
+            await db.ref(TRACCAR_DEVICE_LINKS_DB_PATH).child(deviceKey).set(targetId || '');
+            const status = document.getElementById('traccar-test-status');
+            if (status) status.textContent = '✅ تم حفظ ربط جهاز Traccar ID ' + deviceKey + ' لجميع الأجهزة.';
+            traccarDriversLocationsCache = {};
+            fetchTraccarPositions();
+          } catch (e) {
+            select.disabled = false;
+            const status = document.getElementById('traccar-test-status');
+            if (status) status.textContent = '❌ فشل حفظ الربط في Firebase: ' + (e.message || e);
+            holder.dataset.signature = '';
+            renderTraccarDeviceMapping();
+          }
         });
-        line.append(label, select);
-        holder.appendChild(line);
+        table.append(label, select);
       });
+      holder.appendChild(table);
     }
 
     async function fetchTraccarPositionsDirect() {
@@ -1544,6 +1589,17 @@ nextDrivers[key] = {
       console.warn("Traccar shared token Firebase read failed:", error);
     });
 
+
+    // Firebase real-time shared mapping: changes propagate to all open sessions.
+    db.ref(TRACCAR_DEVICE_LINKS_DB_PATH).on('value', snapshot => {
+      const data = snapshot.val();
+      traccarDeviceLinks = data && typeof data === 'object' ? data : {};
+      renderTraccarDeviceMapping();
+      // Existing position polling will apply the latest device links automatically.
+    }, error => {
+      const status = document.getElementById('traccar-test-status');
+      if (status) status.textContent = '⚠️ تعذرت قراءة ربط الأجهزة من Firebase: ' + error.message;
+    });
 
     const MANAGER_PASSWORD = "Adgj1357";
 
