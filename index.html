@@ -10889,48 +10889,114 @@ function renderDriversSelect() {
     const DIQA_COMPANY_EXIT_RADIUS_M = 200;
     // Visual company-cluster sorting boundary; separate from attendance geofence.
     const DIQA_COMPANY_GROUP_RADIUS_M = DIQA_COMPANY_EXIT_RADIUS_M;
-    const diqaCompanyArrivalMemory = {};
-    let diqaOfficeMarker = null;
+    // Canonical dispatch queue stored once in Firebase RTDB, shared by every manager.
+    // Separate from attendanceDaily and entirely independent of attendance check-in/out.
+    const DIQA_COMPANY_QUEUE_PATH = 'companyDispatchQueue/v1/drivers';
+    const diqaCompanyArrivalMemory = {}; // realtime read-only mirror; never localStorage
+    const diqaCompanyQueuePending = new Set();
+    const diqaCompanyQueueLastInputs = {};
+    const diqaCompanyQueueRef = db.ref(DIQA_COMPANY_QUEUE_PATH);
+    let diqaCompanyQueueLoaded = false;
+    let diqaCompanyQueueConnected = true;
+    let diqaCompanyQueueRenderTimer = null;
+    function diqaCompanyQueueRenderLater(){
+      if(diqaCompanyQueueRenderTimer)return;
+      diqaCompanyQueueRenderTimer=setTimeout(()=>{
+        diqaCompanyQueueRenderTimer=null;
+        if(diqaCompanyQueuePanelOpen && diqaTripLegend){
+          diqaFillCompanyQueuePanel(diqaTripLegend.getContainer()?.querySelector('.diqa-company-queue-panel'));
+        }
+        if(diqaOfficeMarker && diqaOfficeMarker.isPopupOpen())diqaOfficeMarker.setPopupContent(diqaCompanyPopupHtml());
+      },120);
+    }
+    diqaCompanyQueueRef.on('value',snapshot=>{
+      const states=snapshot.val()||{};
+      for(const k of Object.keys(diqaCompanyArrivalMemory))delete diqaCompanyArrivalMemory[k];
+      for(const [id,state] of Object.entries(states))if(state && typeof state==='object')diqaCompanyArrivalMemory[id]=state;
+      diqaCompanyQueueLoaded=true;
+      diqaCompanyQueueConnected=true;
+      diqaCompanyQueueRenderLater();
+    },error=>{
+      diqaCompanyQueueConnected=false;
+      console.error('Firebase company queue read denied:',error);
+      diqaCompanyQueueRenderLater();
+    });
     function diqaCompanyDate() { return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Baghdad'}); }
     function diqaCompanyDistance(loc) {
       if (!loc || !Number.isFinite(Number(loc.lat)) || !Number.isFinite(Number(loc.lng))) return Infinity;
       return L.latLng(Number(loc.lat),Number(loc.lng)).distanceTo(L.latLng(DIQA_ROUTE_COMPANY));
     }
     function diqaCompanyDriverDispatched(id) {
-      // Assigned and still-active deliveries mean the courier has been sent out.
-      // This does not touch the attendance/check-in state.
+      // Only use today's subscribed operational orders, not the attendance system.
       return Object.values(ordersCache || {}).some(o => o &&
         String(o.assignedDriverId || '') === String(id) &&
         (o.status === 'registered' || o.status === 'nearby'));
     }
+    function diqaCompanyNextState(previous,fix,distance,dispatched,now){
+      const state=(previous && typeof previous==='object')?previous:{};
+      const phase=['ready','waiting','blocked','dispatchedExited'].includes(state.phase)?state.phase:'ready';
+      const last=Number(state.lastFix)||0;
+      const prevMs=Number(state.ms)||0;
+      const prevDispatched=!!state.dispatched;
+      // Old GPS samples must not undo decisions already made by another manager.
+      if(fix < last)return null;
+      // Ignore identical fixes unless the order assignment has changed.
+      if(fix===last && prevDispatched===dispatched && state.phase)return null;
+      let nextPhase=phase,ms=prevMs;
+      if(dispatched){
+        // Once sent out, removing the order does not reinstate previous seniority.
+        nextPhase=distance>DIQA_COMPANY_EXIT_RADIUS_M?'dispatchedExited':
+          phase==='dispatchedExited'?'dispatchedExited':'blocked';
+        ms=0;
+      } else if(distance>DIQA_COMPANY_EXIT_RADIUS_M){
+        nextPhase='ready';ms=0;
+      } else if(phase==='blocked'){
+        nextPhase='blocked';ms=0;
+      } else if(phase==='dispatchedExited'){
+        // Actual exit was recorded during an assigned delivery; arrival arms new place.
+        if(distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){nextPhase='waiting';ms=fix;}
+        else {nextPhase='ready';ms=0;}
+      } else if(phase==='waiting' && prevMs>0){
+        nextPhase='waiting';ms=prevMs;
+      } else if(distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){
+        nextPhase='waiting';ms=fix;
+      } else {nextPhase='ready';ms=0;}
+      return {phase:nextPhase,ms,lastFix:Math.max(last,fix),dispatched,updatedAt:now};
+    }
     function diqaCompanyArrivalTime(id,loc) {
-      const key='diqa-company-arrival-v3-'+id;
-      const today=diqaCompanyDate(), now=Date.now();
-      let saved=diqaCompanyArrivalMemory[id];
-      if (!saved) {try{saved=JSON.parse(localStorage.getItem(key)||'null')}catch(_){}}
-      const distance=diqaCompanyDistance(loc);
-      // Fresh position is required for entering/exiting the queue; stale fixes never reset an arrival.
-      const fix=tsToMs(loc && loc.updatedAt);
+      // Called from location/order rendering, but Firebase owns all mutations.
+      const saved=diqaCompanyArrivalMemory[id];
+      const now=Date.now(),fix=tsToMs(loc&&loc.updatedAt);
       const fresh=fix>0 && fix<=now+60000 && now-fix<=180000;
+      const distance=diqaCompanyDistance(loc);
       const dispatched=diqaCompanyDriverDispatched(id);
-      const validSaved=saved && saved.day===today && Number.isFinite(saved.ms) && saved.ms<=now;
-      if (dispatched || (fresh && distance>DIQA_COMPANY_EXIT_RADIUS_M)) {
-        delete diqaCompanyArrivalMemory[id];
-        try{localStorage.removeItem(key)}catch(_){}
-        return 0;
+      if(diqaCompanyQueueLoaded && diqaCompanyQueueConnected && fresh && Number.isFinite(distance)){
+        const signature=fix+'|'+dispatched;
+        if(!diqaCompanyQueuePending.has(id) && diqaCompanyQueueLastInputs[id]!==signature){
+          diqaCompanyQueueLastInputs[id]=signature;
+          diqaCompanyQueuePending.add(id);
+          // Per-courier RTDB transaction serializes writes across all manager devices.
+          // A competing older observation can never replace a newer GPS fix.
+          db.ref(DIQA_COMPANY_QUEUE_PATH+'/'+id).transaction(current=>
+            diqaCompanyNextState(current,fix,distance,dispatched,Date.now()),
+            (error,committed)=>{
+              diqaCompanyQueuePending.delete(id);
+              if(error){
+                delete diqaCompanyQueueLastInputs[id];
+                console.error('Company queue transaction failed for '+id,error);
+              } else if(!committed &&
+                diqaCompanyQueueLastInputs[id]===signature){
+                // No state change was needed; don't hammer the RTDB from repeated renders.
+              }
+            },false);
+        }
       }
-      if (!fresh) return 0;
-      if (validSaved) {
-        // A short trip outside the 20m arrival circle must not change queue priority.
-        diqaCompanyArrivalMemory[id]=saved;
-        return saved.ms;
-      }
-      // New arrival only when the courier actually enters the company's 20m circle.
-      if (distance>DIQA_COMPANY_ARRIVAL_RADIUS_M) return 0;
-      saved={day:today,ms:fix};
-      diqaCompanyArrivalMemory[id]=saved;
-      try{localStorage.setItem(key,JSON.stringify(saved))}catch(_){}
-      return saved.ms;
+      if(!diqaCompanyQueueLoaded || !diqaCompanyQueueConnected || !saved || saved.phase!=='waiting')return 0;
+      // Hide dispatched couriers instantly while shared transaction propagates.
+      if(dispatched)return 0;
+      // Never show a known confirmed >200m exit while the transaction is pending.
+      if(fresh && distance>DIQA_COMPANY_EXIT_RADIUS_M)return 0;
+      return Number(saved.ms)||0;
     }
     function diqaCompanyWaitingDrivers() {
       const rows=[];
@@ -10948,7 +11014,7 @@ function renderDriversSelect() {
       if(!panel)return;
       const rows=diqaCompanyWaitingDrivers();
       panel.innerHTML='<b>🏢 أقدمية المندوبين الجاهزين ('+rows.length+')</b>'+
-        '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">الوصول: 20 متر • الخروج: 200 متر • الطلب المسجّل يخرج المندوب من الدور</div>'+
+        '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">الوصول: 20 متر • الخروج: 200 متر • الطلب المسجّل يخرج المندوب من الدور • '+(diqaCompanyQueueConnected?'سجل موحّد Firebase':'⚠️ تعذّر الاتصال بسجل Firebase')+'</div>'+
         (rows.length?rows.map((n,i)=>'<button type="button" class="diqa-company-queue-entry" data-diqa-company-id="'+escapeDriverMapText(n.id)+'"><span>'+(i+1)+'. '+escapeDriverMapText(n.name)+'</span><time>'+new Date(n.arrived).toLocaleTimeString('ar-IQ',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baghdad'})+'</time></button>').join(''):'<p style="color:#94a3b8;margin:10px 0 2px">لا يوجد مندوب جاهز حالياً.</p>');
       panel.querySelectorAll('[data-diqa-company-id]').forEach(btn=>btn.addEventListener('click',()=>{
         const id=btn.dataset.diqaCompanyId;
