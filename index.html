@@ -6594,6 +6594,11 @@ function subscribeEmployees(){
         // are invalidated, so deleted destinations can never reappear.
         for (const driverId of changedDrivers) diqaClearManagerTrip(driverId);
         refreshOrdersUIAndMap();
+        // Delivery assignment/removal instantly updates the company waiting queue.
+        if (map) {
+          layoutDriverCardsWithoutOverlap();
+          if (diqaOfficeMarker && diqaOfficeMarker.isPopupOpen()) diqaOfficeMarker.setPopupContent(diqaCompanyPopupHtml());
+        }
         queueOrdersEtaSync(workDate);
       });
     }
@@ -10857,8 +10862,9 @@ function renderDriversSelect() {
       diqaGroupedDriverMarkers.forEach(m => map.removeLayer(m));
       diqaGroupedDriverMarkers = [];
     }
-    // Company waiting order: 100 m radius, actual location, stable until exiting.
-    const DIQA_COMPANY_GROUP_RADIUS_M = 100;
+    // Company queue: first arrival within 20m; remain queued until >200m or dispatched. Attendance settings unchanged.
+    const DIQA_COMPANY_ARRIVAL_RADIUS_M = 20;
+    const DIQA_COMPANY_EXIT_RADIUS_M = 200;
     const diqaCompanyArrivalMemory = {};
     let diqaOfficeMarker = null;
     function diqaCompanyDate() { return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Baghdad'}); }
@@ -10866,27 +10872,40 @@ function renderDriversSelect() {
       if (!loc || !Number.isFinite(Number(loc.lat)) || !Number.isFinite(Number(loc.lng))) return Infinity;
       return L.latLng(Number(loc.lat),Number(loc.lng)).distanceTo(L.latLng(DIQA_ROUTE_COMPANY));
     }
+    function diqaCompanyDriverDispatched(id) {
+      // Assigned and still-active deliveries mean the courier has been sent out.
+      // This does not touch the attendance/check-in state.
+      return Object.values(ordersCache || {}).some(o => o &&
+        String(o.assignedDriverId || '') === String(id) &&
+        (o.status === 'registered' || o.status === 'nearby'));
+    }
     function diqaCompanyArrivalTime(id,loc) {
-      const key='diqa-company-arrival-v2-'+id;
+      const key='diqa-company-arrival-v3-'+id;
       const today=diqaCompanyDate(), now=Date.now();
       let saved=diqaCompanyArrivalMemory[id];
       if (!saved) {try{saved=JSON.parse(localStorage.getItem(key)||'null')}catch(_){}}
-      const inside=diqaCompanyDistance(loc)<=DIQA_COMPANY_GROUP_RADIUS_M;
-      // Never treat an obsolete last-known GPS fix as evidence of a fresh arrival.
+      const distance=diqaCompanyDistance(loc);
+      // Fresh position is required for entering/exiting the queue; stale fixes never reset an arrival.
       const fix=tsToMs(loc && loc.updatedAt);
       const fresh=fix>0 && fix<=now+60000 && now-fix<=180000;
-      if (!inside && fresh) {
+      const dispatched=diqaCompanyDriverDispatched(id);
+      const validSaved=saved && saved.day===today && Number.isFinite(saved.ms) && saved.ms<=now;
+      if (dispatched || (fresh && distance>DIQA_COMPANY_EXIT_RADIUS_M)) {
         delete diqaCompanyArrivalMemory[id];
         try{localStorage.removeItem(key)}catch(_){}
         return 0;
       }
-      if(!inside || !fresh) return 0;
-      if (!saved || saved.day!==today || !Number.isFinite(saved.ms) || saved.ms>now) {
-        // Arrival is the first observed fresh fix in this uninterrupted visit.
-        saved={day:today,ms:fix};
-        try{localStorage.setItem(key,JSON.stringify(saved))}catch(_){}
+      if (!fresh) return 0;
+      if (validSaved) {
+        // A short trip outside the 20m arrival circle must not change queue priority.
+        diqaCompanyArrivalMemory[id]=saved;
+        return saved.ms;
       }
+      // New arrival only when the courier actually enters the company's 20m circle.
+      if (distance>DIQA_COMPANY_ARRIVAL_RADIUS_M) return 0;
+      saved={day:today,ms:fix};
       diqaCompanyArrivalMemory[id]=saved;
+      try{localStorage.setItem(key,JSON.stringify(saved))}catch(_){}
       return saved.ms;
     }
     function diqaCompanyWaitingDrivers() {
@@ -10904,7 +10923,7 @@ function renderDriversSelect() {
     function diqaCompanyPopupHtml(){
       const rows=diqaCompanyWaitingDrivers();
       return `<div class="diqa-group-popup" dir="rtl"><b>🏢 ترتيب المندوبين بالشركة (${rows.length})</b>`+
-        `<small>الأقدم وصولاً بالأعلى • نطاق 100 متر</small>`+
+        `<small>الأقدم وصولاً بالأعلى • الوصول ضمن 20 م • الخروج بعد 200 م • وقت الوصول الفعلي</small>`+
         (rows.length?rows.map((n,i)=>`<button type="button" data-diqa-company-id="${escapeDriverMapText(n.id)}">${i+1}. <span class="diqa-live-dot ${n.state.isOnline?'':n.state.isWarn?'warn':'offline'}"></span>${escapeDriverMapText(n.name)} <small style="display:inline;margin:0">${new Date(n.arrived).toLocaleTimeString('ar-IQ',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baghdad'})}</small></button>`).join(''):'<small>لا يوجد مندوبون داخل النطاق حالياً</small>')+'</div>';
     }
     function diqaOpenCompanyPopup(){
