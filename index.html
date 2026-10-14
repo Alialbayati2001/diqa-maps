@@ -10958,7 +10958,10 @@ function renderDriversSelect() {
       } else if(distance>DIQA_COMPANY_EXIT_RADIUS_M){
         nextPhase='ready';ms=0;
       } else if(phase==='blocked'){
-        nextPhase='blocked';ms=0;
+        // A previous delivery ended: re-arm when a real GPS fix confirms
+        // the courier is at the 20m arrival zone. Never remain blocked forever.
+        if(distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){nextPhase='waiting';ms=fix;}
+        else {nextPhase='ready';ms=0;}
       } else if(phase==='dispatchedExited'){
         // Actual exit was recorded during an assigned delivery; arrival arms new place.
         if(distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){nextPhase='waiting';ms=fix;}
@@ -10982,7 +10985,11 @@ function renderDriversSelect() {
       const fresh=fix>0 && fix<=now+60000 && now-fix<=180000;
       const distance=diqaCompanyDistance(loc);
       const dispatched=diqaCompanyDriverDispatched(id);
-      if(diqaCompanyQueueLoaded && diqaCompanyQueueConnected && fresh && Number.isFinite(distance)){
+      // First observation of a parked courier can be a stale last-known fix:
+      // bootstrap only if no authoritative queue record exists, and only within 20m.
+      // Never treat an old fix as evidence of departure or re-entry after dispatch.
+      const initialParkedFix=!saved && fix>0 && fix<=now+60000 && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M;
+      if(diqaCompanyQueueLoaded && diqaCompanyQueueConnected && (fresh || initialParkedFix) && Number.isFinite(distance)){
         const signature=fix+'|'+dispatched;
         if(!diqaCompanyQueuePending.has(id) && diqaCompanyQueueLastInputs[id]!==signature){
           diqaCompanyQueueLastInputs[id]=signature;
@@ -11014,12 +11021,14 @@ function renderDriversSelect() {
         // Fresh location outside 200m: hide immediately while RTDB transaction commits.
         return 0;
       }
-      if(!fresh)return 0;
+      if(!fresh && !( !saved && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M && fix>0 && fix<=now+60000 ))return 0;
       if(distance>DIQA_COMPANY_EXIT_RADIUS_M)return 0;
       if(saved){
         if(saved.phase==='waiting')return Number(saved.ms)||0;
-        // Explicit dispatch / exit history must never be bypassed by a fallback.
-        if(saved.phase==='blocked'||saved.phase==='dispatchedExited')return 0;
+        // A finished dispatch can be re-armed after a genuine arrival fix.
+        if(saved.phase==='blocked'||saved.phase==='dispatchedExited'){
+          return distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M ? fix : 0;
+        }
         if(saved.phase==='ready' && distance>DIQA_COMPANY_ARRIVAL_RADIUS_M)return 0;
       }
       if(!saved || saved.phase==='ready' && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){
@@ -11045,9 +11054,22 @@ function renderDriversSelect() {
     function diqaFillCompanyQueuePanel(panel){
       if(!panel)return;
       const rows=diqaCompanyWaitingDrivers();
+      const excluded=Object.keys(driversMetaCache||{}).flatMap(id=>{
+        if(rows.some(r=>r.id===id))return [];
+        const loc=(driversLocationsCache||{})[id];
+        const dist=diqaCompanyDistance(loc);
+        if(dist>DIQA_COMPANY_EXIT_RADIUS_M)return [];
+        const state=diqaCompanyArrivalMemory[id];
+        const reason=diqaCompanyDriverDispatched(id)?'عنده طلب مسجّل':
+          dist>DIQA_COMPANY_ARRIVAL_RADIUS_M?'الموقع على بُعد '+Math.round(dist)+'م من الشركة (الوصول يتطلب 20م)':
+          state && state.phase==='dispatchedExited'?'بانتظار وصول جديد بعد التوصيل':
+          'بانتظار تثبيت الوصول في Firebase';
+        return [{id,name:(driversMetaCache[id]||{}).name||id,reason}];
+      });
       panel.innerHTML='<b>🏢 أقدمية المندوبين الجاهزين ('+rows.length+')</b>'+
         '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">الوصول: 20 متر • الخروج المؤكد: 200 متر • انقطاع التتبع لا يلغي الأقدمية • الطلب المسجّل يخرج المندوب من الدور • '+(diqaCompanyQueueConnected?'سجل موحّد Firebase':'⚠️ تعذّر الاتصال بسجل Firebase')+'</div>'+
-        (rows.length?rows.map((n,i)=>'<button type="button" class="diqa-company-queue-entry" data-diqa-company-id="'+escapeDriverMapText(n.id)+'"><span>'+(i+1)+'. '+escapeDriverMapText(n.name)+'</span><time>'+new Date(n.arrived).toLocaleTimeString('ar-IQ',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baghdad'})+'</time></button>').join(''):'<p style="color:#94a3b8;margin:10px 0 2px">لا يوجد مندوب جاهز حالياً. ظهور مندوبين متقاربين بالخريطة لا يعني بالضرورة تسجيل وصولهم أو خلوّهم من الطلبات.</p>');
+        (rows.length?rows.map((n,i)=>'<button type="button" class="diqa-company-queue-entry" data-diqa-company-id="'+escapeDriverMapText(n.id)+'"><span>'+(i+1)+'. '+escapeDriverMapText(n.name)+'</span><time>'+new Date(n.arrived).toLocaleTimeString('ar-IQ',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baghdad'})+'</time></button>').join(''):'<p style="color:#94a3b8;margin:10px 0 2px">لا يوجد مندوب جاهز حالياً. ظهور مندوبين متقاربين بالخريطة لا يعني بالضرورة تسجيل وصولهم أو خلوّهم من الطلبات.</p>')+
+        (excluded.length?'<div style="margin-top:8px;border-top:1px solid #475569;padding-top:6px;color:#cbd5e1"><b>موجودون قرب الشركة لكن غير جاهزين:</b>'+excluded.map(n=>'<div style="padding:3px 0">'+escapeDriverMapText(n.name)+' — '+escapeDriverMapText(n.reason)+'</div>').join('')+'</div>':'');
       panel.querySelectorAll('[data-diqa-company-id]').forEach(btn=>btn.addEventListener('click',()=>{
         const id=btn.dataset.diqaCompanyId;
         const marker=driverMarkers[id];
