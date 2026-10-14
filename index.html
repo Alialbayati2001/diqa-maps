@@ -10891,6 +10891,7 @@ function renderDriversSelect() {
     const DIQA_COMPANY_GROUP_RADIUS_M = DIQA_COMPANY_EXIT_RADIUS_M;
     // Canonical dispatch queue stored once in Firebase RTDB, shared by every manager.
     // Separate from attendanceDaily and entirely independent of attendance check-in/out.
+    let diqaOfficeMarker = null; // Shared company map marker; initialized in initMap()
     const DIQA_COMPANY_QUEUE_PATH = 'companyDispatchQueue/v1/drivers';
     const diqaCompanyArrivalMemory = {}; // realtime read-only mirror; never localStorage
     const diqaCompanyQueuePending = new Set();
