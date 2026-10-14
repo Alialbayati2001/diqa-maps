@@ -505,12 +505,12 @@ background:#fff;
     #map .diqa-route-legend button {margin:5px 0 0;background:#334155;color:white;padding:3px 9px;border-radius:7px;font-size:12px;}
     #map .diqa-route-legend {max-height:150px;overflow-y:auto;min-width:115px;max-width:155px;font-size:9px;padding:5px 7px;line-height:1.4;border-radius:7px;}
     #map .diqa-route-legend-row {display:flex;align-items:center;gap:5px;padding:2px 0;white-space:nowrap;}
-    #map .diqa-route-legend-line {width:19px;min-width:19px;height:4px;border-radius:8px;border:1px solid #fff;box-shadow:0 0 3px #000;}
+    #map .diqa-route-legend-line {width:21px;min-width:21px;height:6px;border-radius:8px;border:2px solid #fff;box-shadow:0 0 3px #000;}
     #map .diqa-route-legend-name {overflow:hidden;text-overflow:ellipsis;}
     #map .diqa-trip-stop-pin {background:var(--diqa-stop-color,#2563eb);border-color:var(--diqa-stop-outline,#fff);box-shadow:0 0 0 2px var(--diqa-stop-outline,#fff),0 2px 11px #000d;}
     #map .diqa-trip-stop-pin::after {border-top-color:var(--diqa-stop-color,#2563eb);}
-    #map path.diqa-route-core {stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 2px rgba(255,255,255,.45));}
-    #map path.diqa-route-halo {stroke-linecap:round;stroke-linejoin:round;}
+    #map path.diqa-route-core {stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 2px var(--diqa-route-glow,rgba(255,255,255,.65)));}
+    #map path.diqa-route-halo {stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 5px var(--diqa-route-glow,rgba(255,255,255,.85))) drop-shadow(0 0 2px var(--diqa-route-glow,rgba(255,255,255,.85)));}
 
 </style>
 </head>
@@ -10482,8 +10482,22 @@ function renderDriversSelect() {
     const diqaTripLayers = new Map();
     // Each driver ID always maps to the same bright color (independent of list order).
     // Yellow is reserved exclusively for the trip back to the company.
-    const DIQA_ROUTE_PALETTE = ['#00E5FF','#FF5678','#8E7CFF','#36F0AB','#FF8755','#4A9EFF','#F05AD4','#57E0EA','#B27AFF','#31C8B5','#FF6470','#5CA6FF','#DF6CFF','#27DF88','#FF938F','#70C6FF','#C779DF','#39D4D4','#F65F9F','#7D89FF','#40C7A0','#FC7474','#A69BFF','#55C3F3'];
-    const DIQA_ROUTE_OUTLINES = ['#FFFFFF','#B7EDFF','#FFE2F0','#E5DDFF','#C9FFF0','#F5D8FF'];
+    // High separation between neighboring route colors. Each entry has its own
+    // contrasting, differently colored OUTLINE. Yellow is for returning home only.
+    const DIQA_ROUTE_PALETTE = [
+      '#00E5FF','#FF426D','#52F284','#A781FF','#FF7842','#31A0FF',
+      '#F05FEA','#19D9B0','#FF9CBA','#687CFF','#A7ED52','#F660A8',
+      '#42C5EA','#FF6464','#C7A2FF','#00C99B','#FFAE70','#5591E5',
+      '#DA63FF','#7EE1B8','#FC6594','#82BCFF','#B5D76E','#E68BC3'
+    ];
+    // Never impose a common white frame. These mixed luminous outlines distinguish
+    // even drivers whose inner colors are in a similar hue family.
+    const DIQA_ROUTE_OUTLINES = [
+      '#EDFAFF','#4217A8','#093D80','#FFBEDA','#6321BA','#F6E7FF',
+      '#0B737D','#D5F7F1','#7630C9','#F5CAEC','#195EA4','#BAFFD5',
+      '#8224A8','#C5F7FF','#225AC2','#E2AFFF','#7E26D1','#F8C8DE',
+      '#0B756D','#9B4ADA','#1B84A9','#ECA8FB','#7945CD','#4B66DF'
+    ];
     function diqaRouteHash(id){
       const key=String(id);let hash=2166136261;
       for(let i=0;i<key.length;i++){hash^=key.charCodeAt(i);hash=Math.imul(hash,16777619);}
@@ -10521,7 +10535,7 @@ function renderDriversSelect() {
       el.style.display=active.length?'block':'none';
       el.innerHTML='<b>ألوان مسارات المندوبين</b>'+active.map(id=>{
         const name=escapeDriverMapText((driversMetaCache[id]||{}).name||id);
-        return `<div class="diqa-route-legend-row"><span class="diqa-route-legend-line" style="background:${diqaDriverRouteColor(id)};border-color:${diqaDriverRouteOutline(id)};box-shadow:0 0 0 1px ${diqaDriverRouteOutline(id)}"></span><span class="diqa-route-legend-name" title="${name}">${name}</span></div>`;
+        return `<div class="diqa-route-legend-row"><span class="diqa-route-legend-line" style="background:${diqaDriverRouteColor(id)};border-color:${diqaDriverRouteOutline(id)};box-shadow:0 0 4px 1px ${diqaDriverRouteOutline(id)}"></span><span class="diqa-route-legend-name" title="${name}">${name}</span></div>`;
       }).join('')+'<div style="color:#facc15;font-size:9px;margin-top:3px">الأصفر: العودة للشركة فقط</div>';
     }
     const diqaTripKeys = new Map();
@@ -10550,14 +10564,50 @@ function renderDriversSelect() {
       let here=(Number.isFinite(Number(loc.lat))&&Number.isFinite(Number(loc.lng)))?[Number(loc.lat),Number(loc.lng)]:DIQA_ROUTE_COMPANY;
       while(pool.length){
         pool.sort((a,b)=>{
-          const getPriority=g=>Math.min(...g.orders.map(o=>{const p=Number(o.priority);return Number.isFinite(p)&&p>0?p:Infinity;}));
-          const pa=getPriority(a),pb=getPriority(b);
-          if(pa!==pb)return pa-pb;
           return map.distance(here,[a.lat,a.lng])-map.distance(here,[b.lat,b.lng]);
         });
         const shop=pool.shift();ordered.push(shop);here=[shop.lat,shop.lng];
       }
       return {ordered,done};
+    }
+    // OSRM table is based on Baghdad's drivable street graph, including one-way roads.
+    // The nearest next shop is recomputed after each stop; straight-line ordering is fallback only.
+    const diqaRoadTableCache = new Map();
+    async function diqaOrderManagerShopsByRoad(start, shops) {
+      if (shops.length < 2) return shops;
+      const coords = [start,...shops.map(x=>[x.lat,x.lng])];
+      if (coords.length > 65) return shops; // public demo service guard
+      const cacheKey=coords.map(p=>p.map(v=>Number(v).toFixed(4)).join(',')).join(';');
+      const cached=diqaRoadTableCache.get(cacheKey);
+      let matrix=cached&&Date.now()-cached.time<120000?cached.matrix:null;
+      if(!matrix){
+        const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),6500);
+        try{
+          const coordText=coords.map(p=>`${p[1]},${p[0]}`).join(';');
+          const result=await fetch(`https://router.project-osrm.org/table/v1/driving/${coordText}?annotations=distance`,{signal:controller.signal});
+          if(!result.ok)throw new Error('OSRM table '+result.status);
+          const json=await result.json();
+          if(json.code!=='Ok'||!Array.isArray(json.distances)||json.distances.length!==coords.length)throw new Error('OSRM table unavailable');
+          matrix=json.distances;diqaRoadTableCache.set(cacheKey,{matrix,time:Date.now()});
+          if(diqaRoadTableCache.size>100)diqaRoadTableCache.delete(diqaRoadTableCache.keys().next().value);
+        }catch(e){return shops;}finally{clearTimeout(timer);}
+      }
+      const result=[],remaining=new Set(shops.map((_,i)=>i+1));let current=0;
+      while(remaining.size){
+        let best=null,bestDistance=Infinity;
+        for(const i of remaining){
+          const d=Number(matrix[current]?.[i]);
+          if(matrix[current]?.[i]!=null&&Number.isFinite(d)&&d<bestDistance){bestDistance=d;best=i;}
+        }
+        if(best==null){ // disconnected roads: prefer geographical nearest as fallback
+          for(const i of remaining){
+            const d=haversineMeters(coords[current][0],coords[current][1],coords[i][0],coords[i][1]);
+            if(d<bestDistance){bestDistance=d;best=i;}
+          }
+        }
+        result.push(shops[best-1]);remaining.delete(best);current=best;
+      }
+      return result;
     }
     function diqaClearManagerTrip(id){
       if(id==null){for(const key of Array.from(diqaTripLayers.keys()))diqaClearManagerTrip(key);return;}
@@ -10584,8 +10634,12 @@ function renderDriversSelect() {
         }catch(_){}
         if(!valid())return;
         const path=shape||chunk;
-        L.polyline(path,{color:outlineColor,weight:12,opacity:.98,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-halo'}).addTo(group);
-        L.polyline(path,{color,weight:6.5,opacity:1,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-core'}).addTo(group);
+        // Each courier has a contrasting tinted border and colored glow, not a uniform white outline.
+        const halo=L.polyline(path,{color:outlineColor,weight:13,opacity:1,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-halo'}).addTo(group);
+        const core=L.polyline(path,{color,weight:6,opacity:1,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-core'}).addTo(group);
+        const haloEl=halo.getElement(),coreEl=core.getElement();
+        if(haloEl)haloEl.style.setProperty('--diqa-route-glow',outlineColor);
+        if(coreEl)coreEl.style.setProperty('--diqa-route-glow',color);
       }
     }
     async function diqaShowManagerTrip(id){
@@ -10597,8 +10651,10 @@ function renderDriversSelect() {
          !Number.isFinite(loc.lat)||!Number.isFinite(loc.lng)||(!live.isOnline&&!live.isWarn)){
         diqaClearManagerTrip(id);return;
       }
-      const {ordered,done}=diqaManagerRouteOrders(id);
+      const routeData=diqaManagerRouteOrders(id);
+      const {done}=routeData;
       const position=[Number(loc.lat),Number(loc.lng)];
+      let ordered=routeData.ordered;
       const returning=!ordered.length&&done.length>0;
       if(!ordered.length&&!returning){diqaClearManagerTrip(id);return;}
       // Reroute if assignments/status change or courier moved about 20m; avoid network traffic every 10s.
@@ -10613,6 +10669,10 @@ function renderDriversSelect() {
       diqaUpdateTripLegend();
       const driverColor=diqaDriverRouteColor(id);
       const valid=()=>map&&diqaTripLayers.get(id)===group&&diqaTripVersions.get(id)===version;
+      if(!returning){
+        ordered=await diqaOrderManagerShopsByRoad(position,ordered);
+        if(!valid())return;
+      }
       const outward=[position,...ordered.map(shop=>[shop.lat,shop.lng])];
       // Exactly one numbered marker for each pending SHOP (not each order).
       // A shop disappears only after all its pending orders become delivered/returned.
