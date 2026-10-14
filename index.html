@@ -514,6 +514,16 @@ background:#fff;
     /* Selected courier: intense luminous border, foreground route without recoloring it. */
     #map path.diqa-route-halo.diqa-route-focused {filter:drop-shadow(0 0 7px var(--diqa-route-glow)) drop-shadow(0 0 14px var(--diqa-route-glow)) drop-shadow(0 0 23px var(--diqa-route-glow));}
     #map path.diqa-route-core.diqa-route-focused {filter:drop-shadow(0 0 4px var(--diqa-route-glow)) drop-shadow(0 0 11px var(--diqa-route-glow));}
+    /* Company dispatch queue: fixed to the route legend, not to a GPS marker. */
+    #map .diqa-route-legend{overflow:visible;position:relative;}
+    #map .diqa-route-legend-header{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+    #map .diqa-company-queue-toggle{width:30px;height:30px;min-width:30px;margin:0;padding:2px;border:1px solid #64748b;border-radius:7px;background:#1e293b;color:#fff;font-size:19px;line-height:1;cursor:pointer;}
+    #map .diqa-company-queue-toggle:hover,#map .diqa-company-queue-toggle[aria-expanded="true"]{background:#334155;border-color:#facc15;}
+    #map .diqa-company-queue-panel{position:absolute;bottom:calc(100% + 8px);left:0;width:280px;max-width:min(280px,85vw);max-height:min(340px,60vh);overflow:auto;background:#0b1120;border:1px solid #94a3b8;border-radius:11px;box-shadow:0 8px 25px #000b;padding:10px;direction:rtl;text-align:right;color:#e2e8f0;font-size:12px;z-index:9999;}
+    #map .diqa-company-queue-panel[hidden]{display:none!important;}
+    #map .diqa-company-queue-entry{display:flex;width:100%;gap:8px;align-items:center;justify-content:space-between;text-align:right;background:#17243a;color:#fff;border:1px solid #334155;border-radius:7px;padding:8px;margin:6px 0 0;font-size:12px;}
+    #map .diqa-company-queue-entry span{flex:1;}
+    #map .diqa-company-queue-entry time{direction:ltr;color:#fde68a;white-space:nowrap;font-size:11px;}
     #map .diqa-route-legend-row[data-diqa-route-id]{cursor:pointer;border-radius:5px;padding-inline:3px;}
     #map .diqa-route-legend-row.diqa-route-legend-selected {background:#334155;outline:1px solid #94a3b8;font-weight:900;}
     #map .diqa-route-legend-row:focus-visible {outline:2px solid #a5f3fc;}
@@ -10614,6 +10624,7 @@ function renderDriversSelect() {
       return DIQA_ROUTE_OUTLINES[i%DIQA_ROUTE_OUTLINES.length];
     }
     let diqaTripLegend = null;
+    let diqaCompanyQueuePanelOpen = false;
     function diqaUpdateTripLegend(){
       if(!map)return;
       if(!diqaTripLegend){
@@ -10623,11 +10634,22 @@ function renderDriversSelect() {
       }
       const el=diqaTripLegend.getContainer();if(!el)return;
       const active=Array.from(diqaTripLayers.keys()).sort((a,b)=>String((driversMetaCache[a]||{}).name||a).localeCompare(String((driversMetaCache[b]||{}).name||b),'ar'));
-      el.style.display=active.length?'block':'none';
-      el.innerHTML='<b>ألوان مسارات المندوبين</b>'+active.map(id=>{
+      // Keep company queue accessible even when no courier routes are drawn.
+      el.style.display='block';
+      el.innerHTML='<div class="diqa-route-legend-header"><b>ألوان مسارات المندوبين</b><button type="button" class="diqa-company-queue-toggle" title="أقدمية المندوبين في الشركة" aria-label="أقدمية المندوبين في الشركة" aria-expanded="'+String(diqaCompanyQueuePanelOpen)+'">🏢</button></div>'+active.map(id=>{
         const name=escapeDriverMapText((driversMetaCache[id]||{}).name||id);
         return `<div class="diqa-route-legend-row" data-diqa-route-id="${escapeDriverMapText(id)}" role="button" tabindex="0"><span class="diqa-route-legend-line" style="background:${diqaDriverRouteColor(id)};border-color:${diqaDriverRouteOutline(id)};box-shadow:0 0 4px 1px ${diqaDriverRouteOutline(id)}"></span><span class="diqa-route-legend-name" title="${name}">${name}</span></div>`;
-      }).join('')+'<div style="color:#facc15;font-size:9px;margin-top:3px">الأصفر: العودة للشركة فقط</div>';
+      }).join('')+'<div style="color:#facc15;font-size:9px;margin-top:3px">الأصفر: العودة للشركة فقط</div>' +
+        '<div class="diqa-company-queue-panel" '+(diqaCompanyQueuePanelOpen?'':'hidden')+'></div>';
+      const queueButton=el.querySelector('.diqa-company-queue-toggle');
+      queueButton.addEventListener('click',()=>{
+        diqaCompanyQueuePanelOpen=!diqaCompanyQueuePanelOpen;
+        queueButton.setAttribute('aria-expanded',String(diqaCompanyQueuePanelOpen));
+        const panel=el.querySelector('.diqa-company-queue-panel');
+        panel.hidden=!diqaCompanyQueuePanelOpen;
+        if(diqaCompanyQueuePanelOpen) diqaFillCompanyQueuePanel(panel);
+      });
+      if(diqaCompanyQueuePanelOpen)diqaFillCompanyQueuePanel(el.querySelector('.diqa-company-queue-panel'));
       el.querySelectorAll('[data-diqa-route-id]').forEach(node=>{
         const activate=()=>diqaFocusManagerRoute(node.dataset.diqaRouteId);
         node.addEventListener('click',activate);
@@ -10920,6 +10942,18 @@ function renderDriversSelect() {
       rows.sort((a,b)=>a.arrived-b.arrived||a.name.localeCompare(b.name,'ar'));
       return rows;
     }
+    function diqaFillCompanyQueuePanel(panel){
+      if(!panel)return;
+      const rows=diqaCompanyWaitingDrivers();
+      panel.innerHTML='<b>🏢 أقدمية المندوبين الجاهزين ('+rows.length+')</b>'+
+        '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">الوصول: 20 متر • الخروج: 200 متر • الطلب المسجّل يخرج المندوب من الدور</div>'+
+        (rows.length?rows.map((n,i)=>'<button type="button" class="diqa-company-queue-entry" data-diqa-company-id="'+escapeDriverMapText(n.id)+'"><span>'+(i+1)+'. '+escapeDriverMapText(n.name)+'</span><time>'+new Date(n.arrived).toLocaleTimeString('ar-IQ',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baghdad'})+'</time></button>').join(''):'<p style="color:#94a3b8;margin:10px 0 2px">لا يوجد مندوب جاهز حالياً.</p>');
+      panel.querySelectorAll('[data-diqa-company-id]').forEach(btn=>btn.addEventListener('click',()=>{
+        const id=btn.dataset.diqaCompanyId;
+        const marker=driverMarkers[id];
+        if(marker && map){map.panTo(marker.getLatLng());marker.openPopup();}
+      }));
+    }
     function diqaCompanyPopupHtml(){
       const rows=diqaCompanyWaitingDrivers();
       return `<div class="diqa-group-popup" dir="rtl"><b>🏢 ترتيب المندوبين بالشركة (${rows.length})</b>`+
@@ -10949,10 +10983,12 @@ function renderDriversSelect() {
         }
       }
 
+      if(diqaCompanyQueuePanelOpen && diqaTripLegend) diqaFillCompanyQueuePanel(diqaTripLegend.getContainer()?.querySelector('.diqa-company-queue-panel'));
       // Refresh arrival/exits for every driver, even if no visual cluster is formed.
       Object.entries(driversLocationsCache||{}).forEach(([id,loc])=>{
         if(Object.prototype.hasOwnProperty.call(driversMetaCache||{},id))diqaCompanyArrivalTime(id,loc);
       });
+      if(diqaCompanyQueuePanelOpen && diqaTripLegend) diqaFillCompanyQueuePanel(diqaTripLegend.getContainer()?.querySelector('.diqa-company-queue-panel'));
       // At city zoom use compact groups; as the map zooms in, each real
       // driver appears automatically whenever there is sufficient separation.
       // Group only when the full icon artwork would collide. Keep every driver represented.
