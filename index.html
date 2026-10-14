@@ -6495,6 +6495,8 @@ function subscribeEmployees(){
       }
       ordersUnsubRef = null;
       ordersCache = {};
+      // Remove itinerary layers from the previous day immediately.
+      if (typeof diqaClearManagerTrip === 'function') diqaClearManagerTrip(null);
       ordersWorkDate = "";
       rebuildClientInvoiceHintMap();
       refreshOrdersUIAndMap();
@@ -6511,8 +6513,29 @@ function subscribeEmployees(){
       ordersUnsubRef = ref;
 
       ref.on("value", snap => {
-        ordersCache = snap.val() || {};
+        // Compare the previous assignments with the live Firebase snapshot. This
+        // includes rows added/deleted/edited in "ملخص كل مندوب" on ANY device.
+        const previousOrders = ordersCache || {};
+        const nextOrders = snap.val() || {};
+        const changedDrivers = new Set();
+        const allOrderIds = new Set([...Object.keys(previousOrders), ...Object.keys(nextOrders)]);
+        for (const orderId of allOrderIds) {
+          const before = previousOrders[orderId];
+          const after = nextOrders[orderId];
+          const routeSignature = o => o ? JSON.stringify([
+            o.assignedDriverId || '', o.clientId || '', o.clientName || '',
+            o.lat, o.lng, o.status, o.priority
+          ]) : null;
+          if (routeSignature(before) !== routeSignature(after)) {
+            if (before && before.assignedDriverId != null) changedDrivers.add(String(before.assignedDriverId));
+            if (after && after.assignedDriverId != null) changedDrivers.add(String(after.assignedDriverId));
+          }
+        }
+        ordersCache = nextOrders;
         rebuildClientInvoiceHintMap();
+        // Remove old geometry before redrawing. Existing async OSRM responses
+        // are invalidated, so deleted destinations can never reappear.
+        for (const driverId of changedDrivers) diqaClearManagerTrip(driverId);
         refreshOrdersUIAndMap();
         queueOrdersEtaSync(workDate);
       });
