@@ -503,11 +503,11 @@ background:#fff;
     #map .diqa-trip-stop-popup .stop-line:last-child {border:0;}
     #map .diqa-route-legend {background:#0b1120;color:#fff;border:1px solid #475569;padding:8px 11px;border-radius:10px;line-height:1.8;font-size:12px;min-width:175px;max-width:250px;box-shadow:0 2px 12px #0008;}
     #map .diqa-route-legend button {margin:5px 0 0;background:#334155;color:white;padding:3px 9px;border-radius:7px;font-size:12px;}
-    #map .diqa-route-legend {max-height:220px;overflow-y:auto;min-width:165px;max-width:215px;font-size:11px;padding:8px 10px;}
-    #map .diqa-route-legend-row {display:flex;align-items:center;gap:7px;padding:3px 0;white-space:nowrap;}
-    #map .diqa-route-legend-line {width:25px;min-width:25px;height:5px;border-radius:8px;border:1px solid #fff9;box-shadow:0 0 3px #000;}
+    #map .diqa-route-legend {max-height:150px;overflow-y:auto;min-width:115px;max-width:155px;font-size:9px;padding:5px 7px;line-height:1.4;border-radius:7px;}
+    #map .diqa-route-legend-row {display:flex;align-items:center;gap:5px;padding:2px 0;white-space:nowrap;}
+    #map .diqa-route-legend-line {width:19px;min-width:19px;height:4px;border-radius:8px;border:1px solid #fff;box-shadow:0 0 3px #000;}
     #map .diqa-route-legend-name {overflow:hidden;text-overflow:ellipsis;}
-    #map .diqa-trip-stop-pin {background:var(--diqa-stop-color,#2563eb);box-shadow:0 0 0 2px #f1f5f9,0 2px 11px #000d;}
+    #map .diqa-trip-stop-pin {background:var(--diqa-stop-color,#2563eb);border-color:var(--diqa-stop-outline,#fff);box-shadow:0 0 0 2px var(--diqa-stop-outline,#fff),0 2px 11px #000d;}
     #map .diqa-trip-stop-pin::after {border-top-color:var(--diqa-stop-color,#2563eb);}
     #map path.diqa-route-core {stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 2px rgba(255,255,255,.45));}
     #map path.diqa-route-halo {stroke-linecap:round;stroke-linejoin:round;}
@@ -10481,11 +10481,32 @@ function renderDriversSelect() {
     const DIQA_ROUTE_COMPANY = [33.251945,44.362572];
     const diqaTripLayers = new Map();
     // Each driver ID always maps to the same bright color (independent of list order).
-    const DIQA_ROUTE_PALETTE = ['#00E5FF','#FF6B35','#BB86FC','#6CFF7C','#FF4DB8','#FFE44D','#61A5FF','#FF8787','#00D6A0','#D7F542','#C78BFF','#FFB347','#69F0FF','#F783AC','#A5FF69','#A9A0FF'];
-    function diqaDriverRouteColor(id){
+    // Yellow is reserved exclusively for the trip back to the company.
+    const DIQA_ROUTE_PALETTE = ['#00E5FF','#FF5678','#8E7CFF','#36F0AB','#FF8755','#4A9EFF','#F05AD4','#57E0EA','#B27AFF','#31C8B5','#FF6470','#5CA6FF','#DF6CFF','#27DF88','#FF938F','#70C6FF','#C779DF','#39D4D4','#F65F9F','#7D89FF','#40C7A0','#FC7474','#A69BFF','#55C3F3'];
+    const DIQA_ROUTE_OUTLINES = ['#FFFFFF','#B7EDFF','#FFE2F0','#E5DDFF','#C9FFF0','#F5D8FF'];
+    function diqaRouteHash(id){
       const key=String(id);let hash=2166136261;
       for(let i=0;i<key.length;i++){hash^=key.charCodeAt(i);hash=Math.imul(hash,16777619);}
-      return DIQA_ROUTE_PALETTE[(hash>>>0)%DIQA_ROUTE_PALETTE.length];
+      return hash>>>0;
+    }
+    // Assign each known driver a distinct route color (collision-free within the palette).
+    function diqaDriverRouteIndex(id){
+      const ids=Array.from(new Set([...Object.keys(driversMetaCache||{}),String(id)])).sort();
+      const reserved=new Set();let found=0;
+      for(const key of ids){
+        let idx=diqaRouteHash(key)%DIQA_ROUTE_PALETTE.length;
+        if(reserved.size<DIQA_ROUTE_PALETTE.length){
+          while(reserved.has(idx))idx=(idx+1)%DIQA_ROUTE_PALETTE.length;
+          reserved.add(idx);
+        }
+        if(key===String(id))found=idx;
+      }
+      return found;
+    }
+    function diqaDriverRouteColor(id){return DIQA_ROUTE_PALETTE[diqaDriverRouteIndex(id)];}
+    function diqaDriverRouteOutline(id){
+      const i=diqaDriverRouteIndex(id);
+      return DIQA_ROUTE_OUTLINES[i%DIQA_ROUTE_OUTLINES.length];
     }
     let diqaTripLegend = null;
     function diqaUpdateTripLegend(){
@@ -10500,28 +10521,41 @@ function renderDriversSelect() {
       el.style.display=active.length?'block':'none';
       el.innerHTML='<b>ألوان مسارات المندوبين</b>'+active.map(id=>{
         const name=escapeDriverMapText((driversMetaCache[id]||{}).name||id);
-        return `<div class="diqa-route-legend-row"><span class="diqa-route-legend-line" style="background:${diqaDriverRouteColor(id)}"></span><span class="diqa-route-legend-name" title="${name}">${name}</span></div>`;
-      }).join('')+'<div style="color:#facc15;font-size:10px;margin-top:3px">الأصفر: العودة للشركة</div>';
+        return `<div class="diqa-route-legend-row"><span class="diqa-route-legend-line" style="background:${diqaDriverRouteColor(id)};border-color:${diqaDriverRouteOutline(id)};box-shadow:0 0 0 1px ${diqaDriverRouteOutline(id)}"></span><span class="diqa-route-legend-name" title="${name}">${name}</span></div>`;
+      }).join('')+'<div style="color:#facc15;font-size:9px;margin-top:3px">الأصفر: العودة للشركة فقط</div>';
     }
     const diqaTripKeys = new Map();
     const diqaTripVersions = new Map();
     let diqaSelectedManagerDriver = null;
+    // A shop remains in the itinerary until ALL of its orders are delivered or returned.
+    // Reaching it (nearby) is NOT completion. Every shop is plotted at its actual location.
     function diqaManagerRouteOrders(id) {
       const list=Object.entries(ordersCache||{}).map(([orderId,o])=>({orderId,...(o||{})})).filter(o=>
-        String(o.assignedDriverId||'')===String(id) && Number.isFinite(Number(o.lat)) && Number.isFinite(Number(o.lng)));
-      const remaining=list.filter(o=>o.status==='registered'||o.status==='nearby');
+        String(o.assignedDriverId||'')===String(id) && Number.isFinite(Number(o.lat)) && Number.isFinite(Number(o.lng)) &&
+        Math.abs(Number(o.lat))<=90 && Math.abs(Number(o.lng))<=180);
+      const pending=list.filter(o=>o.status==='registered'||o.status==='nearby');
       const done=list.filter(o=>o.status==='delivered'||o.status==='returned');
-      // Honor manually assigned priorities, then nearest next stop (NOT only one stop).
-      const ordered=[],pool=remaining.slice(),loc=driversLocationsCache[id]||{};
+      const shops=[];
+      for(const o of pending){
+        const lat=Number(o.lat),lng=Number(o.lng);
+        // Multiple orders belonging to the same client/site form ONE stop.
+        const shop=shops.find(g=>
+          (o.clientId && g.clientId && String(o.clientId)===String(g.clientId) &&
+           Math.abs(lat-g.lat)<0.000025 && Math.abs(lng-g.lng)<0.000025) ||
+          (Math.abs(lat-g.lat)<0.0000001 && Math.abs(lng-g.lng)<0.0000001));
+        if(shop){shop.orders.push(o);}
+        else shops.push({lat,lng,clientId:o.clientId,orders:[o]});
+      }
+      const ordered=[],pool=shops.slice(),loc=driversLocationsCache[id]||{};
       let here=(Number.isFinite(Number(loc.lat))&&Number.isFinite(Number(loc.lng)))?[Number(loc.lat),Number(loc.lng)]:DIQA_ROUTE_COMPANY;
       while(pool.length){
         pool.sort((a,b)=>{
-          const pa=Number(a.priority),pb=Number(b.priority);
-          const aa=Number.isFinite(pa)&&pa>0?pa:Infinity,bb=Number.isFinite(pb)&&pb>0?pb:Infinity;
-          if(aa!==bb)return aa-bb;
-          return map.distance(here,[Number(a.lat),Number(a.lng)])-map.distance(here,[Number(b.lat),Number(b.lng)]);
+          const getPriority=g=>Math.min(...g.orders.map(o=>{const p=Number(o.priority);return Number.isFinite(p)&&p>0?p:Infinity;}));
+          const pa=getPriority(a),pb=getPriority(b);
+          if(pa!==pb)return pa-pb;
+          return map.distance(here,[a.lat,a.lng])-map.distance(here,[b.lat,b.lng]);
         });
-        const one=pool.shift();ordered.push(one);here=[Number(one.lat),Number(one.lng)];
+        const shop=pool.shift();ordered.push(shop);here=[shop.lat,shop.lng];
       }
       return {ordered,done};
     }
@@ -10534,7 +10568,7 @@ function renderDriversSelect() {
       diqaTripLayers.delete(id);diqaTripKeys.delete(id);
       diqaUpdateTripLegend();
     }
-    async function diqaDrawRoadLegs(points,color,group,valid){
+    async function diqaDrawRoadLegs(points,color,group,valid,outlineColor='#f1f5f9'){
       if(points.length<2)return;
       const max=18;
       for(let start=0;start<points.length-1;start+=max-1){
@@ -10550,7 +10584,7 @@ function renderDriversSelect() {
         }catch(_){}
         if(!valid())return;
         const path=shape||chunk;
-        L.polyline(path,{color:'#f1f5f9',weight:12,opacity:.98,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-halo'}).addTo(group);
+        L.polyline(path,{color:outlineColor,weight:12,opacity:.98,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-halo'}).addTo(group);
         L.polyline(path,{color,weight:6.5,opacity:1,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-core'}).addTo(group);
       }
     }
@@ -10568,7 +10602,8 @@ function renderDriversSelect() {
       const returning=!ordered.length&&done.length>0;
       if(!ordered.length&&!returning){diqaClearManagerTrip(id);return;}
       // Reroute if assignments/status change or courier moved about 20m; avoid network traffic every 10s.
-      const key=JSON.stringify([position.map(x=>x.toFixed(4)),returning,ordered.map(o=>[o.orderId,o.lat,o.lng,o.priority]),done.length]);
+      const key=JSON.stringify([position.map(x=>x.toFixed(4)),returning,
+        ordered.map(shop=>[shop.lat,shop.lng,shop.orders.map(o=>[o.orderId,o.status,o.priority]).sort()]),done.length]);
       if(diqaTripKeys.get(id)===key&&diqaTripLayers.has(id))return;
       diqaClearManagerTrip(id);
       diqaTripKeys.set(id,key);
@@ -10578,43 +10613,26 @@ function renderDriversSelect() {
       diqaUpdateTripLegend();
       const driverColor=diqaDriverRouteColor(id);
       const valid=()=>map&&diqaTripLayers.get(id)===group&&diqaTripVersions.get(id)===version;
-      const outward=[position,...ordered.map(o=>[Number(o.lat),Number(o.lng)])];
-      // Draw shop flags immediately instead of waiting for route-provider latency.
-      // One clearly visible numbered destination marker per shop.
-      // Orders at precisely the same shop/location share a pin; the popup lists each one.
-      // Never offset actual destination coordinates or invent positions.
-      const stopGroups=[];
+      const outward=[position,...ordered.map(shop=>[shop.lat,shop.lng])];
+      // Exactly one numbered marker for each pending SHOP (not each order).
+      // A shop disappears only after all its pending orders become delivered/returned.
       for(let i=0;i<ordered.length;i++){
-        const o=ordered[i],lat=Number(o.lat),lng=Number(o.lng);
-        // Same exact map coordinates, or same client at <= 2 metres, represent one destination.
-        const existing=stopGroups.find(g=>
-          (Math.abs(g.lat-lat)<0.0000001 && Math.abs(g.lng-lng)<0.0000001) ||
-          (o.clientId && g.clientId && String(o.clientId)===String(g.clientId) &&
-           map.distance([g.lat,g.lng],[lat,lng])<=2));
-        if(existing)existing.stops.push({index:i+1,order:o});
-        else stopGroups.push({lat,lng,clientId:o.clientId,stops:[{index:i+1,order:o}]});
-      }
-      for(const stop of stopGroups){
-        const nums=stop.stops.map(x=>x.index);
-        const label=nums.length===1?String(nums[0]):(nums.length<=3?nums.join('،'):`${nums[0]} +${nums.length-1}`);
+        const shop=ordered[i],label=String(i+1);
         const icon=L.divIcon({
           className:'diqa-trip-stop-marker',
-          html:`<div class="diqa-trip-stop-pin" style="--diqa-stop-color:${driverColor}">${label}</div>`,
-          iconSize:[Math.max(32,label.length*9+15),40],iconAnchor:[Math.max(32,label.length*9+15)/2,40],
-          popupAnchor:[0,-36]
+          html:`<div class="diqa-trip-stop-pin" style="--diqa-stop-color:${driverColor};--diqa-stop-outline:${diqaDriverRouteOutline(id)}">${label}</div>`,
+          iconSize:[32,40],iconAnchor:[16,40],popupAnchor:[0,-36]
         });
-        const marker=L.marker([stop.lat,stop.lng],{icon,zIndexOffset:3200}).addTo(group);
-        const details=stop.stops.map(({index,order})=>
-          `<div class="stop-line"><b>محطة ${index}:</b> ${escapeDriverMapText(order.clientName||'محل / زبون')}`+
-          `${order.status==='nearby'?' — قريب':''}</div>`).join('');
-        marker.bindPopup(`<div class="diqa-trip-stop-popup"><b>📍 محطات التوصيل</b>${details}</div>`);
-        marker.bindTooltip(stop.stops.length===1?
-          `محطة ${nums[0]}: ${escapeDriverMapText(stop.stops[0].order.clientName||'محل / زبون')}`:
-          `${stop.stops.length} طلبات بهذا الموقع`,{direction:'top',offset:[0,-29]});
+        const marker=L.marker([shop.lat,shop.lng],{icon,zIndexOffset:3200}).addTo(group);
+        const details=shop.orders.map(order=>
+          `<div class="stop-line">${escapeDriverMapText(order.clientName||'محل / زبون')}`+
+          ` — ${order.status==='nearby'?'قريب (لم يكتمل)':'بانتظار التوصيل'}</div>`).join('');
+        marker.bindPopup(`<div class="diqa-trip-stop-popup"><b>📍 المحطة ${label} — ${shop.orders.length} طلب نشط</b>${details}</div>`);
+        marker.bindTooltip(`محطة ${label}: ${escapeDriverMapText(shop.orders[0].clientName||'محل / زبون')} (${shop.orders.length} طلب)`,{direction:'top',offset:[0,-29]});
       }
       if(returning)L.circleMarker(DIQA_ROUTE_COMPANY,{radius:7,color:'#facc15',fillOpacity:1}).addTo(group).bindTooltip('شركة الدقة');
       if(returning)await diqaDrawRoadLegs([position,DIQA_ROUTE_COMPANY],'#facc15',group,valid);
-      else await diqaDrawRoadLegs(outward,driverColor,group,valid);
+      else await diqaDrawRoadLegs(outward,driverColor,group,valid,diqaDriverRouteOutline(id));
     }
     function diqaRefreshSelectedTrip(){diqaRefreshAllTrips();}
     let diqaAllRoutesTimer=null;
