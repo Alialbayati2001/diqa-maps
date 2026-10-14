@@ -3899,6 +3899,9 @@ function openInGoogleMaps(lat, lng) {
 
       ref.on("value", snap => {
         attendanceCache = snap.val() || {};
+        if (map && (currentSessionRole === 'manager' || currentSessionRole === 'limited_manager')) {
+          layoutDriverCardsWithoutOverlap();
+        }
         // ✅ FIX: اغلاق الجلسات المفتوحة فعلياً (drivers attendance)
         forceCloseOpenSessions(attendanceDateKey, attendanceCache, "attendance", AUTO_CLOSE_GUARD.drivers);
         renderManagerAttendanceList();
@@ -10843,6 +10846,41 @@ function renderDriversSelect() {
       diqaGroupedDriverMarkers.forEach(m => map.removeLayer(m));
       diqaGroupedDriverMarkers = [];
     }
+    // Company cluster: oldest actual observed arrival goes first (top of lists).
+    // Attendance check-in is a reliable shared timestamp when recorded; otherwise
+    // retain the first GPS/Traccar observation inside the company per browser/day.
+    const diqaCompanyArrivalMemory = {};
+    const DIQA_COMPANY_GROUP_RADIUS_M = 30;
+    function diqaCompanyArrivalTime(id, loc) {
+      if (!loc || !Number.isFinite(Number(loc.lat)) || !Number.isFinite(Number(loc.lng))) return 0;
+      const point = L.latLng(Number(loc.lat), Number(loc.lng));
+      const atCompany = point.distanceTo(L.latLng(DIQA_ROUTE_COMPANY)) <= DIQA_COMPANY_GROUP_RADIUS_M;
+      const key = 'diqa-company-arrival-' + id;
+      const day = new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Baghdad'});
+      if (!atCompany) {
+        delete diqaCompanyArrivalMemory[id];
+        try { localStorage.removeItem(key); } catch (_) {}
+        return 0;
+      }
+      const doc = (attendanceCache || {})[id] || {};
+      const sessions = normalizeSessions(doc);
+      // Prefer the newest active check-in (not the morning check-in after a return).
+      const activeSessions = sessions.filter(x => x && x.inAt && !x.outAt);
+      const lastCheckin = activeSessions.length ? tsToMs(activeSessions[activeSessions.length - 1].inAt) : 0;
+      if (lastCheckin) return lastCheckin;
+      let saved = diqaCompanyArrivalMemory[id];
+      if (!saved) {
+        try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch (_) {}
+      }
+      const fixMs = tsToMs(loc.updatedAt);
+      const now = Date.now();
+      if (!saved || saved.day !== day || !Number.isFinite(saved.ms) || saved.ms > now) {
+        saved = {day, ms: fixMs > 0 && fixMs <= now ? fixMs : now};
+        try { localStorage.setItem(key, JSON.stringify(saved)); } catch (_) {}
+      }
+      diqaCompanyArrivalMemory[id] = saved;
+      return saved.ms;
+    }
     function layoutDriverCardsWithoutOverlap() {
       if (!map) return;
       clearDiqaGroupedDriverMarkers();
@@ -10891,6 +10929,19 @@ function renderDriversSelect() {
           const name = (driversMetaCache[e.id] && driversMetaCache[e.id].name) || loc.name || e.id;
           return {name, marker:e.marker, id:e.id, loc, state:calcLiveState(loc.updatedAt)};
         });
+        // Only sort the company cluster. Elsewhere retain existing grouping order.
+        const isCompanyGroup = group.members.some(e =>
+          e.marker.getLatLng().distanceTo(L.latLng(DIQA_ROUTE_COMPANY)) <= DIQA_COMPANY_GROUP_RADIUS_M
+        );
+        if (isCompanyGroup) {
+          names.sort((a,b) => {
+            const aTime = diqaCompanyArrivalTime(a.id,a.loc);
+            const bTime = diqaCompanyArrivalTime(b.id,b.loc);
+            // Unknown arrival follows known arrivals; ties are alphabetical and stable.
+            return (aTime || Infinity) - (bTime || Infinity) ||
+              a.name.localeCompare(b.name,'ar');
+          });
+        }
         // Same motorcycle image as a normal driver; only the name is replaced by count.
         const groupLoc = driversLocationsCache[group.anchor.id] || {};
         const groupState = calcLiveState(groupLoc.updatedAt);
