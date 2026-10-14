@@ -511,6 +511,12 @@ background:#fff;
     #map .diqa-trip-stop-pin::after {border-top-color:var(--diqa-stop-color,#2563eb);}
     #map path.diqa-route-core {stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 2px var(--diqa-route-glow,rgba(255,255,255,.65)));}
     #map path.diqa-route-halo {stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 5px var(--diqa-route-glow,rgba(255,255,255,.85))) drop-shadow(0 0 2px var(--diqa-route-glow,rgba(255,255,255,.85)));}
+    /* Selected courier: intense luminous border, foreground route without recoloring it. */
+    #map path.diqa-route-halo.diqa-route-focused {filter:drop-shadow(0 0 7px var(--diqa-route-glow)) drop-shadow(0 0 14px var(--diqa-route-glow)) drop-shadow(0 0 23px var(--diqa-route-glow));}
+    #map path.diqa-route-core.diqa-route-focused {filter:drop-shadow(0 0 4px var(--diqa-route-glow)) drop-shadow(0 0 11px var(--diqa-route-glow));}
+    #map .diqa-route-legend-row[data-diqa-route-id]{cursor:pointer;border-radius:5px;padding-inline:3px;}
+    #map .diqa-route-legend-row.diqa-route-legend-selected {background:#334155;outline:1px solid #94a3b8;font-weight:900;}
+    #map .diqa-route-legend-row:focus-visible {outline:2px solid #a5f3fc;}
 
 </style>
 </head>
@@ -10535,12 +10541,57 @@ function renderDriversSelect() {
       el.style.display=active.length?'block':'none';
       el.innerHTML='<b>ألوان مسارات المندوبين</b>'+active.map(id=>{
         const name=escapeDriverMapText((driversMetaCache[id]||{}).name||id);
-        return `<div class="diqa-route-legend-row"><span class="diqa-route-legend-line" style="background:${diqaDriverRouteColor(id)};border-color:${diqaDriverRouteOutline(id)};box-shadow:0 0 4px 1px ${diqaDriverRouteOutline(id)}"></span><span class="diqa-route-legend-name" title="${name}">${name}</span></div>`;
+        return `<div class="diqa-route-legend-row" data-diqa-route-id="${escapeDriverMapText(id)}" role="button" tabindex="0"><span class="diqa-route-legend-line" style="background:${diqaDriverRouteColor(id)};border-color:${diqaDriverRouteOutline(id)};box-shadow:0 0 4px 1px ${diqaDriverRouteOutline(id)}"></span><span class="diqa-route-legend-name" title="${name}">${name}</span></div>`;
       }).join('')+'<div style="color:#facc15;font-size:9px;margin-top:3px">الأصفر: العودة للشركة فقط</div>';
+      el.querySelectorAll('[data-diqa-route-id]').forEach(node=>{
+        const activate=()=>diqaFocusManagerRoute(node.dataset.diqaRouteId);
+        node.addEventListener('click',activate);
+        node.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();activate();}});
+      });
+      diqaApplyManagerRouteFocus();
     }
     const diqaTripKeys = new Map();
     const diqaTripVersions = new Map();
     let diqaSelectedManagerDriver = null;
+    // Selection changes presentation only: never modify a courier GPS coordinate.
+    function diqaFocusManagerRoute(id){
+      diqaSelectedManagerDriver = id == null ? null : String(id);
+      diqaApplyManagerRouteFocus();
+    }
+    function diqaApplyManagerRouteFocus(){
+      // First restore regular route appearance; selected route is drawn last/on top.
+      for(const [id,group] of diqaTripLayers){
+        const selected=String(id)===diqaSelectedManagerDriver;
+        group.eachLayer(layer=>{
+          if(!(layer instanceof L.Polyline))return;
+          const isHalo=String(layer.options.className||'').includes('diqa-route-halo');
+          const isCore=String(layer.options.className||'').includes('diqa-route-core');
+          if(!isHalo&&!isCore)return;
+          layer.setStyle({weight:isHalo?(selected?19:13):(selected?8:6),opacity:1});
+          const path=layer.getElement();
+          if(path)path.classList.toggle('diqa-route-focused',selected);
+        });
+      }
+      const chosen=diqaTripLayers.get(diqaSelectedManagerDriver);
+      if(chosen){
+        // LayerGroup itself has no bringToFront. Raise every path explicitly,
+        // keeping glow borders underneath their vivid center lines.
+        const halos=[],cores=[];
+        chosen.eachLayer(layer=>{
+          if(!(layer instanceof L.Polyline))return;
+          const cls=String(layer.options.className||'');
+          if(cls.includes('diqa-route-halo'))halos.push(layer);
+          else if(cls.includes('diqa-route-core'))cores.push(layer);
+        });
+        halos.forEach(l=>l.bringToFront());
+        cores.forEach(l=>l.bringToFront());
+      }
+      const legend=diqaTripLegend?.getContainer();
+      if(legend)legend.querySelectorAll('[data-diqa-route-id]').forEach(node=>{
+        node.classList.toggle('diqa-route-legend-selected',node.dataset.diqaRouteId===diqaSelectedManagerDriver);
+      });
+    }
+
     // A shop remains in the itinerary until ALL of its orders are delivered or returned.
     // Reaching it (nearby) is NOT completion. Every shop is plotted at its actual location.
     function diqaManagerRouteOrders(id) {
@@ -10636,10 +10687,12 @@ function renderDriversSelect() {
         const path=shape||chunk;
         // Each courier has a contrasting tinted border and colored glow, not a uniform white outline.
         const halo=L.polyline(path,{color:outlineColor,weight:13,opacity:1,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-halo'}).addTo(group);
-        const core=L.polyline(path,{color,weight:6,opacity:1,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-core'}).addTo(group);
+        const core=L.polyline(path,{color,weight:6,opacity:1,dashArray:shape?null:'10 9',interactive:true,className:'diqa-route-core'}).addTo(group);
+        core.on('click',()=>diqaFocusManagerRoute(group._diqaDriverId));
         const haloEl=halo.getElement(),coreEl=core.getElement();
         if(haloEl)haloEl.style.setProperty('--diqa-route-glow',outlineColor);
         if(coreEl)coreEl.style.setProperty('--diqa-route-glow',color);
+        diqaApplyManagerRouteFocus();
       }
     }
     async function diqaShowManagerTrip(id){
@@ -10665,6 +10718,7 @@ function renderDriversSelect() {
       diqaTripKeys.set(id,key);
       const version=diqaTripVersions.get(id)||0;
       const group=L.layerGroup().addTo(map);
+      group._diqaDriverId=id;
       diqaTripLayers.set(id,group);
       diqaUpdateTripLegend();
       const driverColor=diqaDriverRouteColor(id);
@@ -10687,6 +10741,7 @@ function renderDriversSelect() {
         const details=shop.orders.map(order=>
           `<div class="stop-line">${escapeDriverMapText(order.clientName||'محل / زبون')}`+
           ` — ${order.status==='nearby'?'قريب (لم يكتمل)':'بانتظار التوصيل'}</div>`).join('');
+        marker.on('click',()=>diqaFocusManagerRoute(id));
         marker.bindPopup(`<div class="diqa-trip-stop-popup"><b>📍 المحطة ${label} — ${shop.orders.length} طلب نشط</b>${details}</div>`);
         marker.bindTooltip(`محطة ${label}: ${escapeDriverMapText(shop.orders[0].clientName||'محل / زبون')} (${shop.orders.length} طلب)`,{direction:'top',offset:[0,-29]});
       }
@@ -10796,6 +10851,7 @@ function renderDriversSelect() {
               // Selected driver's lat/lng is unchanged. Highlight with a normal popup
               // even when multiple trackers report the same exact coordinate.
               map.closePopup();
+              diqaFocusManagerRoute(selected.id);
               diqaShowManagerTrip(selected.id);
               map.setView(selected.marker.getLatLng(),Math.max(map.getZoom(),17));
               L.popup({maxWidth:290}).setLatLng(selected.marker.getLatLng())
@@ -10853,7 +10909,7 @@ function renderDriversSelect() {
             zIndexOffset: 2000
           }).addTo(map);
           marker.bindPopup(popupHtml);
-          marker.on("click",()=>diqaShowManagerTrip(id));
+          marker.on("click",()=>{diqaFocusManagerRoute(id);diqaShowManagerTrip(id);});
           marker._diqaOwnPopup = popupHtml;
           driverMarkers[id] = marker;
         } else {
