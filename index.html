@@ -503,6 +503,14 @@ background:#fff;
     #map .diqa-trip-stop-popup .stop-line:last-child {border:0;}
     #map .diqa-route-legend {background:#0b1120;color:#fff;border:1px solid #475569;padding:8px 11px;border-radius:10px;line-height:1.8;font-size:12px;min-width:175px;max-width:250px;box-shadow:0 2px 12px #0008;}
     #map .diqa-route-legend button {margin:5px 0 0;background:#334155;color:white;padding:3px 9px;border-radius:7px;font-size:12px;}
+    #map .diqa-route-legend {max-height:220px;overflow-y:auto;min-width:165px;max-width:215px;font-size:11px;padding:8px 10px;}
+    #map .diqa-route-legend-row {display:flex;align-items:center;gap:7px;padding:3px 0;white-space:nowrap;}
+    #map .diqa-route-legend-line {width:25px;min-width:25px;height:5px;border-radius:8px;border:1px solid #fff9;box-shadow:0 0 3px #000;}
+    #map .diqa-route-legend-name {overflow:hidden;text-overflow:ellipsis;}
+    #map .diqa-trip-stop-pin {background:var(--diqa-stop-color,#2563eb);box-shadow:0 0 0 2px #f1f5f9,0 2px 11px #000d;}
+    #map .diqa-trip-stop-pin::after {border-top-color:var(--diqa-stop-color,#2563eb);}
+    #map path.diqa-route-core {stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 2px rgba(255,255,255,.45));}
+    #map path.diqa-route-halo {stroke-linecap:round;stroke-linejoin:round;}
 
 </style>
 </head>
@@ -10472,6 +10480,29 @@ function renderDriversSelect() {
     // Automatic routes for ALL active (green / orange) couriers.
     const DIQA_ROUTE_COMPANY = [33.251945,44.362572];
     const diqaTripLayers = new Map();
+    // Each driver ID always maps to the same bright color (independent of list order).
+    const DIQA_ROUTE_PALETTE = ['#00E5FF','#FF6B35','#BB86FC','#6CFF7C','#FF4DB8','#FFE44D','#61A5FF','#FF8787','#00D6A0','#D7F542','#C78BFF','#FFB347','#69F0FF','#F783AC','#A5FF69','#A9A0FF'];
+    function diqaDriverRouteColor(id){
+      const key=String(id);let hash=2166136261;
+      for(let i=0;i<key.length;i++){hash^=key.charCodeAt(i);hash=Math.imul(hash,16777619);}
+      return DIQA_ROUTE_PALETTE[(hash>>>0)%DIQA_ROUTE_PALETTE.length];
+    }
+    let diqaTripLegend = null;
+    function diqaUpdateTripLegend(){
+      if(!map)return;
+      if(!diqaTripLegend){
+        diqaTripLegend=L.control({position:'bottomleft'});
+        diqaTripLegend.onAdd=function(){const div=L.DomUtil.create('div','diqa-route-legend');L.DomEvent.disableClickPropagation(div);L.DomEvent.disableScrollPropagation(div);return div;};
+        diqaTripLegend.addTo(map);
+      }
+      const el=diqaTripLegend.getContainer();if(!el)return;
+      const active=Array.from(diqaTripLayers.keys()).sort((a,b)=>String((driversMetaCache[a]||{}).name||a).localeCompare(String((driversMetaCache[b]||{}).name||b),'ar'));
+      el.style.display=active.length?'block':'none';
+      el.innerHTML='<b>ألوان مسارات المندوبين</b>'+active.map(id=>{
+        const name=escapeDriverMapText((driversMetaCache[id]||{}).name||id);
+        return `<div class="diqa-route-legend-row"><span class="diqa-route-legend-line" style="background:${diqaDriverRouteColor(id)}"></span><span class="diqa-route-legend-name" title="${name}">${name}</span></div>`;
+      }).join('')+'<div style="color:#facc15;font-size:10px;margin-top:3px">الأصفر: العودة للشركة</div>';
+    }
     const diqaTripKeys = new Map();
     const diqaTripVersions = new Map();
     let diqaSelectedManagerDriver = null;
@@ -10501,6 +10532,7 @@ function renderDriversSelect() {
       const group=diqaTripLayers.get(id);
       if(group&&map)map.removeLayer(group);
       diqaTripLayers.delete(id);diqaTripKeys.delete(id);
+      diqaUpdateTripLegend();
     }
     async function diqaDrawRoadLegs(points,color,group,valid){
       if(points.length<2)return;
@@ -10517,7 +10549,9 @@ function renderDriversSelect() {
           }finally{clearTimeout(kill);}
         }catch(_){}
         if(!valid())return;
-        L.polyline(shape||chunk,{color,weight:4,opacity:.8,dashArray:shape?null:'8 8',interactive:false}).addTo(group);
+        const path=shape||chunk;
+        L.polyline(path,{color:'#f1f5f9',weight:12,opacity:.98,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-halo'}).addTo(group);
+        L.polyline(path,{color,weight:6.5,opacity:1,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-core'}).addTo(group);
       }
     }
     async function diqaShowManagerTrip(id){
@@ -10541,6 +10575,8 @@ function renderDriversSelect() {
       const version=diqaTripVersions.get(id)||0;
       const group=L.layerGroup().addTo(map);
       diqaTripLayers.set(id,group);
+      diqaUpdateTripLegend();
+      const driverColor=diqaDriverRouteColor(id);
       const valid=()=>map&&diqaTripLayers.get(id)===group&&diqaTripVersions.get(id)===version;
       const outward=[position,...ordered.map(o=>[Number(o.lat),Number(o.lng)])];
       // Draw shop flags immediately instead of waiting for route-provider latency.
@@ -10563,7 +10599,7 @@ function renderDriversSelect() {
         const label=nums.length===1?String(nums[0]):(nums.length<=3?nums.join('،'):`${nums[0]} +${nums.length-1}`);
         const icon=L.divIcon({
           className:'diqa-trip-stop-marker',
-          html:`<div class="diqa-trip-stop-pin">${label}</div>`,
+          html:`<div class="diqa-trip-stop-pin" style="--diqa-stop-color:${driverColor}">${label}</div>`,
           iconSize:[Math.max(32,label.length*9+15),40],iconAnchor:[Math.max(32,label.length*9+15)/2,40],
           popupAnchor:[0,-36]
         });
@@ -10578,7 +10614,7 @@ function renderDriversSelect() {
       }
       if(returning)L.circleMarker(DIQA_ROUTE_COMPANY,{radius:7,color:'#facc15',fillOpacity:1}).addTo(group).bindTooltip('شركة الدقة');
       if(returning)await diqaDrawRoadLegs([position,DIQA_ROUTE_COMPANY],'#facc15',group,valid);
-      else await diqaDrawRoadLegs(outward,'#2563eb',group,valid);
+      else await diqaDrawRoadLegs(outward,driverColor,group,valid);
     }
     function diqaRefreshSelectedTrip(){diqaRefreshAllTrips();}
     let diqaAllRoutesTimer=null;
@@ -10593,6 +10629,7 @@ function renderDriversSelect() {
         const st=calcLiveState(loc.updatedAt);
         if(st.isOnline||st.isWarn)diqaShowManagerTrip(id);
       }
+      diqaUpdateTripLegend();
     }
     function diqaScheduleAllTrips(){
       if(diqaAllRoutesTimer)return;
