@@ -10887,6 +10887,8 @@ function renderDriversSelect() {
     // Company queue: first arrival within 20m; remain queued until >200m or dispatched. Attendance settings unchanged.
     const DIQA_COMPANY_ARRIVAL_RADIUS_M = 20;
     const DIQA_COMPANY_EXIT_RADIUS_M = 200;
+    // Visual company-cluster sorting boundary; separate from attendance geofence.
+    const DIQA_COMPANY_GROUP_RADIUS_M = DIQA_COMPANY_EXIT_RADIUS_M;
     const diqaCompanyArrivalMemory = {};
     let diqaOfficeMarker = null;
     function diqaCompanyDate() { return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Baghdad'}); }
