@@ -11006,6 +11006,15 @@ function renderDriversSelect() {
       // Show the locally observed first arrival immediately while the Firebase
       // transaction is propagating. Canonical timestamps take over on commit.
       if(dispatched)return 0;
+      // Disconnection or an outdated GPS/Traccar fix is NOT geographic departure.
+      // Only an actual fresh location update beyond 200m may end the waiting slot.
+      if(saved && saved.phase==='waiting' && Number(saved.ms)>0){
+        if(!fresh)return Number(saved.ms);
+        if(distance<=DIQA_COMPANY_EXIT_RADIUS_M)return Number(saved.ms);
+        // Fresh location outside 200m: hide immediately while RTDB transaction commits.
+        return 0;
+      }
+      if(!fresh)return 0;
       if(distance>DIQA_COMPANY_EXIT_RADIUS_M)return 0;
       if(saved){
         if(saved.phase==='waiting')return Number(saved.ms)||0;
@@ -11013,7 +11022,6 @@ function renderDriversSelect() {
         if(saved.phase==='blocked'||saved.phase==='dispatchedExited')return 0;
         if(saved.phase==='ready' && distance>DIQA_COMPANY_ARRIVAL_RADIUS_M)return 0;
       }
-      if(!fresh)return 0;
       if(!saved || saved.phase==='ready' && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){
         return fix;
       }
@@ -11021,12 +11029,15 @@ function renderDriversSelect() {
     }
     function diqaCompanyWaitingDrivers() {
       const rows=[];
-      Object.entries(driversLocationsCache||{}).forEach(([id,loc])=>{
+      // Include RTDB queue members even if their live GPS/Traccar record disappears.
+      const queueIds=new Set([...Object.keys(driversLocationsCache||{}),...Object.keys(diqaCompanyArrivalMemory)]);
+      queueIds.forEach(id=>{
         if(!Object.prototype.hasOwnProperty.call(driversMetaCache||{},id))return;
+        const loc=(driversLocationsCache||{})[id]||null;
         const arrived=diqaCompanyArrivalTime(id,loc);
         if(!arrived)return;
-        rows.push({id,loc,arrived,name:(driversMetaCache[id]||{}).name||loc.name||id,
-          state:calcLiveState(loc.updatedAt)});
+        rows.push({id,loc,arrived,name:(driversMetaCache[id]||{}).name||(loc&&loc.name)||id,
+          state:calcLiveState(loc&&loc.updatedAt)});
       });
       rows.sort((a,b)=>a.arrived-b.arrived||a.name.localeCompare(b.name,'ar'));
       return rows;
@@ -11035,7 +11046,7 @@ function renderDriversSelect() {
       if(!panel)return;
       const rows=diqaCompanyWaitingDrivers();
       panel.innerHTML='<b>🏢 أقدمية المندوبين الجاهزين ('+rows.length+')</b>'+
-        '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">الوصول: 20 متر • الخروج: 200 متر • الطلب المسجّل يخرج المندوب من الدور • '+(diqaCompanyQueueConnected?'سجل موحّد Firebase':'⚠️ تعذّر الاتصال بسجل Firebase')+'</div>'+
+        '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">الوصول: 20 متر • الخروج المؤكد: 200 متر • انقطاع التتبع لا يلغي الأقدمية • الطلب المسجّل يخرج المندوب من الدور • '+(diqaCompanyQueueConnected?'سجل موحّد Firebase':'⚠️ تعذّر الاتصال بسجل Firebase')+'</div>'+
         (rows.length?rows.map((n,i)=>'<button type="button" class="diqa-company-queue-entry" data-diqa-company-id="'+escapeDriverMapText(n.id)+'"><span>'+(i+1)+'. '+escapeDriverMapText(n.name)+'</span><time>'+new Date(n.arrived).toLocaleTimeString('ar-IQ',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baghdad'})+'</time></button>').join(''):'<p style="color:#94a3b8;margin:10px 0 2px">لا يوجد مندوب جاهز حالياً. ظهور مندوبين متقاربين بالخريطة لا يعني بالضرورة تسجيل وصولهم أو خلوّهم من الطلبات.</p>');
       panel.querySelectorAll('[data-diqa-company-id]').forEach(btn=>btn.addEventListener('click',()=>{
         const id=btn.dataset.diqaCompanyId;
