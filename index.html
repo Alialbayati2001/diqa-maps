@@ -5439,6 +5439,44 @@ function pointInPolygon(lat, lng, points){
       return best;
     }
 
+    // Keep the COMPLETE text footprint within its own geographical polygon at every zoom.
+    // If it cannot fit, suppress the label rather than place it over a neighbour.
+    let diqaAreaLabelCheckFrame = 0;
+    function scheduleDiqaAreaLabelCheck(){
+      if(diqaAreaLabelCheckFrame) cancelAnimationFrame(diqaAreaLabelCheckFrame);
+      diqaAreaLabelCheckFrame = requestAnimationFrame(() => {
+        diqaAreaLabelCheckFrame = 0;
+        if(!map) return;
+        const mapRect = map.getContainer().getBoundingClientRect();
+        for(const entry of Object.values(areaLayers || {})){
+          const label = entry && entry.diqaLabel;
+          const points = entry && entry.diqaPoints;
+          if(!label || !points || !label.getTooltip()) continue;
+          const el = label.getTooltip().getElement();
+          if(!el) continue;
+          el.style.visibility = 'hidden';
+          const fontSizes = [10,9,8,7];
+          let fits = false;
+          for(const size of fontSizes){
+            el.style.fontSize = size + 'px';
+            const r = el.getBoundingClientRect();
+            if(r.width < 1 || r.height < 1) continue;
+            // Inset the text rectangle by no pixels: all corners AND edge midpoints
+            // must be inside the true geographic boundary, not its bounding box.
+            const inset = 2;
+            const xx = [r.left - inset, (r.left+r.right)/2, r.right + inset];
+            const yy = [r.top - inset, (r.top+r.bottom)/2, r.bottom + inset];
+            fits = xx.every(x => yy.every(y => {
+              const ll = map.containerPointToLatLng([x-mapRect.left,y-mapRect.top]);
+              return pointInPolygon(ll.lat,ll.lng,points);
+            }));
+            if(fits) break;
+          }
+          el.style.visibility = fits ? 'visible' : 'hidden';
+        }
+      });
+    }
+
     function drawAreaPolygons(){
       if (!map) return;
       Object.keys(areaLayers || {}).forEach(id => {
@@ -5470,13 +5508,18 @@ function pointInPolygon(lat, lng, points){
           permanent:true, direction:'center', className:'diqa-area-name',
           opacity:1, interactive:false, offset:[0,0]
         }).openTooltip();
-        areaLayers[String(area.id || Math.random())] = L.layerGroup([layer, label]);
+        const areaGroup = L.layerGroup([layer, label]);
+        areaGroup.diqaLabel = label;
+        areaGroup.diqaPoints = area.points;
+        areaLayers[String(area.id || Math.random())] = areaGroup;
       });
+      scheduleDiqaAreaLabelCheck();
     }
 
 function initMap() {
       if (map) return;
       map = L.map("map").setView([33.3152, 44.3661], 11);
+      map.on('zoomend moveend resize', scheduleDiqaAreaLabelCheck);
       map.on('zoomend', () => {
         Object.entries(driverMarkers).forEach(([id,m]) => {
           const loc = driversLocationsCache[id];
@@ -10590,7 +10633,7 @@ function renderDriversSelect() {
           const isHalo=String(layer.options.className||'').includes('diqa-route-halo');
           const isCore=String(layer.options.className||'').includes('diqa-route-core');
           if(!isHalo&&!isCore)return;
-          layer.setStyle({weight:isHalo?(selected?19:13):(selected?8:6),opacity:1});
+          layer.setStyle({weight:isHalo?(selected?12:8):(selected?5:3.5),opacity:1});
           const path=layer.getElement();
           if(path)path.classList.toggle('diqa-route-focused',selected);
         });
@@ -10709,8 +10752,8 @@ function renderDriversSelect() {
         if(!valid())return;
         const path=shape||chunk;
         // Each courier has a contrasting tinted border and colored glow, not a uniform white outline.
-        const halo=L.polyline(path,{color:outlineColor,weight:13,opacity:1,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-halo'}).addTo(group);
-        const core=L.polyline(path,{color,weight:6,opacity:1,dashArray:shape?null:'10 9',interactive:true,className:'diqa-route-core'}).addTo(group);
+        const halo=L.polyline(path,{color:outlineColor,weight:8,opacity:1,dashArray:shape?null:'10 9',interactive:false,className:'diqa-route-halo'}).addTo(group);
+        const core=L.polyline(path,{color,weight:3.5,opacity:1,dashArray:shape?null:'10 9',interactive:true,className:'diqa-route-core'}).addTo(group);
         core.on('click',()=>diqaFocusManagerRoute(group._diqaDriverId));
         const haloEl=halo.getElement(),coreEl=core.getElement();
         if(haloEl)haloEl.style.setProperty('--diqa-route-glow',outlineColor);
