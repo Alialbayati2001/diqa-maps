@@ -678,6 +678,15 @@ background:#fff;
             <div class="vertex-hint">أثناء الرسم الحر: اضغط ضغطة مطوّلة واسحب على الخريطة ثم ارفع يدك/الماوس. يمكن أيضًا إضافة نقطة بضغطة سريعة إذا احتجت. عند الانتهاء اضغط حفظ. أثناء التعديل: حرّك النقاط، واضغط على الخريطة لإضافة نقطة جديدة، واضغط يمين على أي نقطة لحذفها.</div>
             <div class="status" id="area-editor-status"></div>
           </div>
+          <div class="area-tools" style="border-color:#0ea5e9" id="diqa-motor-router-settings">
+            <h4>🛵 محرك مسارات الدراجات النارية — Valhalla motor_scooter</h4>
+            <p class="small">أدخل رابط سيرفر Valhalla مهيأ بخرائط بغداد ويدعم HTTPS/CORS. بدون سيرفر فعّال سيستخدم النظام OSRM للسيارات كحل مؤقت، وليس مسار دراجات نارية.</p>
+            <label for="diqa-motor-router-url">رابط خدمة التوجيه (بدون /route)</label>
+            <input id="diqa-motor-router-url" type="url" dir="ltr" placeholder="https://routing.example.com" autocomplete="off">
+            <button type="button" id="diqa-motor-router-save">اختبار وحفظ على Firebase</button>
+            <button type="button" id="diqa-motor-router-clear" class="secondary">إيقاف المحرك المخصص</button>
+            <div class="small" id="diqa-motor-router-status" aria-live="polite">لم يتم إعداد سيرفر الدراجات النارية.</div>
+          </div>
           <div class="area-tools" id="diqa-crossings-editor" style="border-color:#0e7490">
             <h4 style="margin:0 0 8px">🛵 معابر واختصارات الدراجات النارية — بغداد</h4>
             <p class="hint">سجّل فقط المعبر الذي تأكدت أن الدراجة النارية تستطيع عبوره فعلياً وبشكل مسموح. حدد مدخله ومخرجه من الخريطة؛ المعابر غير المسجلة لا تُفترض تلقائياً.</p>
@@ -1643,6 +1652,7 @@ nextDrivers[key] = {
           }
         });
         rebuildDriversLocationsCache();
+        diqaObserveTrackerCompanyArrivals(nextDrivers);
 
         employeesLocationsCache = nextEmployees;
 
@@ -10850,10 +10860,68 @@ function renderDriversSelect() {
       if(diqaCrossingRouteCache.size>350)diqaCrossingRouteCache.delete(diqaCrossingRouteCache.keys().next().value);
       return best;
     }
-    // DIQA: shortest-distance bicycle-access graph for narrow roads, alleys and
-    // mapped crossings. Bicycle profile is a proxy, NOT permission to ride a
-    // motorbike on pedestrian-only bridges; only mapped bicycle-access links qualify.
-    const DIQA_BIKE_ROUTE_URL = 'https://valhalla1.openstreetmap.de';
+    // Valhalla motor_scooter must be hosted with local tiles. A public bicycle
+    // endpoint is NOT a motorcycle routing engine. Persist its base URL in RTDB.
+    const DIQA_MOTOR_ROUTER_SETTINGS_PATH='settings/motorcycleRouting';
+    let diqaMotorRouterUrl='';
+    let diqaBikeUnavailableUntil=0;
+    let diqaBikeProbe=null;
+    let diqaBikeFailureReported=false;
+    function diqaBikeReady(){return !!diqaMotorRouterUrl && Date.now()>=diqaBikeUnavailableUntil;}
+    function diqaBikeMarkUnavailable(err){
+      diqaBikeUnavailableUntil=Date.now()+15*60*1000;
+      if(!diqaBikeFailureReported){
+        console.warn('DIQA: motorcycle routing service offline; road-only fallback is active.',err?.message||'');
+        diqaBikeFailureReported=true;
+      }
+      diqaShowMotorRouterStatus('⚠️ محرك الدراجات النارية غير متصل؛ تم تشغيل مسارات السيارات الاحتياطية مؤقتاً.');
+    }
+    function diqaShowMotorRouterStatus(msg){const el=document.getElementById('diqa-motor-router-status');if(el)el.textContent=msg;}
+    function diqaNormalizeMotorRouterUrl(raw){
+      try{const u=new URL(String(raw||'').trim());
+        if(u.protocol!=='https:' || u.username || u.password || u.search || u.hash) return '';
+        return u.origin+u.pathname.replace(/\/(route|status)\/?$/,'').replace(/\/+$/,'');
+      }catch(_){return '';}
+    }
+    function diqaMotorPayload(from,to){return {locations:[{lat:from[0],lon:from[1]},{lat:to[0],lon:to[1]}],costing:'motor_scooter',costing_options:{motor_scooter:{shortest:true}},units:'kilometers'};}
+    async function diqaMotorRouterRequest(base,from,to,timeout=6500){
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
+      try{
+        const url=base+'/route?json='+encodeURIComponent(JSON.stringify(diqaMotorPayload(from,to)));
+        const resp=await fetch(url,{signal:controller.signal,mode:'cors',cache:'no-store'});
+        if(!resp.ok)throw Error('Valhalla motor_scooter '+resp.status);
+        const data=await resp.json();const legs=data?.trip?.legs;
+        if(!Array.isArray(legs)||!legs.length||!legs[0].shape)throw Error('motor_scooter route unavailable');
+        const geometry=legs.flatMap((leg,i)=>{const pts=diqaDecodePolyline6(leg.shape);return i?pts.slice(1):pts;});
+        const distance=Number(data?.trip?.summary?.length)*1000;
+        if(geometry.length<2||!Number.isFinite(distance))throw Error('invalid motorcycle geometry');
+        return {geometry,distance};
+      }finally{clearTimeout(timer);}
+    }
+    function diqaInitMotorRouterControls(){
+      const input=document.getElementById('diqa-motor-router-url');if(!input)return;
+      db.ref(DIQA_MOTOR_ROUTER_SETTINGS_PATH).on('value',snap=>{
+        const u=diqaNormalizeMotorRouterUrl(snap.val()?.url);
+        if(diqaMotorRouterUrl!==u){diqaMotorRouterUrl=u;diqaBikeUnavailableUntil=0;diqaBikeFailureReported=false;diqaBikeLegCache.clear();diqaCrossingRouteCache.clear();
+          if(typeof diqaClearManagerTrip==='function')diqaClearManagerTrip();
+          if(typeof diqaRefreshAllTrips==='function')diqaRefreshAllTrips();}
+        input.value=u;diqaShowMotorRouterStatus(u?'محرك الدراجات مهيأ: '+u:'محرك مخصص غير مهيأ — مسارات السيارات الاحتياطية فقط');
+      },err=>diqaShowMotorRouterStatus('تعذر تحميل إعدادات المحرك من Firebase: '+err.message));
+      document.getElementById('diqa-motor-router-save').addEventListener('click',async()=>{
+        const u=diqaNormalizeMotorRouterUrl(input.value);
+        if(!u){diqaShowMotorRouterStatus('أدخل رابط HTTPS صحيح لمحرك Valhalla.');return;}
+        diqaShowMotorRouterStatus('جار اختبار التوجيه بنمط motor_scooter داخل بغداد...');
+        try{await diqaMotorRouterRequest(u,[33.252052,44.36256],[33.256,44.37]);
+          await db.ref(DIQA_MOTOR_ROUTER_SETTINGS_PATH).set({url:u,profile:'motor_scooter',updatedAt:SERVER_TS});
+          diqaShowMotorRouterStatus('✅ نجح الاختبار وتم حفظ محرك الدراجات لكل أجهزة المدير.');
+        }catch(err){diqaShowMotorRouterStatus('❌ فشل اختبار محرك الدراجات: '+err.message+' — لم يتم تغيير الإعداد.');}
+      });
+      document.getElementById('diqa-motor-router-clear').addEventListener('click',async()=>{
+        try{await db.ref(DIQA_MOTOR_ROUTER_SETTINGS_PATH).remove();}catch(err){diqaShowMotorRouterStatus('تعذر حذف الإعداد: '+err.message);}
+      });
+    }
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',diqaInitMotorRouterControls);
+    else diqaInitMotorRouterControls();
     const diqaBikeLegCache = new Map();
     function diqaDecodePolyline6(encoded) {
       let index=0,lat=0,lng=0;const path=[];
@@ -10869,25 +10937,35 @@ function renderDriversSelect() {
       return path;
     }
     async function diqaBikeShortestLeg(from,to){
+      if(!diqaBikeReady())throw Error('motorcycle routing temporarily unavailable');
+      // Serialize initial probe: a single refused connection must not trigger
+      // dozens of simultaneous fetch attempts from all active couriers.
+      if(diqaBikeProbe){
+        await diqaBikeProbe.catch(()=>{});
+        if(!diqaBikeReady())throw Error('motorcycle routing temporarily unavailable');
+      }
       const key=[...from,...to].map(v=>Number(v).toFixed(5)).join(':');
       const old=diqaBikeLegCache.get(key);
       if(old&&Date.now()-old.time<180000)return old.value;
-      const payload={locations:[{lat:from[0],lon:from[1]},{lat:to[0],lon:to[1]}],costing:'bicycle',costing_options:{bicycle:{shortest:true}},units:'kilometers'};
-      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5500);
-      try{
-        const resp=await fetch(DIQA_BIKE_ROUTE_URL+'/route?json='+encodeURIComponent(JSON.stringify(payload)),{signal:controller.signal});
-        if(!resp.ok)throw Error('Valhalla '+resp.status);
-        const data=await resp.json();
-        const legs=data?.trip?.legs;
-        if(!Array.isArray(legs)||!legs.length||!legs[0].shape)throw Error('no bicycle route');
-        const geometry=legs.flatMap((leg,i)=>{const pts=diqaDecodePolyline6(leg.shape);return i?pts.slice(1):pts;});
-        const distance=Number(data?.trip?.summary?.length)*1000;
-        if(geometry.length<2||!Number.isFinite(distance))throw Error('invalid route');
-        const value={geometry,distance};
-        diqaBikeLegCache.set(key,{time:Date.now(),value});
-        if(diqaBikeLegCache.size>500)diqaBikeLegCache.delete(diqaBikeLegCache.keys().next().value);
-        return value;
-      }finally{clearTimeout(timer);}
+      const payload=diqaMotorPayload(from,to);
+      const run=async()=>{
+        const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),4000);
+        try{
+          const value=await diqaMotorRouterRequest(diqaMotorRouterUrl,from,to);
+          diqaBikeFailureReported=false;
+          diqaBikeLegCache.set(key,{time:Date.now(),value});
+          if(diqaBikeLegCache.size>500)diqaBikeLegCache.delete(diqaBikeLegCache.keys().next().value);
+          return value;
+        }catch(err){diqaBikeMarkUnavailable(err);throw err;}
+        finally{clearTimeout(timer);}
+      };
+      // Lock only the first request after startup or cooldown.
+      if(!diqaBikeProbe){
+        const task=run();
+        diqaBikeProbe=task;
+        try{return await task;}finally{if(diqaBikeProbe===task)diqaBikeProbe=null;}
+      }
+      return run();
     }
     // OSRM table is based on Baghdad's drivable street graph, including one-way roads.
     // The nearest next shop is recomputed after each stop; straight-line ordering is fallback only.
@@ -10897,7 +10975,7 @@ function renderDriversSelect() {
       const coords = [start,...shops.map(x=>[x.lat,x.lng])];
       // Calculate actual shortest street distance per leg (rather than aerial proximity).
       // Cap network requests for large trips; use the legacy OSRM table as fallback.
-      if (shops.length <= 9) {
+      if (shops.length <= 9 && diqaBikeReady()) {
         try {
           const remaining=new Set(shops.map((_,i)=>i+1)),out=[];
           let current=0;
@@ -10907,11 +10985,11 @@ function renderDriversSelect() {
               catch(_){return {i,distance:Infinity};}
             }));
             options.sort((a,b)=>a.distance-b.distance);
-            if(!Number.isFinite(options[0]?.distance))throw Error('bicycle graph unavailable');
+            if(!Number.isFinite(options[0]?.distance))throw Error('motorcycle graph unavailable');
             const chosen=options[0].i;out.push(shops[chosen-1]);remaining.delete(chosen);current=chosen;
           }
           return out;
-        }catch(e){console.warn('DIQA bicycle stop ordering fallback:',e.message);}
+        }catch(e){/* Valhalla down: OSRM distance matrix below handles the stop order. */}
       }
       if (coords.length > 65) return shops; // public demo service guard
       const cacheKey=coords.map(p=>p.map(v=>Number(v).toFixed(4)).join(',')).join(';');
@@ -10962,13 +11040,14 @@ function renderDriversSelect() {
         const chunk=points.slice(start,start+max);if(chunk.length<2)break;
         let shape=null;
         try {
+          if(!diqaBikeReady())throw Error('motorcycle service offline');
           const segments=[];
           for(let i=0;i<chunk.length-1;i++){
             const leg=await diqaShortestVerifiedMotorcycleLeg(chunk[i],chunk[i+1]);
             segments.push(...(i?leg.geometry.slice(1):leg.geometry));
           }
           if(segments.length>=2)shape=segments;
-        }catch(e){console.warn('DIQA bicycle route fallback:',e.message);}
+        }catch(e){/* Valhalla down: draw road-following OSRM route below. */}
         try{
           if(!shape){
           const coords=chunk.map(p=>`${p[1]},${p[0]}`).join(';');
@@ -11161,10 +11240,27 @@ function renderDriversSelect() {
         // No historical crossing observation: this is first observed within 20m.
         // The driver-side GPS records entry continuously, not on manager page open.
         nextPhase='waiting';ms=fix;
-      } else if(distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){
+      } else if(hasPreviousState && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){
         nextPhase='waiting';ms=fix;
       } else {nextPhase='ready';ms=0;}
       return {phase:nextPhase,ms,lastFix:Math.max(last,fix),dispatched,updatedAt:now};
+    }
+    // Tracker first fix must not be mistaken for historical arrival on page open.
+    // Observe fresh subsequent Traccar GPS timestamps, as well as live browser fixes.
+    const diqaTrackerFirstSeenFix={};
+    function diqaObserveTrackerCompanyArrivals(entries){
+      if(!diqaCompanyQueueLoaded)return;
+      Object.entries(entries||{}).forEach(([id,loc])=>{
+        if(!Object.prototype.hasOwnProperty.call(driversMetaCache||{},id))return;
+        const fix=tsToMs(loc?.updatedAt),old=diqaTrackerFirstSeenFix[id];
+        if(!fix || Date.now()-fix>180000 || fix>Date.now()+60000)return;
+        if(old==null){diqaTrackerFirstSeenFix[id]=fix;return;}
+        if(fix<=old)return;
+        diqaTrackerFirstSeenFix[id]=fix;
+        // A newly received fix within 20m is an observed presence timestamp,
+        // not proof of earlier arrival. Persist only when no queue record exists.
+        diqaCompanyArrivalTime(id,loc,true);
+      });
     }
     function diqaCompanyArrivalTime(id,loc,driverObserved=false) {
       // Called from location/order rendering, but Firebase owns all mutations.
