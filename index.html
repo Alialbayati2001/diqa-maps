@@ -678,6 +678,20 @@ background:#fff;
             <div class="vertex-hint">أثناء الرسم الحر: اضغط ضغطة مطوّلة واسحب على الخريطة ثم ارفع يدك/الماوس. يمكن أيضًا إضافة نقطة بضغطة سريعة إذا احتجت. عند الانتهاء اضغط حفظ. أثناء التعديل: حرّك النقاط، واضغط على الخريطة لإضافة نقطة جديدة، واضغط يمين على أي نقطة لحذفها.</div>
             <div class="status" id="area-editor-status"></div>
           </div>
+          <div class="area-tools" id="diqa-crossings-editor" style="border-color:#0e7490">
+            <h4 style="margin:0 0 8px">🛵 معابر واختصارات الدراجات النارية — بغداد</h4>
+            <p class="hint">سجّل فقط المعبر الذي تأكدت أن الدراجة النارية تستطيع عبوره فعلياً وبشكل مسموح. حدد مدخله ومخرجه من الخريطة؛ المعابر غير المسجلة لا تُفترض تلقائياً.</p>
+            <label for="diqa-crossing-name">اسم الجسر / المعبر</label>
+            <input id="diqa-crossing-name" placeholder="مثلاً: معبر مؤكد في منطقة ..." maxlength="100">
+            <div class="row">
+              <div class="col"><button type="button" class="secondary" id="diqa-crossing-a-pick">📍 حدد مدخل المعبر على الخريطة</button><input id="diqa-crossing-a" placeholder="خط العرض, خط الطول — المدخل" dir="ltr"></div>
+              <div class="col"><button type="button" class="secondary" id="diqa-crossing-b-pick">📍 حدد مخرج المعبر على الخريطة</button><input id="diqa-crossing-b" placeholder="خط العرض, خط الطول — المخرج" dir="ltr"></div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="diqa-crossing-confirm" style="width:auto;margin:0"> أؤكد أن مرور الدراجة النارية عبر هذا المعبر ممكن ومسموح</label>
+            <button type="button" id="diqa-crossing-add">حفظ المعبر لجميع الأجهزة</button>
+            <div id="diqa-crossing-feedback" class="small" role="status"></div>
+            <div id="diqa-crossing-list" class="list" style="max-height:180px;margin-top:8px"></div>
+          </div>
           <div id="map"></div>
 
           <div class="area-orders-box">
@@ -10728,12 +10742,177 @@ function renderDriversSelect() {
       }
       return {ordered,done};
     }
+    // User-verified motorcycle crossings, synchronized via Firebase across manager devices.
+    // No crossing is inferred from pedestrian footbridges alone.
+    const DIQA_CROSSINGS_DB_PATH='motorcycleCrossingsBaghdad';
+    let diqaCrossings={};
+    let diqaCrossingsVersion=0;
+    const diqaCrossingRouteCache=new Map();
+    const diqaCrossingMarkers=L.layerGroup();
+    function diqaCrossingCoords(v){
+      const a=String(v||'').trim().split(/[,،\s]+/).map(Number);
+      if(a.length!==2||!a.every(Number.isFinite)||a[0]<32||a[0]>34.5||a[1]<43||a[1]>45.5)return null;
+      return a;
+    }
+    function diqaCrossingsArray(){
+      return Object.entries(diqaCrossings||{}).filter(([id,c])=>c&&c.verified===true&&
+        Array.isArray(c.a)&&Array.isArray(c.b)&&c.a.length===2&&c.b.length===2&&
+        c.a.every(Number.isFinite)&&c.b.every(Number.isFinite)&&
+        haversineMeters(c.a[0],c.a[1],c.b[0],c.b[1])<=800).map(([id,c])=>({id,...c}));
+    }
+    function diqaCrossingDrawMarkers(){
+      diqaCrossingMarkers.clearLayers();
+      if(!map)return;
+      if(!map.hasLayer(diqaCrossingMarkers))diqaCrossingMarkers.addTo(map);
+      for(const c of diqaCrossingsArray()){
+        L.polyline([c.a,c.b],{color:'#22d3ee',weight:4,dashArray:'4 7',opacity:.8,interactive:false}).addTo(diqaCrossingMarkers);
+        L.circleMarker(c.a,{radius:4,color:'#22d3ee'}).addTo(diqaCrossingMarkers).bindTooltip('مدخل: '+c.name);
+        L.circleMarker(c.b,{radius:4,color:'#22d3ee'}).addTo(diqaCrossingMarkers).bindTooltip('مخرج: '+c.name);
+      }
+    }
+    function diqaCrossingRenderList(){
+      const list=document.getElementById('diqa-crossing-list');if(!list)return;
+      list.textContent='';
+      const entries=diqaCrossingsArray();
+      if(!entries.length){list.textContent='لا توجد معابر مؤكدة حتى الآن — المسارات تعتمد الطرق المتاحة بالخريطة.';return;}
+      for(const c of entries){
+        const row=document.createElement('div');row.className='list-item';
+        const label=document.createElement('span');label.textContent='🛵 '+String(c.name||'معبر')+' — مؤكد';
+        const btn=document.createElement('button');btn.className='danger secondary';btn.textContent='حذف';
+        btn.addEventListener('click',async()=>{if(!window.confirm('حذف هذا المعبر من جميع الأجهزة؟'))return;
+          try{await db.ref(DIQA_CROSSINGS_DB_PATH+'/'+c.id).remove();}catch(e){document.getElementById('diqa-crossing-feedback').textContent='تعذّر الحذف: '+e.message;}});
+        row.append(label,btn);list.append(row);
+      }
+    }
+    function diqaInitCrossings(){
+      const status=document.getElementById('diqa-crossing-feedback');
+      const pick=(field)=>{
+        if(!map){status.textContent='الخريطة غير جاهزة';return;}
+        status.textContent='اضغط على موقع نقطة العبور بالخريطة...';
+        map.once('click',e=>{document.getElementById(field).value=e.latlng.lat.toFixed(7)+', '+e.latlng.lng.toFixed(7);
+          status.textContent='تم تحديد النقطة. أكمل النقطة الأخرى ثم احفظ.';});
+      };
+      document.getElementById('diqa-crossing-a-pick').addEventListener('click',()=>pick('diqa-crossing-a'));
+      document.getElementById('diqa-crossing-b-pick').addEventListener('click',()=>pick('diqa-crossing-b'));
+      document.getElementById('diqa-crossing-add').addEventListener('click',async()=>{
+        const name=document.getElementById('diqa-crossing-name').value.trim(),
+              a=diqaCrossingCoords(document.getElementById('diqa-crossing-a').value),
+              b=diqaCrossingCoords(document.getElementById('diqa-crossing-b').value),
+              confirmed=document.getElementById('diqa-crossing-confirm').checked;
+        if(!name||!a||!b||!confirmed){status.textContent='أدخل الاسم ونقطتي المعبر داخل بغداد وأكّد إمكانية العبور للدراجة النارية.';return;}
+        const length=haversineMeters(a[0],a[1],b[0],b[1]);
+        if(length<3||length>800){status.textContent='يجب أن يكون طول الوصلة بين طرفي المعبر بين 3 و800 متر.';return;}
+        try{await db.ref(DIQA_CROSSINGS_DB_PATH).push({name,a,b,verified:true,updatedAt:SERVER_TS});
+          status.textContent='تم حفظ المعبر ومشاركته مع الأجهزة.';
+          document.getElementById('diqa-crossing-confirm').checked=false;
+        }catch(e){status.textContent='تعذر الحفظ في Firebase: '+e.message;}
+      });
+      db.ref(DIQA_CROSSINGS_DB_PATH).on('value',snap=>{
+        diqaCrossings=snap.val()||{};diqaCrossingsVersion++;diqaCrossingRouteCache.clear();
+        diqaCrossingRenderList();diqaCrossingDrawMarkers();
+        if(typeof diqaClearManagerTrip==='function')diqaClearManagerTrip();
+        if(typeof diqaRefreshAllTrips==='function')diqaRefreshAllTrips();
+      },err=>{status.textContent='تعذر تحميل المعابر من Firebase: '+err.message;});
+    }
+    // Run after normal map init: click UI works once map is constructed.
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',diqaInitCrossings);
+    else diqaInitCrossings();
+
+    // Compare regular bicycle road-network route with verified crossing alternatives.
+    // We use actual network routes to each crossing entrance, then the explicitly
+    // validated local connector; the connector geometry is an approximation between endpoints.
+    async function diqaShortestVerifiedMotorcycleLeg(from,to){
+      const key=[...from,...to].map(n=>Number(n).toFixed(5)).join(':')+'|'+diqaCrossingsVersion;
+      const hit=diqaCrossingRouteCache.get(key);if(hit&&Date.now()-hit.time<180000)return hit.value;
+      let best=await diqaBikeShortestLeg(from,to);
+      const candidates=diqaCrossingsArray().flatMap(c=>[
+        {entry:c.a,exit:c.b,c},{entry:c.b,exit:c.a,c}
+      ]).filter(x=>{
+        // Reject implausibly remote crossing; road routes remain the default.
+        const direct=haversineMeters(from[0],from[1],to[0],to[1]);
+        return haversineMeters(from[0],from[1],x.entry[0],x.entry[1])+
+          haversineMeters(to[0],to[1],x.exit[0],x.exit[1])<=Math.max(2500,direct*1.65);
+      }).sort((x,y)=>
+        (haversineMeters(from[0],from[1],x.entry[0],x.entry[1])+haversineMeters(to[0],to[1],x.exit[0],x.exit[1]))-
+        (haversineMeters(from[0],from[1],y.entry[0],y.entry[1])+haversineMeters(to[0],to[1],y.exit[0],y.exit[1]))
+      ).slice(0,3);
+      for(const c of candidates){
+        try{
+          const [first,last]=await Promise.all([diqaBikeShortestLeg(from,c.entry),diqaBikeShortestLeg(c.exit,to)]);
+          const crossing=haversineMeters(c.entry[0],c.entry[1],c.exit[0],c.exit[1]);
+          const distance=first.distance+crossing+last.distance;
+          if(distance+25<best.distance){
+            best={distance,geometry:[...first.geometry,c.entry,c.exit,...last.geometry],crossingName:c.c.name};
+          }
+        }catch(e){/* Ignore unavailable candidate; preserve ordinary graph route. */}
+      }
+      diqaCrossingRouteCache.set(key,{time:Date.now(),value:best});
+      if(diqaCrossingRouteCache.size>350)diqaCrossingRouteCache.delete(diqaCrossingRouteCache.keys().next().value);
+      return best;
+    }
+    // DIQA: shortest-distance bicycle-access graph for narrow roads, alleys and
+    // mapped crossings. Bicycle profile is a proxy, NOT permission to ride a
+    // motorbike on pedestrian-only bridges; only mapped bicycle-access links qualify.
+    const DIQA_BIKE_ROUTE_URL = 'https://valhalla1.openstreetmap.de';
+    const diqaBikeLegCache = new Map();
+    function diqaDecodePolyline6(encoded) {
+      let index=0,lat=0,lng=0;const path=[];
+      while(index<encoded.length){
+        const values=[];
+        for(let k=0;k<2;k++){
+          let value=0,shift=0,byte;
+          do{if(index>=encoded.length)throw Error('invalid geometry');byte=encoded.charCodeAt(index++)-63;value|=(byte&31)<<shift;shift+=5;}while(byte>=32);
+          values.push((value&1)?~(value>>1):(value>>1));
+        }
+        lat+=values[0];lng+=values[1];path.push([lat/1e6,lng/1e6]);
+      }
+      return path;
+    }
+    async function diqaBikeShortestLeg(from,to){
+      const key=[...from,...to].map(v=>Number(v).toFixed(5)).join(':');
+      const old=diqaBikeLegCache.get(key);
+      if(old&&Date.now()-old.time<180000)return old.value;
+      const payload={locations:[{lat:from[0],lon:from[1]},{lat:to[0],lon:to[1]}],costing:'bicycle',costing_options:{bicycle:{shortest:true}},units:'kilometers'};
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5500);
+      try{
+        const resp=await fetch(DIQA_BIKE_ROUTE_URL+'/route?json='+encodeURIComponent(JSON.stringify(payload)),{signal:controller.signal});
+        if(!resp.ok)throw Error('Valhalla '+resp.status);
+        const data=await resp.json();
+        const legs=data?.trip?.legs;
+        if(!Array.isArray(legs)||!legs.length||!legs[0].shape)throw Error('no bicycle route');
+        const geometry=legs.flatMap((leg,i)=>{const pts=diqaDecodePolyline6(leg.shape);return i?pts.slice(1):pts;});
+        const distance=Number(data?.trip?.summary?.length)*1000;
+        if(geometry.length<2||!Number.isFinite(distance))throw Error('invalid route');
+        const value={geometry,distance};
+        diqaBikeLegCache.set(key,{time:Date.now(),value});
+        if(diqaBikeLegCache.size>500)diqaBikeLegCache.delete(diqaBikeLegCache.keys().next().value);
+        return value;
+      }finally{clearTimeout(timer);}
+    }
     // OSRM table is based on Baghdad's drivable street graph, including one-way roads.
     // The nearest next shop is recomputed after each stop; straight-line ordering is fallback only.
     const diqaRoadTableCache = new Map();
     async function diqaOrderManagerShopsByRoad(start, shops) {
       if (shops.length < 2) return shops;
       const coords = [start,...shops.map(x=>[x.lat,x.lng])];
+      // Calculate actual shortest street distance per leg (rather than aerial proximity).
+      // Cap network requests for large trips; use the legacy OSRM table as fallback.
+      if (shops.length <= 9) {
+        try {
+          const remaining=new Set(shops.map((_,i)=>i+1)),out=[];
+          let current=0;
+          while(remaining.size){
+            const options=await Promise.all([...remaining].map(async i=>{
+              try{return {i,distance:(await diqaShortestVerifiedMotorcycleLeg(coords[current],coords[i])).distance};}
+              catch(_){return {i,distance:Infinity};}
+            }));
+            options.sort((a,b)=>a.distance-b.distance);
+            if(!Number.isFinite(options[0]?.distance))throw Error('bicycle graph unavailable');
+            const chosen=options[0].i;out.push(shops[chosen-1]);remaining.delete(chosen);current=chosen;
+          }
+          return out;
+        }catch(e){console.warn('DIQA bicycle stop ordering fallback:',e.message);}
+      }
       if (coords.length > 65) return shops; // public demo service guard
       const cacheKey=coords.map(p=>p.map(v=>Number(v).toFixed(4)).join(',')).join(';');
       const cached=diqaRoadTableCache.get(cacheKey);
@@ -10782,13 +10961,23 @@ function renderDriversSelect() {
       for(let start=0;start<points.length-1;start+=max-1){
         const chunk=points.slice(start,start+max);if(chunk.length<2)break;
         let shape=null;
+        try {
+          const segments=[];
+          for(let i=0;i<chunk.length-1;i++){
+            const leg=await diqaShortestVerifiedMotorcycleLeg(chunk[i],chunk[i+1]);
+            segments.push(...(i?leg.geometry.slice(1):leg.geometry));
+          }
+          if(segments.length>=2)shape=segments;
+        }catch(e){console.warn('DIQA bicycle route fallback:',e.message);}
         try{
+          if(!shape){
           const coords=chunk.map(p=>`${p[1]},${p[0]}`).join(';');
           const abort=new AbortController(),kill=setTimeout(()=>abort.abort(),6500);
           try{
             const resp=await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`,{signal:abort.signal});
             if(resp.ok){const body=await resp.json();if(body.code==='Ok'&&body.routes?.[0]?.geometry?.coordinates)shape=body.routes[0].geometry.coordinates.map(p=>[p[1],p[0]]);}
           }finally{clearTimeout(kill);}
+          }
         }catch(_){}
         if(!valid())return;
         const path=shape||chunk;
@@ -10938,7 +11127,7 @@ function renderDriversSelect() {
         String(o.assignedDriverId || '') === String(id) &&
         (o.status === 'registered' || o.status === 'nearby'));
     }
-    function diqaCompanyNextState(previous,fix,distance,dispatched,now){
+    function diqaCompanyNextState(previous,fix,distance,dispatched,now,driverObserved){
       const state=(previous && typeof previous==='object')?previous:{};
       const hasPreviousState=!!(previous && typeof previous==='object' && previous.phase);
       const phase=['ready','waiting','blocked','dispatchedExited'].includes(state.phase)?state.phase:'ready';
@@ -10968,17 +11157,16 @@ function renderDriversSelect() {
         else {nextPhase='ready';ms=0;}
       } else if(phase==='waiting' && prevMs>0){
         nextPhase='waiting';ms=prevMs;
-      } else if(!hasPreviousState && distance<=DIQA_COMPANY_EXIT_RADIUS_M){
-        // First deployment: an already parked courier may have arrived before
-        // any manager opened the queue. Bootstrap once from the real location.
-        // Subsequent arrivals still require crossing the strict 20m boundary.
+      } else if(!hasPreviousState && driverObserved && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){
+        // No historical crossing observation: this is first observed within 20m.
+        // The driver-side GPS records entry continuously, not on manager page open.
         nextPhase='waiting';ms=fix;
       } else if(distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){
         nextPhase='waiting';ms=fix;
       } else {nextPhase='ready';ms=0;}
       return {phase:nextPhase,ms,lastFix:Math.max(last,fix),dispatched,updatedAt:now};
     }
-    function diqaCompanyArrivalTime(id,loc) {
+    function diqaCompanyArrivalTime(id,loc,driverObserved=false) {
       // Called from location/order rendering, but Firebase owns all mutations.
       const saved=diqaCompanyArrivalMemory[id];
       const now=Date.now(),fix=tsToMs(loc&&loc.updatedAt);
@@ -10988,16 +11176,16 @@ function renderDriversSelect() {
       // First observation of a parked courier can be a stale last-known fix:
       // bootstrap only if no authoritative queue record exists, and only within 20m.
       // Never treat an old fix as evidence of departure or re-entry after dispatch.
-      const initialParkedFix=!saved && fix>0 && fix<=now+60000 && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M;
-      if(diqaCompanyQueueLoaded && diqaCompanyQueueConnected && (fresh || initialParkedFix) && Number.isFinite(distance)){
-        const signature=fix+'|'+dispatched;
+      const initialParkedFix=false;
+      if(diqaCompanyQueueLoaded && diqaCompanyQueueConnected && fresh && Number.isFinite(distance) && (saved || driverObserved)){
+        const signature=fix+'|'+dispatched+'|'+driverObserved;
         if(!diqaCompanyQueuePending.has(id) && diqaCompanyQueueLastInputs[id]!==signature){
           diqaCompanyQueueLastInputs[id]=signature;
           diqaCompanyQueuePending.add(id);
           // Per-courier RTDB transaction serializes writes across all manager devices.
           // A competing older observation can never replace a newer GPS fix.
           db.ref(DIQA_COMPANY_QUEUE_PATH+'/'+id).transaction(current=>
-            diqaCompanyNextState(current,fix,distance,dispatched,Date.now()),
+            diqaCompanyNextState(current,fix,distance,dispatched,Date.now(),driverObserved),
             (error,committed)=>{
               diqaCompanyQueuePending.delete(id);
               if(error){
@@ -11021,7 +11209,7 @@ function renderDriversSelect() {
         // Fresh location outside 200m: hide immediately while RTDB transaction commits.
         return 0;
       }
-      if(!fresh && !( !saved && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M && fix>0 && fix<=now+60000 ))return 0;
+      if(!fresh)return 0;
       if(distance>DIQA_COMPANY_EXIT_RADIUS_M)return 0;
       if(saved){
         if(saved.phase==='waiting')return Number(saved.ms)||0;
@@ -11031,7 +11219,7 @@ function renderDriversSelect() {
         }
         if(saved.phase==='ready' && distance>DIQA_COMPANY_ARRIVAL_RADIUS_M)return 0;
       }
-      if(!saved || saved.phase==='ready' && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){
+      if((saved && saved.phase==='ready' || driverObserved) && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M){
         return fix;
       }
       return 0;
@@ -11067,8 +11255,8 @@ function renderDriversSelect() {
         return [{id,name:(driversMetaCache[id]||{}).name||id,reason}];
       });
       panel.innerHTML='<b>🏢 أقدمية المندوبين الجاهزين ('+rows.length+')</b>'+
-        '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">الوصول: 20 متر • الخروج المؤكد: 200 متر • انقطاع التتبع لا يلغي الأقدمية • الطلب المسجّل يخرج المندوب من الدور • '+(diqaCompanyQueueConnected?'سجل موحّد Firebase':'⚠️ تعذّر الاتصال بسجل Firebase')+'</div>'+
-        (rows.length?rows.map((n,i)=>'<button type="button" class="diqa-company-queue-entry" data-diqa-company-id="'+escapeDriverMapText(n.id)+'"><span>'+(i+1)+'. '+escapeDriverMapText(n.name)+'</span><time>'+new Date(n.arrived).toLocaleTimeString('ar-IQ',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baghdad'})+'</time></button>').join(''):'<p style="color:#94a3b8;margin:10px 0 2px">لا يوجد مندوب جاهز حالياً. ظهور مندوبين متقاربين بالخريطة لا يعني بالضرورة تسجيل وصولهم أو خلوّهم من الطلبات.</p>')+
+        '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">الأقدمية من سجل الوصول المحفوظ • الوصول: 20 متر • الخروج المؤكد: 200 متر • انقطاع التتبع لا يلغي الأقدمية • الطلب المسجّل يخرج المندوب من الدور • '+(diqaCompanyQueueConnected?'سجل موحّد Firebase':'⚠️ تعذّر الاتصال بسجل Firebase')+'</div>'+
+        (rows.length?rows.map((n,i)=>'<button type="button" class="diqa-company-queue-entry" data-diqa-company-id="'+escapeDriverMapText(n.id)+'"><span>'+(i+1)+'. '+escapeDriverMapText(n.name)+'</span><time>'+new Date(n.arrived).toLocaleString('ar-IQ',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baghdad'})+'</time></button>').join(''):'<p style="color:#94a3b8;margin:10px 0 2px">لا يوجد مندوب جاهز حالياً. ظهور مندوبين متقاربين بالخريطة لا يعني بالضرورة تسجيل وصولهم أو خلوّهم من الطلبات.</p>')+
         (excluded.length?'<div style="margin-top:8px;border-top:1px solid #475569;padding-top:6px;color:#cbd5e1"><b>موجودون قرب الشركة لكن غير جاهزين:</b>'+excluded.map(n=>'<div style="padding:3px 0">'+escapeDriverMapText(n.name)+' — '+escapeDriverMapText(n.reason)+'</div>').join('')+'</div>':'');
       panel.querySelectorAll('[data-diqa-company-id]').forEach(btn=>btn.addEventListener('click',()=>{
         const id=btn.dataset.diqaCompanyId;
@@ -11079,8 +11267,8 @@ function renderDriversSelect() {
     function diqaCompanyPopupHtml(){
       const rows=diqaCompanyWaitingDrivers();
       return `<div class="diqa-group-popup" dir="rtl"><b>🏢 ترتيب المندوبين بالشركة (${rows.length})</b>`+
-        `<small>الأقدم وصولاً بالأعلى • الوصول ضمن 20 م • الخروج بعد 200 م • وقت الوصول الفعلي</small>`+
-        (rows.length?rows.map((n,i)=>`<button type="button" data-diqa-company-id="${escapeDriverMapText(n.id)}">${i+1}. <span class="diqa-live-dot ${n.state.isOnline?'':n.state.isWarn?'warn':'offline'}"></span>${escapeDriverMapText(n.name)} <small style="display:inline;margin:0">${new Date(n.arrived).toLocaleTimeString('ar-IQ',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baghdad'})}</small></button>`).join(''):'<small>لا يوجد مندوبون داخل النطاق حالياً</small>')+'</div>';
+        `<small>الأقدم وصولاً بالأعلى • تاريخ ووقت الوصول المحفوظ • الوصول 20م • الخروج 200م</small>`+
+        (rows.length?rows.map((n,i)=>`<button type="button" data-diqa-company-id="${escapeDriverMapText(n.id)}">${i+1}. <span class="diqa-live-dot ${n.state.isOnline?'':n.state.isWarn?'warn':'offline'}"></span>${escapeDriverMapText(n.name)} <small style="display:inline;margin:0">${new Date(n.arrived).toLocaleString('ar-IQ',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baghdad'})}</small></button>`).join(''):'<small>لا يوجد مندوبون داخل النطاق حالياً</small>')+'</div>';
     }
     function diqaOpenCompanyPopup(){
       if(!map||!diqaOfficeMarker)return;
@@ -11761,6 +11949,9 @@ function addEmployee(){
           driverBrowserLocationCache = liveBrowserLoc;
           driversLocationsCache[currentDriverId] = liveBrowserLoc;
           rebuildDriversLocationsCache();
+          // Persist seniority at the moment the courier's GPS actually detects entry.
+          // Works while manager page is closed. Never change an existing waiting timestamp.
+          diqaCompanyArrivalTime(currentDriverId, liveBrowserLoc, true);
           if (USE_TRACCAR) {
             // Timestamp comes from the fix, not a page-open heartbeat.
             // Write only the driver's own node (Firebase rules must permit this).
