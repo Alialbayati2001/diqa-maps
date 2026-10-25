@@ -885,7 +885,7 @@ background:#fff;
             <div class="att-row">
               <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 20m</span>
               <span class="badge">خروج تلقائي: <b>11:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
-              <span class="badge">📥 حفظ صورة الحضور تلقائياً بعد <b>11:30 PM</b></span>
+              <span class="badge">حضور المندوبين: تحميل يدوي فقط من زر الصورة</span>
               <button id="download-manager-attendance-image-btn" class="secondary">🖼️ تحميل صورة حضور المندوبين</button>
             </div>
             <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
@@ -901,7 +901,7 @@ background:#fff;
   <div class="att-row">
     <span class="badge">نفس نطاق الشركة</span>
     <span class="badge">خروج تلقائي: <b>11:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
-    <span class="badge">📥 الحفظ التلقائي: <b>11:31 PM</b> + تعويض الأيام الفائتة عند أول فتح</span>
+    <span class="badge">📥 الحفظ التلقائي للموظفين فقط: <b>11:31 PM</b> عند دخول المدير أو الموظف + تعويض الأيام الفائتة</span>
     <button id="download-manager-employees-attendance-image-btn" class="secondary">🖼️ تحميل صورة حضور الموظفين</button>
   </div>
   <div style="margin-top:8px" class="list" id="manager-emp-attendance-list"></div>
@@ -9453,10 +9453,11 @@ function subscribeEmployees(){
 
 
     // =========================
-    // ✅ AUTO V2: حفظ صورة الحضور يومياً + تعويض كل الأيام الفائتة
+    // ✅ AUTO V3: صورة حضور الموظفين فقط، ولا يبدأ إلا بعد دخول المدير/الموظف الناجح.
     // - التنفيذ الفعلي لليوم الحالي يبدأ 11:31 PM حتى تكتمل عمليات الخروج التلقائي 11:30.
     // - إذا كان المتصفح مغلقاً، عند أول فتح لاحقاً يبدأ من أول يوم غير محفوظ ويكمل يوماً بعد يوم.
-    // - كل صورة تجمع حضور المندوبين + الموظفين.
+    // - صورة الحفظ اليومي تشمل الموظفين (ومنهم موظف بصلاحية مدير) فقط؛ المندوبون تحميلهم يدوي.
+    // - فتح صفحة الدخول أو صفحة المندوب لا يفعّل مؤقت التحميل إطلاقاً.
     // - لا يقفز فوق يوم فشل حفظه: يبقى آخر يوم مكتمل محفوظاً في localStorage ويعاود من بعده.
     // - علامات v1 القديمة تبقى معتمدة حتى لا يعيد تنزيل يوم محفوظ مسبقاً.
     // =========================
@@ -9468,6 +9469,13 @@ function subscribeEmployees(){
     const AUTO_ATTENDANCE_CATCHUP_START_DATE = '2026-07-26'; // بداية نظام تعويض الأيام الفائتة
     let autoAttendanceDownloadTimer = null;
     let autoAttendanceDownloadRunning = false;
+    let autoAttendanceDownloadSessionVersion = 0;
+
+    function isAutoAttendanceDownloadAllowed(expectedVersion){
+      if (!['manager', 'limited_manager', 'employee'].includes(currentSessionRole)) return false;
+      if (expectedVersion !== undefined && expectedVersion !== autoAttendanceDownloadSessionVersion) return false;
+      return true;
+    }
 
     function getAutoAttendanceTargetDateKey(now = new Date()){
       const cutoff = new Date(now);
@@ -9587,78 +9595,41 @@ function subscribeEmployees(){
     }
 
     async function fetchAutoAttendanceMetaSnapshot(){
-      const [driversMetaSnap, employeesMetaSnap] = await Promise.all([
-        db.ref('driversMeta').once('value'),
-        db.ref('employeesMeta').once('value')
-      ]);
-      return {
-        driversMeta: driversMetaSnap.val() || {},
-        employeesMeta: employeesMetaSnap.val() || {}
-      };
+      const employeesMetaSnap = await db.ref('employeesMeta').once('value');
+      return { employeesMeta: employeesMetaSnap.val() || {} };
     }
 
     async function fetchAutoAttendanceSnapshot(dateKey, sharedMeta = null){
       const meta = sharedMeta || await fetchAutoAttendanceMetaSnapshot();
-      const [driversAttSnap, employeesAttSnap] = await Promise.all([
-        db.ref(`attendance/${dateKey}`).once('value'),
-        db.ref(`attendanceEmployees/${dateKey}`).once('value')
-      ]);
-
-      let driversAtt = driversAttSnap.val() || {};
+      const employeesAttSnap = await db.ref(`attendanceEmployees/${dateKey}`).once('value');
       let employeesAtt = employeesAttSnap.val() || {};
 
-      // قبل الصورة: تأكد من إغلاق أي جلسة بقيت مفتوحة حسب وقت نهاية الدوام.
-      await forceCloseOpenSessions(dateKey, driversAtt, 'attendance', AUTO_CLOSE_GUARD.drivers);
+      // نفّذ الخروج التلقائي لجلسات الموظفين فقط قبل حفظ الصورة.
       await forceCloseOpenSessions(dateKey, employeesAtt, 'attendanceEmployees', AUTO_CLOSE_GUARD.employees);
-
-      // نقرأ مرة ثانية لأن forceCloseOpenSessions قد يكون حدّث Firebase.
-      const [driversAttFinalSnap, employeesAttFinalSnap] = await Promise.all([
-        db.ref(`attendance/${dateKey}`).once('value'),
-        db.ref(`attendanceEmployees/${dateKey}`).once('value')
-      ]);
-      driversAtt = driversAttFinalSnap.val() || {};
+      const employeesAttFinalSnap = await db.ref(`attendanceEmployees/${dateKey}`).once('value');
       employeesAtt = employeesAttFinalSnap.val() || {};
 
       return {
-        driversMeta: meta.driversMeta || {},
         employeesMeta: meta.employeesMeta || {},
-        driversAtt,
         employeesAtt
       };
     }
 
-    function buildCombinedAttendanceArchiveHtml(dateKey, data){
-      const driversOptions = {
-        dateKey,
-        metaCache: data.driversMeta,
-        attCache: data.driversAtt,
-        ignoreManagerFilter: true
-      };
-      const employeesOptions = {
+    function buildEmployeesAttendanceArchiveHtml(dateKey, data){
+      return buildAttendanceReportHtml('employees', {
         dateKey,
         metaCache: data.employeesMeta,
         attCache: data.employeesAtt,
         ignoreManagerFilter: true
-      };
-
-      return `
-        <div class="daily-attendance-archive" dir="rtl" style="width:1120px;background:#e5e7eb;padding:18px;font-family:system-ui,-apple-system,'Segoe UI',Tahoma,Arial,sans-serif;box-sizing:border-box;">
-          <div style="background:#0b1120;color:#fff;border-radius:16px;padding:14px 18px;margin-bottom:16px;text-align:center;">
-            <div style="font-size:30px;font-weight:950;">شركة الدقة - الحضور اليومي الكامل</div>
-            <div style="font-size:20px;font-weight:800;margin-top:6px;">${escapeReportHtml(dateKey)}</div>
-          </div>
-          ${buildAttendanceReportHtml('drivers', driversOptions)}
-          <div style="height:18px;"></div>
-          ${buildAttendanceReportHtml('employees', employeesOptions)}
-        </div>`;
+      });
     }
 
-    async function downloadCombinedAttendanceArchive(dateKey, data){
+    async function downloadEmployeesAttendanceArchive(dateKey, data, sessionVersion){
       if (typeof html2canvas !== 'function') return false;
 
-      const hasDrivers = Object.keys(data.driversMeta || {}).length > 0;
+      if (!isAutoAttendanceDownloadAllowed(sessionVersion)) return false;
       const hasEmployees = Object.keys(data.employeesMeta || {}).length > 0;
-      if (!hasDrivers && !hasEmployees) return false;
+      if (!hasEmployees) return false;
 
       const wrap = document.createElement('div');
       wrap.style.position = 'fixed';
@@ -9668,7 +9639,7 @@ function subscribeEmployees(){
       wrap.style.background = '#ffffff';
       wrap.style.padding = '0';
       wrap.style.zIndex = '-1';
-      wrap.innerHTML = buildCombinedAttendanceArchiveHtml(dateKey, data);
+      wrap.innerHTML = buildEmployeesAttendanceArchiveHtml(dateKey, data);
       document.body.appendChild(wrap);
 
       try {
@@ -9679,8 +9650,10 @@ function subscribeEmployees(){
           backgroundColor: '#ffffff',
           windowWidth: 1200
         });
+        // إن تم تسجيل الخروج أثناء التصوير فلا تحفظ صورة بغير صلاحية.
+        if (!isAutoAttendanceDownloadAllowed(sessionVersion)) return false;
         const link = document.createElement('a');
-        link.download = `الحضور-اليومي-الكامل-${dateKey}.png`;
+        link.download = `حضور-الموظفين-${dateKey}.png`;
         link.href = canvas.toDataURL('image/png');
         document.body.appendChild(link);
         link.click();
@@ -9695,7 +9668,8 @@ function subscribeEmployees(){
     }
 
     async function runAutoAttendanceDailyDownload(){
-      if (autoAttendanceDownloadRunning) return;
+      if (!isAutoAttendanceDownloadAllowed() || autoAttendanceDownloadRunning) return;
+      const sessionVersion = autoAttendanceDownloadSessionVersion;
 
       const latestReadyDateKey = getAutoAttendanceTargetDateKey(new Date());
       if (!latestReadyDateKey) return;
@@ -9705,10 +9679,12 @@ function subscribeEmployees(){
 
       autoAttendanceDownloadRunning = true;
       try {
-        // أسماء الموظفين والمندوبين مشتركة لكل الأيام؛ نقرأها مرة واحدة فقط.
+        // أسماء الموظفين مشتركة لكل الأيام؛ نقرأها مرة واحدة فقط.
         const sharedMeta = await fetchAutoAttendanceMetaSnapshot();
+        if (!isAutoAttendanceDownloadAllowed(sessionVersion)) return;
 
         for (const dateKey of missingDates){
+          if (!isAutoAttendanceDownloadAllowed(sessionVersion)) break;
           // إذا كانت صورة هذا اليوم محفوظة من النسخة السابقة، فقط نتقدم بالمؤشر ولا نعيد تنزيلها.
           if (isAutoAttendanceSaved(dateKey)){
             setAutoAttendanceLastCompleteDateKey(dateKey);
@@ -9716,7 +9692,9 @@ function subscribeEmployees(){
           }
 
           const data = await fetchAutoAttendanceSnapshot(dateKey, sharedMeta);
-          const ok = await downloadCombinedAttendanceArchive(dateKey, data);
+          if (!isAutoAttendanceDownloadAllowed(sessionVersion)) break;
+          const ok = await downloadEmployeesAttendanceArchive(dateKey, data, sessionVersion);
+          if (!isAutoAttendanceDownloadAllowed(sessionVersion)) break;
 
           if (!ok){
             console.warn(`⚠️ لم يتم حفظ صورة الحضور: ${dateKey}. سيعاد المحاولة لاحقاً.`);
@@ -9738,21 +9716,29 @@ function subscribeEmployees(){
       }
     }
 
-    function startAutoAttendanceDailyDownload(){
+    function stopAutoAttendanceDailyDownload(){
+      autoAttendanceDownloadSessionVersion++;
       if (autoAttendanceDownloadTimer) clearInterval(autoAttendanceDownloadTimer);
+      autoAttendanceDownloadTimer = null;
+    }
+
+    function startAutoAttendanceDailyDownload(){
+      stopAutoAttendanceDailyDownload();
+      if (!isAutoAttendanceDownloadAllowed()) return;
+      // لا نبدأ أي تنزيل قبل اكتمال تسجيل الدخول بصلاحية مدير أو موظف.
       runAutoAttendanceDailyDownload();
       autoAttendanceDownloadTimer = setInterval(runAutoAttendanceDailyDownload, AUTO_ATTENDANCE_DOWNLOAD_CHECK_MS);
     }
 
-    // إذا رجع المستخدم للتبويب، نفحص فوراً كل الأيام الناقصة بدل انتظار الدقيقة التالية.
+    // نفحص الأيام غير المحفوظة عند العودة للتبويب أو عودة الاتصال، بشرط بقاء الجلسة مسموحة.
     document.addEventListener('visibilitychange', ()=>{
-      if (!document.hidden) runAutoAttendanceDailyDownload();
+      if (!document.hidden && autoAttendanceDownloadTimer) runAutoAttendanceDailyDownload();
+    });
+    window.addEventListener('online', ()=>{
+      if (autoAttendanceDownloadTimer) runAutoAttendanceDailyDownload();
     });
 
-    // أيضاً عند رجوع اتصال الإنترنت نعيد المحاولة فوراً إذا كان هناك يوم فشل سابقاً.
-    window.addEventListener('online', ()=>runAutoAttendanceDailyDownload());
-
-    startAutoAttendanceDailyDownload();
+    // عمداً لا تبدأ عند تحميل الموقع؛ البداية فقط من حدث تسجيل الدخول الناجح.
 
 
 
@@ -12169,12 +12155,12 @@ function addEmployee(){
     }
 
     managerLoginBtn.onclick = () => {
-      currentSessionRole = "manager";
-      currentEmployeeId = null;
       if (managerPasswordInput.value !== MANAGER_PASSWORD) {
         managerLoginError.textContent = "كلمة المرور غير صحيحة.";
         return;
       }
+      currentSessionRole = "manager";
+      currentEmployeeId = null;
       managerLoginError.textContent = "";
       hide(loginCard);
       hide(driverCard);
@@ -12202,9 +12188,11 @@ function addEmployee(){
         appStatus.textContent = "";
         managerAlert.textContent = managerAlert.textContent || (traccarTokenOk() ? "ℹ️ المواقع تُجلب من Traccar." : "⚠️ أدخل توكن Traccar في الإعدادات أعلاه ثم افحص الاتصال.");
       }
+      startAutoAttendanceDailyDownload();
     };
 
     logoutManagerBtn.onclick = () => {
+      stopAutoAttendanceDailyDownload();
       currentSessionRole = null;
       currentEmployeeId = null;
       stopTraccarPolling();
@@ -12222,6 +12210,8 @@ function addEmployee(){
     };
 
     driverLoginBtn.onclick = async () => {
+      // لا تنفّذ أي تحميل تلقائي لصور الحضور من صفحة المندوب.
+      stopAutoAttendanceDailyDownload();
       const selectedId = driverSelect.value;
       const pin = String(driverPinInput.value || "").trim();
 
@@ -12327,6 +12317,7 @@ employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
       appStatus.textContent = "";
       managerAlert.textContent = "ℹ️ تم الدخول بصلاحية الموظف الخاصة.";
     }
+    startAutoAttendanceDailyDownload();
     return;
   }
 
@@ -12345,9 +12336,11 @@ employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
   empBtnCheckOut && (empBtnCheckOut.onclick = ()=>empDoCheckOut(true));
 
   renderEmployeeAttendanceBox(true);
+  startAutoAttendanceDailyDownload();
 });
 
 logoutEmployeeBtn && (logoutEmployeeBtn.onclick = () => {
+  stopAutoAttendanceDailyDownload();
   currentSessionRole = null;
   currentEmployeeId = null;
   employeeSelect.value = "";
@@ -12364,6 +12357,7 @@ logoutEmployeeBtn && (logoutEmployeeBtn.onclick = () => {
 });
 
 logoutDriverBtn.onclick = () => {
+      stopAutoAttendanceDailyDownload();
       currentSessionRole = null;
       stopTrackingOnLogout();
       currentDriverId = null;
