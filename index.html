@@ -528,6 +528,45 @@ background:#fff;
     #map .diqa-route-legend-row.diqa-route-legend-selected {background:#334155;outline:1px solid #94a3b8;font-weight:900;}
     #map .diqa-route-legend-row:focus-visible {outline:2px solid #a5f3fc;}
 
+    /* Driver leaderboard: minimal live ranking, no order counts in the UI. */
+    .diqa-rank-board{
+      margin:16px 0 12px;
+      padding:14px;
+      border:1px solid #334155;
+      border-radius:18px;
+      background:linear-gradient(145deg,#101e36 0%,#0b1120 70%);
+      box-shadow:0 12px 28px rgba(0,0,0,.20);
+    }
+    .diqa-rank-heading{
+      display:flex;align-items:center;justify-content:space-between;
+      gap:10px;flex-wrap:wrap;margin-bottom:12px;
+    }
+    .diqa-rank-heading h3{margin:0;color:#f8fafc;font-size:17px;font-weight:900;}
+    .diqa-rank-date{color:#94a3b8;font-size:12px;}
+    .diqa-rank-list{
+      display:grid;gap:7px;max-height:355px;overflow:auto;
+      overscroll-behavior:contain;scrollbar-width:thin;
+    }
+    .diqa-rank-entry{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      min-height:49px;padding:8px 11px;
+      background:#162137;border:1px solid #26354e;border-radius:12px;
+    }
+    .diqa-rank-entry[data-place="1"]{background:linear-gradient(95deg,rgba(234,179,8,.16),#162137 72%);border-color:rgba(250,204,21,.5);}
+    .diqa-rank-entry[data-place="2"]{background:linear-gradient(95deg,rgba(203,213,225,.13),#162137 72%);border-color:rgba(203,213,225,.4);}
+    .diqa-rank-entry[data-place="3"]{background:linear-gradient(95deg,rgba(180,83,9,.15),#162137 72%);border-color:rgba(217,119,6,.4);}
+    .diqa-rank-entry.diqa-rank-mine{box-shadow:inset 0 0 0 1px #38bdf8;border-color:#38bdf8;}
+    .diqa-rank-person{display:flex;align-items:center;gap:10px;min-width:0;flex:1;}
+    .diqa-rank-medal{width:29px;min-width:29px;font-size:23px;text-align:center;line-height:1;}
+    .diqa-rank-name{font-size:14px;font-weight:800;color:#f1f5f9;overflow-wrap:anywhere;}
+    .diqa-rank-performance{flex:none;font-size:24px;line-height:1.1;}
+    .diqa-rank-empty{padding:18px 10px;color:#94a3b8;text-align:center;font-size:13px;}
+    @media(max-width:480px){
+      .diqa-rank-board{padding:11px;}
+      .diqa-rank-entry{min-height:46px;padding:8px 9px;}
+      .diqa-rank-name{font-size:13px;}
+    }
+
 </style>
 </head>
 
@@ -937,6 +976,17 @@ background:#fff;
       <p>المندوب: <strong id="current-driver-name"></strong></p>
       <p class="small" id="tracking-status"></p>
       <p class="small" id="driver-alert" style="color:#fca5a5; margin:6px 0 0;"></p>
+
+      <!-- Live leaderboard: shows only courier names, medals and achievement emoji. -->
+      <section class="diqa-rank-board" id="driver-performance-board" aria-label="ترتيب المندوبين">
+        <div class="diqa-rank-heading">
+          <h3>🏆 ترتيب المندوبين</h3>
+          <span class="diqa-rank-date" id="driver-performance-period">اليوم</span>
+        </div>
+        <div class="diqa-rank-list" id="driver-performance-list" role="list" aria-live="polite" aria-atomic="false">
+          <div class="diqa-rank-empty">جاري تحميل الترتيب...</div>
+        </div>
+      </section>
 
       <!-- =========================
            ✅ Attendance (Driver)
@@ -2117,6 +2167,8 @@ nextDrivers[key] = {
     const driverMapDiv = document.getElementById("driver-map");
     const driverOrdersList = document.getElementById("driver-orders-list");
     const driverDeliveredList = document.getElementById("driver-delivered-list");
+    const driverPerformanceList = document.getElementById("driver-performance-list");
+    const driverPerformancePeriod = document.getElementById("driver-performance-period");
     const driverDeliveredSumEl = document.getElementById("driver-delivered-sum");
     const driverUncollectedSumEl = document.getElementById("driver-uncollected-sum");
     const driverFeeTotalCountEl = document.getElementById("driver-fee-total-count");
@@ -2141,6 +2193,8 @@ nextDrivers[key] = {
 
     let managerOrdersTab = "uncollected";
     let ordersCache = {};          // { orderId: order }
+    let driverRankingOrdersReady = false;
+    let driverRankingLastSignature = null;
     let ordersWorkDate = "";       // active workDate for subscription
     let ordersUnsubRef = null;
 
@@ -3941,6 +3995,7 @@ function openInGoogleMaps(lat, lng) {
         forceCloseOpenSessions(attendanceDateKey, attendanceCache, "attendance", AUTO_CLOSE_GUARD.drivers);
         renderManagerAttendanceList();
         renderDriverAttendanceBox();
+        renderDriverPerformanceBoard();
       });
 
       // live tick (مدة مستمرة)
@@ -6504,6 +6559,7 @@ function initMap() {
           renderDriversSelect();
           renderDriversList();
           updateManagerAlertAndNotify();
+          renderDriverPerformanceBoard();
 
           renderManagerDriverFilter();
           renderOrderDriverSelect();
@@ -6587,6 +6643,8 @@ function subscribeEmployees(){
       }
       ordersUnsubRef = null;
       ordersCache = {};
+      driverRankingOrdersReady = false;
+      driverRankingLastSignature = null;
       // Remove itinerary layers from the previous day immediately.
       if (typeof diqaClearManagerTrip === 'function') diqaClearManagerTrip(null);
       ordersWorkDate = "";
@@ -6624,6 +6682,7 @@ function subscribeEmployees(){
           }
         }
         ordersCache = nextOrders;
+        driverRankingOrdersReady = true;
         // Persist dispatch even if position data is stale and the manager map
         // isn't mounted. Cancelling an order must never restore an old slot.
         for(const driverId of changedDrivers){
@@ -6831,6 +6890,7 @@ function subscribeEmployees(){
       renderManagerDriverBreakdown();
       renderManagerReturnedAll();
       renderDriverOrdersLists();
+      renderDriverPerformanceBoard();
       renderDriverDelayedOrdersAlert();
       renderManagerClientOrdersByClient();
       renderEmployeeReturnedAllIfAllowed();
@@ -8306,6 +8366,88 @@ function subscribeEmployees(){
         const suggestBox = target.closest('.client-name-cell')?.querySelector('.breakdown-client-suggest');
         if (suggestBox && suggestBox.innerHTML.trim()) suggestBox.classList.add('show');
       }
+    }
+
+    // Daily leaderboard: rank by the SAME grouped, eligible orders used for delivery fees.
+    // Morning/full-shift targets are +5 compared with evening/half-shift targets.
+    // Only names + emoji are rendered; counts remain internal for sorting.
+    function getDriverAchievementEmoji(count, shiftType){
+      const total = Number(count) || 0;
+      const morningExtra = shiftType === 'full' ? 5 : 0;
+      if (total >= 20 + morningExtra) return '💪';
+      if (total >= 15 + morningExtra) return '😍';
+      if (total >= 10 + morningExtra) return '👍';
+      if (total < 5 + morningExtra) return '🤯';
+      return '😞';
+    }
+
+    function renderDriverPerformanceBoard(){
+      if (!driverPerformanceList || currentSessionRole !== 'driver' || !currentDriverId) return;
+
+      const dayLabel = driverDaySelect && driverDaySelect.value === 'yesterday' ? 'أمس' : 'اليوم';
+      if (driverPerformancePeriod) driverPerformancePeriod.textContent = dayLabel;
+
+      if (!driverRankingOrdersReady){
+        driverRankingLastSignature = null;
+        driverPerformanceList.innerHTML = '<div class="diqa-rank-empty">جاري تحميل الترتيب...</div>';
+        return;
+      }
+
+      const drivers = Object.entries(driversMetaCache || {}).map(([id, meta]) => {
+        const name = String((meta && meta.name) || id).trim() || id;
+        const summary = buildDriverDeliveryFeeSummary(id);
+        return {
+          id,
+          name,
+          count: Number(summary.totalCount) || 0,
+          shiftType: summary.shiftType,
+          achievement: getDriverAchievementEmoji(summary.totalCount, summary.shiftType)
+        };
+      });
+      if (!drivers.some(row => row.id === String(currentDriverId))){
+        // Never omit the logged-in courier while metadata is still arriving.
+        const summary = buildDriverDeliveryFeeSummary(currentDriverId);
+        drivers.push({
+          id: String(currentDriverId),
+          name: String(currentDriverNameLabel?.textContent || currentDriverId),
+          count: Number(summary.totalCount) || 0,
+          shiftType: summary.shiftType,
+          achievement: getDriverAchievementEmoji(summary.totalCount, summary.shiftType)
+        });
+      }
+      drivers.sort((a,b) =>
+        (b.count - a.count) || a.name.localeCompare(b.name,'ar') || a.id.localeCompare(b.id)
+      );
+
+      const signature = JSON.stringify([
+        ordersWorkDate, String(currentDriverId),
+        drivers.map(row => [row.id,row.name,row.count,row.shiftType])
+      ]);
+      if (signature === driverRankingLastSignature) return;
+      driverRankingLastSignature = signature;
+      const previousScroll = driverPerformanceList.scrollTop;
+
+      if (!drivers.length){
+        driverPerformanceList.innerHTML = '<div class="diqa-rank-empty">لا يوجد مندوبون مسجلون.</div>';
+        return;
+      }
+      const medals = ['🥇','🥈','🥉'];
+      const achievementDescriptions = {
+        '💪':'إنجاز ممتاز', '😍':'إنجاز رائع', '👍':'إنجاز جيد',
+        '😞':'أقل من الهدف', '🤯':'إنجاز منخفض جداً'
+      };
+      driverPerformanceList.innerHTML = drivers.map((row, index) => {
+        const medal = medals[index] || '';
+        const place = index < 3 ? String(index+1) : '';
+        const mine = row.id === String(currentDriverId);
+        return `<div role="listitem" class="diqa-rank-entry${mine ? ' diqa-rank-mine' : ''}"${place ? ` data-place="${place}"` : ''}`+
+          ` aria-label="${escapeHtml(row.name)}، ${medal ? 'المركز '+place+'، ' : ''}${achievementDescriptions[row.achievement]}">`+
+          `<div class="diqa-rank-person">`+
+          `<span class="diqa-rank-medal" aria-hidden="true">${medal}</span>`+
+          `<span class="diqa-rank-name">${escapeHtml(row.name)}</span></div>`+
+          `<span class="diqa-rank-performance" aria-hidden="true">${row.achievement}</span></div>`;
+      }).join('');
+      driverPerformanceList.scrollTop = previousScroll;
     }
 
     function normalizeDeliveryShiftType(raw){
