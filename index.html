@@ -528,45 +528,6 @@ background:#fff;
     #map .diqa-route-legend-row.diqa-route-legend-selected {background:#334155;outline:1px solid #94a3b8;font-weight:900;}
     #map .diqa-route-legend-row:focus-visible {outline:2px solid #a5f3fc;}
 
-    /* Driver leaderboard: minimal live ranking, no order counts in the UI. */
-    .diqa-rank-board{
-      margin:16px 0 12px;
-      padding:14px;
-      border:1px solid #334155;
-      border-radius:18px;
-      background:linear-gradient(145deg,#101e36 0%,#0b1120 70%);
-      box-shadow:0 12px 28px rgba(0,0,0,.20);
-    }
-    .diqa-rank-heading{
-      display:flex;align-items:center;justify-content:space-between;
-      gap:10px;flex-wrap:wrap;margin-bottom:12px;
-    }
-    .diqa-rank-heading h3{margin:0;color:#f8fafc;font-size:17px;font-weight:900;}
-    .diqa-rank-date{color:#94a3b8;font-size:12px;}
-    .diqa-rank-list{
-      display:grid;gap:7px;max-height:355px;overflow:auto;
-      overscroll-behavior:contain;scrollbar-width:thin;
-    }
-    .diqa-rank-entry{
-      display:flex;align-items:center;justify-content:space-between;gap:10px;
-      min-height:49px;padding:8px 11px;
-      background:#162137;border:1px solid #26354e;border-radius:12px;
-    }
-    .diqa-rank-entry[data-place="1"]{background:linear-gradient(95deg,rgba(234,179,8,.16),#162137 72%);border-color:rgba(250,204,21,.5);}
-    .diqa-rank-entry[data-place="2"]{background:linear-gradient(95deg,rgba(203,213,225,.13),#162137 72%);border-color:rgba(203,213,225,.4);}
-    .diqa-rank-entry[data-place="3"]{background:linear-gradient(95deg,rgba(180,83,9,.15),#162137 72%);border-color:rgba(217,119,6,.4);}
-    .diqa-rank-entry.diqa-rank-mine{box-shadow:inset 0 0 0 1px #38bdf8;border-color:#38bdf8;}
-    .diqa-rank-person{display:flex;align-items:center;gap:10px;min-width:0;flex:1;}
-    .diqa-rank-medal{width:29px;min-width:29px;font-size:23px;text-align:center;line-height:1;}
-    .diqa-rank-name{font-size:14px;font-weight:800;color:#f1f5f9;overflow-wrap:anywhere;}
-    .diqa-rank-performance{flex:none;font-size:24px;line-height:1.1;}
-    .diqa-rank-empty{padding:18px 10px;color:#94a3b8;text-align:center;font-size:13px;}
-    @media(max-width:480px){
-      .diqa-rank-board{padding:11px;}
-      .diqa-rank-entry{min-height:46px;padding:8px 9px;}
-      .diqa-rank-name{font-size:13px;}
-    }
-
 </style>
 </head>
 
@@ -924,7 +885,7 @@ background:#fff;
             <div class="att-row">
               <span class="badge">نطاق الشركة: <span class="mono">33.251945, 44.362572</span> — 20m</span>
               <span class="badge">خروج تلقائي: <b>11:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
-              <span class="badge">حضور المندوبين: تحميل يدوي فقط من زر الصورة</span>
+              <span class="badge">الحضور اليومي المجمّع: المندوبون + الموظفون، والتنزيل التلقائي من حساب المدير أو الموظف فقط</span>
               <button id="download-manager-attendance-image-btn" class="secondary">🖼️ تحميل صورة حضور المندوبين</button>
             </div>
             <div style="margin-top:8px" class="list" id="manager-attendance-list"></div>
@@ -940,7 +901,7 @@ background:#fff;
   <div class="att-row">
     <span class="badge">نفس نطاق الشركة</span>
     <span class="badge">خروج تلقائي: <b>11:00 PM</b> — مصطفى إياد فقط <b>11:30 PM</b></span>
-    <span class="badge">📥 الحفظ التلقائي للموظفين فقط: <b>11:31 PM</b> عند دخول المدير أو الموظف + تعويض الأيام الفائتة</span>
+    <span class="badge">📥 صورة يومية واحدة تشمل الموظفين والمندوبين بعد <b>11:31 PM</b> + تعويض الأيام الفائتة، عند دخول المدير أو الموظف فقط</span>
     <button id="download-manager-employees-attendance-image-btn" class="secondary">🖼️ تحميل صورة حضور الموظفين</button>
   </div>
   <div style="margin-top:8px" class="list" id="manager-emp-attendance-list"></div>
@@ -976,17 +937,6 @@ background:#fff;
       <p>المندوب: <strong id="current-driver-name"></strong></p>
       <p class="small" id="tracking-status"></p>
       <p class="small" id="driver-alert" style="color:#fca5a5; margin:6px 0 0;"></p>
-
-      <!-- Live leaderboard: shows only courier names, medals and achievement emoji. -->
-      <section class="diqa-rank-board" id="driver-performance-board" aria-label="ترتيب المندوبين">
-        <div class="diqa-rank-heading">
-          <h3>🏆 ترتيب المندوبين</h3>
-          <span class="diqa-rank-date" id="driver-performance-period">اليوم</span>
-        </div>
-        <div class="diqa-rank-list" id="driver-performance-list" role="list" aria-live="polite" aria-atomic="false">
-          <div class="diqa-rank-empty">جاري تحميل الترتيب...</div>
-        </div>
-      </section>
 
       <!-- =========================
            ✅ Attendance (Driver)
@@ -2167,8 +2117,6 @@ nextDrivers[key] = {
     const driverMapDiv = document.getElementById("driver-map");
     const driverOrdersList = document.getElementById("driver-orders-list");
     const driverDeliveredList = document.getElementById("driver-delivered-list");
-    const driverPerformanceList = document.getElementById("driver-performance-list");
-    const driverPerformancePeriod = document.getElementById("driver-performance-period");
     const driverDeliveredSumEl = document.getElementById("driver-delivered-sum");
     const driverUncollectedSumEl = document.getElementById("driver-uncollected-sum");
     const driverFeeTotalCountEl = document.getElementById("driver-fee-total-count");
@@ -2193,8 +2141,6 @@ nextDrivers[key] = {
 
     let managerOrdersTab = "uncollected";
     let ordersCache = {};          // { orderId: order }
-    let driverRankingOrdersReady = false;
-    let driverRankingLastSignature = null;
     let ordersWorkDate = "";       // active workDate for subscription
     let ordersUnsubRef = null;
 
@@ -3995,7 +3941,6 @@ function openInGoogleMaps(lat, lng) {
         forceCloseOpenSessions(attendanceDateKey, attendanceCache, "attendance", AUTO_CLOSE_GUARD.drivers);
         renderManagerAttendanceList();
         renderDriverAttendanceBox();
-        renderDriverPerformanceBoard();
       });
 
       // live tick (مدة مستمرة)
@@ -6559,7 +6504,6 @@ function initMap() {
           renderDriversSelect();
           renderDriversList();
           updateManagerAlertAndNotify();
-          renderDriverPerformanceBoard();
 
           renderManagerDriverFilter();
           renderOrderDriverSelect();
@@ -6643,8 +6587,6 @@ function subscribeEmployees(){
       }
       ordersUnsubRef = null;
       ordersCache = {};
-      driverRankingOrdersReady = false;
-      driverRankingLastSignature = null;
       // Remove itinerary layers from the previous day immediately.
       if (typeof diqaClearManagerTrip === 'function') diqaClearManagerTrip(null);
       ordersWorkDate = "";
@@ -6682,7 +6624,6 @@ function subscribeEmployees(){
           }
         }
         ordersCache = nextOrders;
-        driverRankingOrdersReady = true;
         // Persist dispatch even if position data is stale and the manager map
         // isn't mounted. Cancelling an order must never restore an old slot.
         for(const driverId of changedDrivers){
@@ -6890,7 +6831,6 @@ function subscribeEmployees(){
       renderManagerDriverBreakdown();
       renderManagerReturnedAll();
       renderDriverOrdersLists();
-      renderDriverPerformanceBoard();
       renderDriverDelayedOrdersAlert();
       renderManagerClientOrdersByClient();
       renderEmployeeReturnedAllIfAllowed();
@@ -8368,88 +8308,6 @@ function subscribeEmployees(){
       }
     }
 
-    // Daily leaderboard: rank by the SAME grouped, eligible orders used for delivery fees.
-    // Morning/full-shift targets are +5 compared with evening/half-shift targets.
-    // Only names + emoji are rendered; counts remain internal for sorting.
-    function getDriverAchievementEmoji(count, shiftType){
-      const total = Number(count) || 0;
-      const morningExtra = shiftType === 'full' ? 5 : 0;
-      if (total >= 20 + morningExtra) return '💪';
-      if (total >= 15 + morningExtra) return '😍';
-      if (total >= 10 + morningExtra) return '👍';
-      if (total < 5 + morningExtra) return '🤯';
-      return '😞';
-    }
-
-    function renderDriverPerformanceBoard(){
-      if (!driverPerformanceList || currentSessionRole !== 'driver' || !currentDriverId) return;
-
-      const dayLabel = driverDaySelect && driverDaySelect.value === 'yesterday' ? 'أمس' : 'اليوم';
-      if (driverPerformancePeriod) driverPerformancePeriod.textContent = dayLabel;
-
-      if (!driverRankingOrdersReady){
-        driverRankingLastSignature = null;
-        driverPerformanceList.innerHTML = '<div class="diqa-rank-empty">جاري تحميل الترتيب...</div>';
-        return;
-      }
-
-      const drivers = Object.entries(driversMetaCache || {}).map(([id, meta]) => {
-        const name = String((meta && meta.name) || id).trim() || id;
-        const summary = buildDriverDeliveryFeeSummary(id);
-        return {
-          id,
-          name,
-          count: Number(summary.totalCount) || 0,
-          shiftType: summary.shiftType,
-          achievement: getDriverAchievementEmoji(summary.totalCount, summary.shiftType)
-        };
-      });
-      if (!drivers.some(row => row.id === String(currentDriverId))){
-        // Never omit the logged-in courier while metadata is still arriving.
-        const summary = buildDriverDeliveryFeeSummary(currentDriverId);
-        drivers.push({
-          id: String(currentDriverId),
-          name: String(currentDriverNameLabel?.textContent || currentDriverId),
-          count: Number(summary.totalCount) || 0,
-          shiftType: summary.shiftType,
-          achievement: getDriverAchievementEmoji(summary.totalCount, summary.shiftType)
-        });
-      }
-      drivers.sort((a,b) =>
-        (b.count - a.count) || a.name.localeCompare(b.name,'ar') || a.id.localeCompare(b.id)
-      );
-
-      const signature = JSON.stringify([
-        ordersWorkDate, String(currentDriverId),
-        drivers.map(row => [row.id,row.name,row.count,row.shiftType])
-      ]);
-      if (signature === driverRankingLastSignature) return;
-      driverRankingLastSignature = signature;
-      const previousScroll = driverPerformanceList.scrollTop;
-
-      if (!drivers.length){
-        driverPerformanceList.innerHTML = '<div class="diqa-rank-empty">لا يوجد مندوبون مسجلون.</div>';
-        return;
-      }
-      const medals = ['🥇','🥈','🥉'];
-      const achievementDescriptions = {
-        '💪':'إنجاز ممتاز', '😍':'إنجاز رائع', '👍':'إنجاز جيد',
-        '😞':'أقل من الهدف', '🤯':'إنجاز منخفض جداً'
-      };
-      driverPerformanceList.innerHTML = drivers.map((row, index) => {
-        const medal = medals[index] || '';
-        const place = index < 3 ? String(index+1) : '';
-        const mine = row.id === String(currentDriverId);
-        return `<div role="listitem" class="diqa-rank-entry${mine ? ' diqa-rank-mine' : ''}"${place ? ` data-place="${place}"` : ''}`+
-          ` aria-label="${escapeHtml(row.name)}، ${medal ? 'المركز '+place+'، ' : ''}${achievementDescriptions[row.achievement]}">`+
-          `<div class="diqa-rank-person">`+
-          `<span class="diqa-rank-medal" aria-hidden="true">${medal}</span>`+
-          `<span class="diqa-rank-name">${escapeHtml(row.name)}</span></div>`+
-          `<span class="diqa-rank-performance" aria-hidden="true">${row.achievement}</span></div>`;
-      }).join('');
-      driverPerformanceList.scrollTop = previousScroll;
-    }
-
     function normalizeDeliveryShiftType(raw){
       const v = String(raw || '').trim().toLowerCase();
       if (!v) return '';
@@ -9595,19 +9453,20 @@ function subscribeEmployees(){
 
 
     // =========================
-    // ✅ AUTO V3: صورة حضور الموظفين فقط، ولا يبدأ إلا بعد دخول المدير/الموظف الناجح.
-    // - التنفيذ الفعلي لليوم الحالي يبدأ 11:31 PM حتى تكتمل عمليات الخروج التلقائي 11:30.
-    // - إذا كان المتصفح مغلقاً، عند أول فتح لاحقاً يبدأ من أول يوم غير محفوظ ويكمل يوماً بعد يوم.
-    // - صورة الحفظ اليومي تشمل الموظفين (ومنهم موظف بصلاحية مدير) فقط؛ المندوبون تحميلهم يدوي.
-    // - فتح صفحة الدخول أو صفحة المندوب لا يفعّل مؤقت التحميل إطلاقاً.
-    // - لا يقفز فوق يوم فشل حفظه: يبقى آخر يوم مكتمل محفوظاً في localStorage ويعاود من بعده.
-    // - علامات v1 القديمة تبقى معتمدة حتى لا يعيد تنزيل يوم محفوظ مسبقاً.
+    // ✅ AUTO V4: تنزيل صورة مشتركة لحضور المندوبين والموظفين، بعد دخول المدير/الموظف فقط.
+    // - ننتظر 11:31 PM لليوم الحالي كي تكتمل عمليات الخروج التلقائي.
+    // - لا تنزيل عند فتح صفحة الدخول أو حساب المندوب، مع بقاء حضور المندوبين محفوظاً.
+    // - استعادة الأيام التي حُفظت بالنسخة السابقة بدون المندوبين ابتداءً من 2026-10-25.
+    // - لا يتجاوز النظام يوم فشل تنزيله ويعوض الأيام الفائتة عند الدخول التالي.
     // =========================
     const AUTO_ATTENDANCE_DOWNLOAD_HOUR = 23;
     const AUTO_ATTENDANCE_DOWNLOAD_MINUTE = 31;
     const AUTO_ATTENDANCE_DOWNLOAD_CHECK_MS = 60 * 1000;
-    const AUTO_ATTENDANCE_STORAGE_PREFIX = 'diqa_auto_attendance_saved_v1_';
-    const AUTO_ATTENDANCE_LAST_COMPLETE_KEY = 'diqa_auto_attendance_last_complete_v2';
+    const AUTO_ATTENDANCE_STORAGE_PREFIX = 'diqa_auto_attendance_combined_saved_v4_';
+    const AUTO_ATTENDANCE_LAST_COMPLETE_KEY = 'diqa_auto_attendance_last_complete_combined_v4';
+    const AUTO_ATTENDANCE_LEGACY_STORAGE_PREFIX = 'diqa_auto_attendance_saved_v1_';
+    const AUTO_ATTENDANCE_LEGACY_LAST_COMPLETE_KEY = 'diqa_auto_attendance_last_complete_v2';
+    const AUTO_ATTENDANCE_REPAIR_START_DATE = '2026-10-25';
     const AUTO_ATTENDANCE_CATCHUP_START_DATE = '2026-07-26'; // بداية نظام تعويض الأيام الفائتة
     let autoAttendanceDownloadTimer = null;
     let autoAttendanceDownloadRunning = false;
@@ -9681,9 +9540,9 @@ function subscribeEmployees(){
       try {
         for (let i = 0; i < localStorage.length; i++){
           const key = localStorage.key(i) || '';
-          if (!key.startsWith(AUTO_ATTENDANCE_STORAGE_PREFIX)) continue;
+          if (!key.startsWith(AUTO_ATTENDANCE_LEGACY_STORAGE_PREFIX)) continue;
           if (localStorage.getItem(key) !== '1') continue;
-          const dateKey = key.slice(AUTO_ATTENDANCE_STORAGE_PREFIX.length);
+          const dateKey = key.slice(AUTO_ATTENDANCE_LEGACY_STORAGE_PREFIX.length);
           if (!isValidAutoAttendanceDateKey(dateKey)) continue;
           if (maxDateKey && compareAutoAttendanceDateKeys(dateKey, maxDateKey) > 0) continue;
           if (!latest || compareAutoAttendanceDateKeys(dateKey, latest) > 0) latest = dateKey;
@@ -9694,19 +9553,31 @@ function subscribeEmployees(){
 
     function initializeAutoAttendanceLastComplete(latestReadyDateKey){
       let lastComplete = getAutoAttendanceLastCompleteDateKey();
-      if (lastComplete && compareAutoAttendanceDateKeys(lastComplete, latestReadyDateKey) <= 0) {
-        return lastComplete;
+      if (lastComplete && compareAutoAttendanceDateKeys(lastComplete, latestReadyDateKey) <= 0) return lastComplete;
+
+      // تاريخ آخر صورة من النسخة السابقة قد يشير لصورة موظفين فقط.
+      // لذلك نعيد تصوير الأيام منذ 25 أكتوبر 2026 دون تكرار كل الأرشيف السابق.
+      let legacyLastComplete = '';
+      try {
+        const previous = localStorage.getItem(AUTO_ATTENDANCE_LEGACY_LAST_COMPLETE_KEY) || '';
+        if (isValidAutoAttendanceDateKey(previous)) legacyLastComplete = previous;
+      } catch (_) {}
+      const legacyLatestSaved = getLatestLegacyAutoAttendanceSavedDateKey(latestReadyDateKey);
+      if (legacyLatestSaved && (!legacyLastComplete || compareAutoAttendanceDateKeys(legacyLatestSaved, legacyLastComplete) > 0)) {
+        legacyLastComplete = legacyLatestSaved;
+      }
+      if (legacyLastComplete){
+        const beforeRepair = addDaysToAutoAttendanceDateKey(AUTO_ATTENDANCE_REPAIR_START_DATE, -1);
+        // إذا سبق وحُفظ يوم من فترة الخلل، نعيده بصورة مشتركة.
+        const baseline = compareAutoAttendanceDateKeys(legacyLastComplete, AUTO_ATTENDANCE_REPAIR_START_DATE) >= 0
+          ? beforeRepair : legacyLastComplete;
+        if (compareAutoAttendanceDateKeys(baseline, latestReadyDateKey) <= 0){
+          setAutoAttendanceLastCompleteDateKey(baseline);
+          return baseline;
+        }
       }
 
-      // ترحيل النسخة السابقة: إذا سبق وحفظنا يوماً، نعتبر أحدث يوم محفوظ نقطة البداية.
-      const legacyLatest = getLatestLegacyAutoAttendanceSavedDateKey(latestReadyDateKey);
-      if (legacyLatest){
-        setAutoAttendanceLastCompleteDateKey(legacyLatest);
-        return legacyLatest;
-      }
-
-      // أول تشغيل للنسخة الجديدة: نبدأ من تاريخ تفعيل ميزة التعويض (2026-07-26).
-      // بهذا إذا لم تفتح الصفحة عدة أيام بعد تثبيت هذه النسخة، أول فتح لاحقاً يعوضها كلها.
+      // إذا لم يكن هناك أي تسجيل سابق، يبدأ نظام التعويض من بدايته الأصلية.
       let firstTracked = AUTO_ATTENDANCE_CATCHUP_START_DATE;
       if (compareAutoAttendanceDateKeys(firstTracked, latestReadyDateKey) > 0) firstTracked = latestReadyDateKey;
       const baseline = addDaysToAutoAttendanceDateKey(firstTracked, -1);
@@ -9737,41 +9608,79 @@ function subscribeEmployees(){
     }
 
     async function fetchAutoAttendanceMetaSnapshot(){
-      const employeesMetaSnap = await db.ref('employeesMeta').once('value');
-      return { employeesMeta: employeesMetaSnap.val() || {} };
+      const [driversMetaSnap, employeesMetaSnap] = await Promise.all([
+        db.ref('driversMeta').once('value'),
+        db.ref('employeesMeta').once('value')
+      ]);
+      return {
+        driversMeta: driversMetaSnap.val() || {},
+        employeesMeta: employeesMetaSnap.val() || {}
+      };
     }
 
     async function fetchAutoAttendanceSnapshot(dateKey, sharedMeta = null){
       const meta = sharedMeta || await fetchAutoAttendanceMetaSnapshot();
-      const employeesAttSnap = await db.ref(`attendanceEmployees/${dateKey}`).once('value');
+      const [driversAttSnap, employeesAttSnap] = await Promise.all([
+        db.ref(`attendance/${dateKey}`).once('value'),
+        db.ref(`attendanceEmployees/${dateKey}`).once('value')
+      ]);
+
+      let driversAtt = driversAttSnap.val() || {};
       let employeesAtt = employeesAttSnap.val() || {};
 
-      // نفّذ الخروج التلقائي لجلسات الموظفين فقط قبل حفظ الصورة.
+      // قبل الصورة: تأكد من إغلاق أي جلسة بقيت مفتوحة حسب وقت نهاية الدوام.
+      await forceCloseOpenSessions(dateKey, driversAtt, 'attendance', AUTO_CLOSE_GUARD.drivers);
       await forceCloseOpenSessions(dateKey, employeesAtt, 'attendanceEmployees', AUTO_CLOSE_GUARD.employees);
-      const employeesAttFinalSnap = await db.ref(`attendanceEmployees/${dateKey}`).once('value');
+
+      // نقرأ مرة ثانية لأن forceCloseOpenSessions قد يكون حدّث Firebase.
+      const [driversAttFinalSnap, employeesAttFinalSnap] = await Promise.all([
+        db.ref(`attendance/${dateKey}`).once('value'),
+        db.ref(`attendanceEmployees/${dateKey}`).once('value')
+      ]);
+      driversAtt = driversAttFinalSnap.val() || {};
       employeesAtt = employeesAttFinalSnap.val() || {};
 
       return {
+        driversMeta: meta.driversMeta || {},
         employeesMeta: meta.employeesMeta || {},
+        driversAtt,
         employeesAtt
       };
     }
 
-    function buildEmployeesAttendanceArchiveHtml(dateKey, data){
-      return buildAttendanceReportHtml('employees', {
+    function buildCombinedAttendanceArchiveHtml(dateKey, data){
+      const driversOptions = {
+        dateKey,
+        metaCache: data.driversMeta,
+        attCache: data.driversAtt,
+        ignoreManagerFilter: true
+      };
+      const employeesOptions = {
         dateKey,
         metaCache: data.employeesMeta,
         attCache: data.employeesAtt,
         ignoreManagerFilter: true
-      });
+      };
+
+      return `
+        <div class="daily-attendance-archive" dir="rtl" style="width:1120px;background:#e5e7eb;padding:18px;font-family:system-ui,-apple-system,'Segoe UI',Tahoma,Arial,sans-serif;box-sizing:border-box;">
+          <div style="background:#0b1120;color:#fff;border-radius:16px;padding:14px 18px;margin-bottom:16px;text-align:center;">
+            <div style="font-size:30px;font-weight:950;">شركة الدقة - الحضور اليومي الكامل</div>
+            <div style="font-size:20px;font-weight:800;margin-top:6px;">${escapeReportHtml(dateKey)}</div>
+          </div>
+          ${buildAttendanceReportHtml('drivers', driversOptions)}
+          <div style="height:18px;"></div>
+          ${buildAttendanceReportHtml('employees', employeesOptions)}
+        </div>`;
     }
 
-    async function downloadEmployeesAttendanceArchive(dateKey, data, sessionVersion){
+    async function downloadCombinedAttendanceArchive(dateKey, data, sessionVersion){
       if (typeof html2canvas !== 'function') return false;
-
       if (!isAutoAttendanceDownloadAllowed(sessionVersion)) return false;
+
+      const hasDrivers = Object.keys(data.driversMeta || {}).length > 0;
       const hasEmployees = Object.keys(data.employeesMeta || {}).length > 0;
-      if (!hasEmployees) return false;
+      if (!hasDrivers && !hasEmployees) return false;
 
       const wrap = document.createElement('div');
       wrap.style.position = 'fixed';
@@ -9781,7 +9690,7 @@ function subscribeEmployees(){
       wrap.style.background = '#ffffff';
       wrap.style.padding = '0';
       wrap.style.zIndex = '-1';
-      wrap.innerHTML = buildEmployeesAttendanceArchiveHtml(dateKey, data);
+      wrap.innerHTML = buildCombinedAttendanceArchiveHtml(dateKey, data);
       document.body.appendChild(wrap);
 
       try {
@@ -9792,10 +9701,9 @@ function subscribeEmployees(){
           backgroundColor: '#ffffff',
           windowWidth: 1200
         });
-        // إن تم تسجيل الخروج أثناء التصوير فلا تحفظ صورة بغير صلاحية.
         if (!isAutoAttendanceDownloadAllowed(sessionVersion)) return false;
         const link = document.createElement('a');
-        link.download = `حضور-الموظفين-${dateKey}.png`;
+        link.download = `الحضور-اليومي-الكامل-${dateKey}.png`;
         link.href = canvas.toDataURL('image/png');
         document.body.appendChild(link);
         link.click();
@@ -9821,7 +9729,7 @@ function subscribeEmployees(){
 
       autoAttendanceDownloadRunning = true;
       try {
-        // أسماء الموظفين مشتركة لكل الأيام؛ نقرأها مرة واحدة فقط.
+        // أسماء المندوبين والموظفين مشتركة لكل الأيام؛ نقرأها مرة واحدة فقط.
         const sharedMeta = await fetchAutoAttendanceMetaSnapshot();
         if (!isAutoAttendanceDownloadAllowed(sessionVersion)) return;
 
@@ -9835,7 +9743,7 @@ function subscribeEmployees(){
 
           const data = await fetchAutoAttendanceSnapshot(dateKey, sharedMeta);
           if (!isAutoAttendanceDownloadAllowed(sessionVersion)) break;
-          const ok = await downloadEmployeesAttendanceArchive(dateKey, data, sessionVersion);
+          const ok = await downloadCombinedAttendanceArchive(dateKey, data, sessionVersion);
           if (!isAutoAttendanceDownloadAllowed(sessionVersion)) break;
 
           if (!ok){
