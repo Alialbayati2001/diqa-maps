@@ -639,6 +639,20 @@ background:#fff;
       .diqa-rank-name{font-size:13px;}
     }
 
+
+     /* DIQA conversation ordering and read-only manager review */
+     .diqa-team-person.diqa-manager-first{border-color:#fbbf24;background:#1d2b3d}
+     .diqa-manager-convos{margin:0 0 16px;padding:11px;border:1px solid #334155;border-radius:12px;background:#0c1a2d}
+     .diqa-manager-convos-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+     .diqa-manager-convos-heading button{margin:0;font-size:13px}
+     .diqa-manager-convos-list{display:flex;flex-direction:column;gap:7px;max-height:320px;overflow-y:auto}
+     .diqa-manager-convos-person{display:flex;align-items:center;justify-content:space-between;gap:9px;width:100%;min-height:45px;padding:9px 12px;border:1px solid #334155;border-radius:10px;background:#152841;color:#f8fafc;cursor:pointer;text-align:right;margin:0}
+     .diqa-manager-convos-person:hover{background:#213754}
+     .diqa-manager-convos-person span{font-size:12px;flex:1;overflow-wrap:anywhere}
+     .diqa-manager-convos-person time{font-size:10px;color:#cbd5e1;white-space:nowrap;direction:ltr}
+     .diqa-manager-review-footer{padding:10px;border-top:1px solid #334155;color:#a5b4c7;font-size:11px;text-align:center}
+     .diqa-manager-msg-who{font-size:11px;font-weight:900;color:#fef08a;display:block;margin-bottom:2px}
+
 </style>
 </head>
 
@@ -709,7 +723,7 @@ background:#fff;
       </div>
       <div id="diqa-team-people" class="diqa-team-people" role="list" aria-label="المدير والموظفون والمندوبون"></div>
       <div class="diqa-team-my-note"><label for="diqa-team-note-input">✍️ نوت اليوم (25 حرف، الفراغات مسموحة)</label>
-        <input id="diqa-team-note-input" maxlength="50" autocomplete="off" placeholder="اكتب نوت فوق صورتك">
+        <input id="diqa-team-note-input" maxlength="25" autocomplete="off" placeholder="اكتب نوت فوق صورتك">
         <button type="button" id="diqa-team-note-save">حفظ / تعديل</button>
         <button type="button" class="secondary" id="diqa-team-note-delete">حذف</button>
         <span id="diqa-team-note-status" class="diqa-team-note-status" aria-live="polite">تختفي النوت بعد نهاية اليوم.</span>
@@ -724,16 +738,37 @@ background:#fff;
         <div id="diqa-chat-thread" class="diqa-chat-thread" role="log" aria-live="polite" aria-relevant="additions"></div>
         <form id="diqa-chat-form" class="diqa-chat-form">
           <label for="diqa-chat-input">رسالة قصيرة (50 حرف كحد أقصى)</label>
-          <textarea id="diqa-chat-input" maxlength="100" rows="2" placeholder="اكتب رسالتك هنا..."></textarea>
+          <textarea id="diqa-chat-input" maxlength="50" rows="2" placeholder="اكتب رسالتك هنا..."></textarea>
           <div class="diqa-chat-form-actions"><span id="diqa-chat-count" class="diqa-chat-count">0 / 50</span><button type="submit" id="diqa-chat-send">إرسال</button></div>
           <div id="diqa-chat-status" class="diqa-chat-status" aria-live="polite"></div>
         </form>
       </div>
     </div>
     <div id="diqa-chat-toast" class="diqa-chat-toast" role="status" aria-live="polite" hidden></div>
+    <div id="diqa-manager-review-overlay" class="diqa-chat-overlay hidden" role="dialog" aria-modal="true" aria-label="مراجعة محادثة الفريق">
+      <div class="diqa-chat-window">
+        <div class="diqa-chat-head"><strong id="diqa-manager-review-title">محادثة</strong>
+          <button id="diqa-manager-review-close" type="button" class="secondary">✕ إغلاق</button>
+        </div>
+        <div id="diqa-manager-review-thread" class="diqa-chat-thread" role="log"></div>
+        <div class="diqa-manager-review-footer">عرض للقراءة فقط • تُعرض رسائل آخر 48 ساعة</div>
+      </div>
+    </div>
+
 
     <!-- MANAGER -->
     <div class="card hidden" id="manager-card">
+      <!-- DIQA: Conversation review, only the actual manager account sees this panel. -->
+      <section id="diqa-manager-convos" class="diqa-manager-convos hidden" aria-label="محادثات الفريق">
+        <div class="diqa-manager-convos-heading">
+          <button id="diqa-manager-convos-toggle" type="button" class="secondary" aria-expanded="false" aria-controls="diqa-manager-convos-content">💬 محادثات</button>
+          <span class="small">سجل آخر 48 ساعة بين أعضاء الفريق • للمدير الأصلي فقط</span>
+        </div>
+        <div id="diqa-manager-convos-content" class="hidden">
+          <p id="diqa-manager-convos-status" class="small" role="status"></p>
+          <div id="diqa-manager-convos-list" class="diqa-manager-convos-list"></div>
+        </div>
+      </section>
       <div class="row" style="align-items:center; margin-bottom:10px;">
         <div class="col">
           <h2 id="diqa-manager-page-title">لوحة المدير</h2>
@@ -2330,6 +2365,26 @@ nextDrivers[key] = {
     function diqaRenderTeamPeople(){
       if(!diqaPeopleList||!diqaChatUserKey)return;
       const people=diqaSocialPeople();
+      // Manager stays at the far RIGHT in this RTL horizontal strip.
+      // The most recent sender of an incoming message follows the manager.
+      // Older senders and then untouched conversations follow them.
+      const recentActivity = p => {
+        const messages=diqaChatEntries(p.key);
+        let incoming=0,conversation=0;
+        for(const [,msg] of messages){
+          const when=Number(msg.createdAt)||0;
+          if(when>conversation)conversation=when;
+          if(msg.from===p.key&&when>incoming)incoming=when;
+        }
+        return {incoming,conversation};
+      };
+      people.sort((a,b)=>{
+        if(a.role==='manager'&&b.role!=='manager')return -1;
+        if(b.role==='manager'&&a.role!=='manager')return 1;
+        const x=recentActivity(a),y=recentActivity(b);
+        return (y.incoming-x.incoming)||(y.conversation-x.conversation)||
+          String(a.name).localeCompare(String(b.name),'ar');
+      });
       const currentScroll=diqaPeopleList.scrollLeft;
       let total=0;
       diqaPeopleList.innerHTML=people.map(p=>{
@@ -2337,7 +2392,7 @@ nextDrivers[key] = {
         if(p.key!==diqaChatUserKey)total+=unread;
         const note=diqaNoteFor(diqaNoteNodeKey(p.role,p.id),getWorkDateByKey('today'));
         const isMe=p.key===diqaChatUserKey;
-        return `<button type="button" role="listitem" data-photo-account="${p.key}" class="diqa-team-person${isMe?' diqa-team-self':''}" data-person-key="${p.key}" aria-label="${escapeHtml(p.name)}${isMe?'، حسابك':unread?'، '+unread+' رسائل غير مقروءة':''}">`+
+        return `<button type="button" role="listitem" data-photo-account="${p.key}" class="diqa-team-person${isMe?' diqa-team-self':''}${p.role==='manager'?' diqa-manager-first':''}" data-person-key="${p.key}" aria-label="${escapeHtml(p.name)}${isMe?'، حسابك':unread?'، '+unread+' رسائل غير مقروءة':''}">`+
           `${note?`<span class="diqa-team-story" title="${escapeHtml(note)}">${escapeHtml(note)}</span>`:''}`+
           `<span class="diqa-team-avatar-wrap">${diqaTeamAvatarHtml(p)}${unread&&!isMe?`<span class="diqa-team-unread">${unread>99?'99+':unread}</span>`:''}</span>`+
           `<span class="diqa-team-name">${escapeHtml(p.name)}</span><span class="diqa-team-role">${p.label}${isMe?' • أنت':''}</span></button>`;
@@ -2346,6 +2401,167 @@ nextDrivers[key] = {
       const badge=document.getElementById('diqa-team-total-unread');
       if(badge)badge.textContent=total?'('+total+')':'';
     }
+    // ===== DIQA: read-only conversations review for the original manager =====
+    // SECURITY NOTE: currentSessionRole is ONLY client UI gating; it cannot enforce
+    // database-level admin access. Firebase Auth + server-side RTDB rules MUST
+    // limit full diqaTeamInbox reads to a real manager identity.
+    let diqaManagerReviewRef=null,diqaManagerReviewCb=null;
+    let diqaManagerReviewData={},diqaManagerReviewPairs=[],diqaManagerReviewOpenKey='';
+    let diqaManagerReviewLastCleanup=0,diqaManagerReviewCleaning=false;
+    function diqaIsOriginalManager(){return currentSessionRole==='manager' &&
+      diqaChatUserKey===diqaUserKey('manager',DIQA_MANAGER_PHOTO_ACCOUNT_ID);}
+    function diqaManagerPairKey(a,b){return [a,b].sort().join('|');}
+    function diqaManagerReviewBuildPairs(){
+      if(!diqaIsOriginalManager())return [];
+      const pairs=new Map();
+      // This is a snapshot of existing inboxes; the duplicate entry in the
+      // other participant's inbox is deduplicated by message push key.
+      for(const [ownerKey,account] of Object.entries(diqaManagerReviewData||{})){
+        if(!account||typeof account!=='object')continue;
+        const owner=diqaSocialFindPerson(ownerKey);
+        if(!owner||owner.role==='manager')continue;
+        for(const [peerKey,raw] of Object.entries(account.chats||{})){
+          const peer=diqaSocialFindPerson(peerKey);
+          if(!peer||peer.role==='manager'||peerKey===ownerKey)continue;
+          const key=diqaManagerPairKey(ownerKey,peerKey);
+          if(!pairs.has(key))pairs.set(key,{key,people:[ownerKey,peerKey].sort(),messages:new Map(),latest:0});
+          const pair=pairs.get(key);
+          for(const [id,msg] of Object.entries(raw||{})){
+            if(!diqaChatValidMessage(msg))continue;
+            if(!pair.people.includes(msg.from)||!pair.people.includes(msg.to))continue;
+            if(pair.messages.has(id))continue;
+            const when=Number(msg.createdAt)||0;
+            pair.messages.set(id,{...msg,id});
+            pair.latest=Math.max(pair.latest,when);
+          }
+        }
+      }
+      return Array.from(pairs.values())
+        .filter(p=>p.messages.size)
+        .map(p=>({...p,messages:Array.from(p.messages.values())
+          .sort((a,b)=>(Number(a.createdAt)-Number(b.createdAt))||a.id.localeCompare(b.id))}))
+        .sort((a,b)=>b.latest-a.latest);
+    }
+    function diqaManagerReviewTitle(pair){
+      return pair.people.map(key=>diqaSocialFindPerson(key)?.name||'حساب غير معروف').join(' ↔ ');
+    }
+    function diqaManagerRenderReview(){
+      const list=document.getElementById('diqa-manager-convos-list');
+      if(!list)return;
+      if(!diqaIsOriginalManager()){list.replaceChildren();return;}
+      diqaManagerReviewPairs=diqaManagerReviewBuildPairs();
+      if(!diqaManagerReviewPairs.length){
+        list.innerHTML='<p class="small">ماكو محادثات بين أعضاء الفريق خلال آخر 48 ساعة.</p>';
+      }else{
+        list.innerHTML=diqaManagerReviewPairs.map(pair=>
+          `<button class="diqa-manager-convos-person" type="button" data-manager-convo-key="${escapeHtml(pair.key)}">`+
+          `<span>💬 ${escapeHtml(diqaManagerReviewTitle(pair))}</span>`+
+          `<time>${diqaChatTime(pair.latest)}</time></button>`).join('');
+      }
+      if(diqaManagerReviewOpenKey)diqaManagerRenderReviewThread();
+    }
+    function diqaManagerRenderReviewThread(){
+      const thread=document.getElementById('diqa-manager-review-thread');
+      if(!thread||!diqaIsOriginalManager())return;
+      const pair=diqaManagerReviewPairs.find(p=>p.key===diqaManagerReviewOpenKey);
+      if(!pair){diqaManagerCloseReviewThread();return;}
+      const title=document.getElementById('diqa-manager-review-title');
+      if(title)title.textContent=diqaManagerReviewTitle(pair);
+      const stick=thread.scrollHeight-thread.scrollTop-thread.clientHeight<85;
+      thread.innerHTML=pair.messages.map(msg=>{
+        const speaker=diqaSocialFindPerson(msg.from)?.name||'حساب غير معروف';
+        const right=msg.from===pair.people[0];
+        return `<div class="diqa-chat-message${right?' own':''}">`+
+          `<span class="diqa-manager-msg-who">${escapeHtml(speaker)}</span>`+
+          `${escapeHtml(diqaTakeGraphemes(msg.text,50))}<small>${diqaChatTime(msg.createdAt)}</small></div>`;
+      }).join('');
+      if(stick)thread.scrollTop=thread.scrollHeight;
+    }
+    function diqaManagerOpenReviewThread(key){
+      if(!diqaIsOriginalManager()||!diqaManagerReviewPairs.some(p=>p.key===key))return;
+      diqaManagerReviewOpenKey=key;
+      const panel=document.getElementById('diqa-manager-review-overlay');
+      if(panel)panel.classList.remove('hidden');
+      diqaManagerRenderReviewThread();
+    }
+    function diqaManagerCloseReviewThread(){
+      diqaManagerReviewOpenKey='';
+      document.getElementById('diqa-manager-review-overlay')?.classList.add('hidden');
+    }
+    function diqaManagerShowPanel(visible){
+      const container=document.getElementById('diqa-manager-convos');
+      if(container)container.classList.toggle('hidden',!visible);
+    }
+    async function diqaManagerReviewCleanup(){
+      if(!diqaIsOriginalManager()||diqaManagerReviewCleaning||
+         diqaChatNow()-diqaManagerReviewLastCleanup<60*1000)return;
+      diqaManagerReviewCleaning=true;diqaManagerReviewLastCleanup=diqaChatNow();
+      // Limit writes to 60 per pass. Existing message expiry remains 48h.
+      const changes={};const seen=new Set();let count=0;
+      outer:for(const [owner,account] of Object.entries(diqaManagerReviewData||{})){
+        for(const [peer,messages] of Object.entries((account&&account.chats)||{})){
+          for(const [id,msg] of Object.entries(messages||{})){
+            if(diqaChatValidMessage(msg))continue;
+            const pair=diqaManagerPairKey(owner,peer)+'|'+id;
+            if(seen.has(pair))continue;
+            seen.add(pair);
+            changes[`${DIQA_CHAT_INBOX}/${owner}/chats/${peer}/${id}`]=null;
+            changes[`${DIQA_CHAT_INBOX}/${peer}/chats/${owner}/${id}`]=null;
+            if(++count>=60)break outer;
+          }
+        }
+      }
+      if(count){
+        try{await db.ref().update(changes);}catch(e){
+          const el=document.getElementById('diqa-manager-convos-status');
+          if(el)el.textContent='تعذّر تنظيف الرسائل المنتهية: '+e.message;
+        }
+      }
+      diqaManagerReviewCleaning=false;
+    }
+    function diqaManagerReviewStart(){
+      diqaManagerReviewStop();
+      if(!diqaIsOriginalManager())return;
+      diqaManagerShowPanel(true);
+      diqaManagerReviewRef=db.ref(DIQA_CHAT_INBOX);
+      diqaManagerReviewCb=snap=>{
+        if(!diqaIsOriginalManager())return;
+        diqaManagerReviewData=snap.val()||{};
+        diqaManagerRenderReview();
+        diqaManagerReviewCleanup();
+      };
+      diqaManagerReviewRef.on('value',diqaManagerReviewCb,e=>{
+        const status=document.getElementById('diqa-manager-convos-status');
+        if(status)status.textContent='⚠️ تعذّرت قراءة محادثات الفريق: '+e.message+'. يحتاج الحساب صلاحيات المدير في Firebase.';
+      });
+    }
+    function diqaManagerReviewStop(){
+      if(diqaManagerReviewRef&&diqaManagerReviewCb)diqaManagerReviewRef.off('value',diqaManagerReviewCb);
+      diqaManagerReviewRef=null;diqaManagerReviewCb=null;diqaManagerReviewData={};
+      diqaManagerReviewPairs=[];diqaManagerReviewLastCleanup=0;
+      diqaManagerCloseReviewThread();diqaManagerShowPanel(false);
+      const list=document.getElementById('diqa-manager-convos-list');if(list)list.replaceChildren();
+      const status=document.getElementById('diqa-manager-convos-status');if(status)status.textContent='';
+      const contents=document.getElementById('diqa-manager-convos-content');if(contents)contents.classList.add('hidden');
+      const toggle=document.getElementById('diqa-manager-convos-toggle');if(toggle)toggle.setAttribute('aria-expanded','false');
+    }
+    document.getElementById('diqa-manager-convos-toggle')?.addEventListener('click',()=>{
+      if(!diqaIsOriginalManager())return;
+      const content=document.getElementById('diqa-manager-convos-content');
+      if(!content)return;
+      content.classList.toggle('hidden');
+      document.getElementById('diqa-manager-convos-toggle')?.setAttribute('aria-expanded',String(!content.classList.contains('hidden')));
+    });
+    document.getElementById('diqa-manager-convos-list')?.addEventListener('click',e=>{
+      const btn=e.target.closest('[data-manager-convo-key]');
+      if(btn)diqaManagerOpenReviewThread(btn.getAttribute('data-manager-convo-key'));
+    });
+    document.getElementById('diqa-manager-review-close')?.addEventListener('click',diqaManagerCloseReviewThread);
+    document.getElementById('diqa-manager-review-overlay')?.addEventListener('click',e=>{
+      if(e.target.id==='diqa-manager-review-overlay')diqaManagerCloseReviewThread();
+    });
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&diqaManagerReviewOpenKey)diqaManagerCloseReviewThread();});
+
     function diqaChatTime(timestamp){
       const d=new Date(Number(timestamp)||Date.now());
       return new Intl.DateTimeFormat('ar-IQ',{timeZone:'Asia/Baghdad',hour:'2-digit',minute:'2-digit',month:'2-digit',day:'2-digit'}).format(d);
@@ -2485,6 +2701,7 @@ nextDrivers[key] = {
           if(role==='driver')diqaDirectoryDrivers=snap.val()||{};
           else diqaDirectoryEmployees=snap.val()||{};
           diqaRenderTeamPeople();
+          if(diqaIsOriginalManager()&&diqaManagerReviewRef)diqaManagerRenderReview();
           if(diqaChatPeerKey){
             const person=diqaSocialFindPerson(diqaChatPeerKey);
             if(!person){diqaChatClose();} else {
@@ -2505,9 +2722,11 @@ nextDrivers[key] = {
       diqaChatInboxRef.on('value',diqaChatInboxCallback,e=>{
         if(info)info.textContent='⚠️ تعذرت قراءة الرسائل: '+e.message+' — تحقق من Firebase Rules.';
       });
+      diqaManagerReviewStart();
       diqaSubscribeNotes();diqaRenderTeamPeople();
     }
     function diqaSocialStop(){
+      diqaManagerReviewStop();
       diqaChatClose();
       if(diqaHub)diqaHub.classList.add('hidden');
       for(const {ref,cb} of diqaDirectoryRefs)ref.off('value',cb);
@@ -2550,6 +2769,9 @@ nextDrivers[key] = {
       diqaRenderTeamPeople();
       if(diqaChatPeerKey)diqaChatRenderThread();
       diqaChatCleanupExpired();
+      if(diqaIsOriginalManager()){
+        diqaManagerRenderReview();diqaManagerReviewCleanup();
+      }
     },60*1000);
 
     // Shared Traccar token. This uses the existing Firebase RTDB; no separate files.
