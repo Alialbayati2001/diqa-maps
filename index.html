@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <title>اعمال شركة الدقة — Driver Bubble Marker Dark Map</title>
+  <title>أعمال شركة الدقّة — صور شخصية وترتيب المندوبين</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b1120'/%3E%3Ctext x='32' y='40' font-size='28' text-anchor='middle' fill='%2322c55e' font-family='Arial'%3ED%3C/text%3E%3C/svg%3E" />
 
@@ -561,6 +561,33 @@ background:#fff;
     .diqa-rank-name{font-size:14px;font-weight:800;color:#f1f5f9;overflow-wrap:anywhere;}
     .diqa-rank-performance{flex:none;font-size:24px;line-height:1.1;}
     .diqa-rank-empty{padding:18px 10px;color:#94a3b8;text-align:center;font-size:13px;}
+    /* DIQA 2026-10-30 — persistent staff portraits and daily courier jokes */
+    .diqa-profile-photo[hidden],.diqa-profile-fallback[hidden]{display:none!important}
+    .diqa-profile-card{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0;padding:12px;border:1px solid #334155;border-radius:14px;background:#0f1b30}
+    .diqa-profile-photo,.diqa-profile-fallback{width:62px;height:62px;flex:none;border-radius:50%;border:2px solid #38bdf8;background:#1e293b;object-fit:cover;box-shadow:0 4px 16px #0005}
+    .diqa-profile-fallback{display:flex;align-items:center;justify-content:center;font-size:25px;color:#cbd5e1}
+    .diqa-profile-details{flex:1;min-width:160px}
+    .diqa-profile-details strong{display:block;margin-bottom:5px}
+    .diqa-profile-details .diqa-photo-status{display:block;min-height:16px;font-size:11px;color:#93c5fd}
+    .diqa-profile-actions{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
+    .diqa-profile-actions button{font-size:12px;margin:0;padding:6px 10px}
+    .diqa-list-avatar{width:35px;height:35px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;flex:none}
+    .diqa-map-avatar{position:absolute;left:69%;top:-24px;transform:translateX(-50%);width:24px!important;height:24px!important;border-radius:50%;border:2px solid #fff;object-fit:cover!important;background:#0f172a!important;box-shadow:0 2px 8px #000a;z-index:4}
+    .diqa-self-marker{position:relative;width:90px;min-height:54px;display:flex;align-items:center;flex-direction:column;justify-content:flex-start;gap:3px;pointer-events:auto}
+    .diqa-self-marker .diqa-self-photo{width:28px;height:28px;border-radius:50%;border:2px solid #fff;object-fit:cover;background:#0f172a;box-shadow:0 2px 8px #000a}
+    .diqa-self-marker .diqa-self-dot{width:27px;height:27px;border-radius:50%;border:2px solid #fff;background:#22c55e;box-shadow:0 2px 8px #0009}
+    .diqa-self-marker.warn .diqa-self-dot{background:#f59e0b}
+    .diqa-self-marker.offline .diqa-self-dot{background:#ef4444}
+    .diqa-self-marker .diqa-self-name{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#0b1120;color:#fff;border:1px solid #64748b;border-radius:6px;padding:2px 5px;text-align:center;font:800 10px Tahoma,Arial,sans-serif;text-shadow:0 1px 2px #000}
+    .diqa-rank-avatar{width:31px;height:31px;flex:none;border-radius:50%;object-fit:cover;border:1.5px solid #94a3b8;background:#1e293b}
+    .diqa-rank-texts{display:flex;flex-direction:column;gap:3px;min-width:0}
+    .diqa-rank-note{display:inline-block;max-width:140px;overflow-wrap:anywhere;word-break:break-word;align-self:flex-start;color:#fef08a;font-size:12px;font-weight:800;line-height:1.3}
+    .diqa-note-editor{padding:11px 13px;border:1px solid #334155;background:#101e36;border-radius:13px;margin:8px 0 10px}
+    .diqa-note-editor input{max-width:230px;display:inline-block;margin:0 7px 4px 0;vertical-align:middle}
+    .diqa-note-editor button{margin:0 3px 4px;padding:7px 10px}
+    .diqa-note-editor .small{display:block;margin-top:4px}
+    @media(max-width:480px){.diqa-rank-avatar{width:26px;height:26px}.diqa-rank-person{gap:6px}.diqa-rank-note{font-size:11px}}
+
     @media(max-width:480px){
       .diqa-rank-board{padding:11px;}
       .diqa-rank-entry{min-height:46px;padding:8px 9px;}
@@ -634,6 +661,18 @@ background:#fff;
       <div class="row" style="align-items:center; margin-bottom:10px;">
         <div class="col">
           <h2>لوحة المدير</h2>
+<div id="diqa-limited-manager-photo-wrapper" class="hidden"><div class="diqa-profile-card" id="diqa-limited-employee-profile-card">
+  <img class="diqa-profile-photo" id="diqa-limited-employee-profile-photo" alt="الصورة الشخصية" hidden>
+  <span class="diqa-profile-fallback" id="diqa-limited-employee-profile-fallback" aria-hidden="true">👤</span>
+  <div class="diqa-profile-details"><strong>الصورة الشخصية</strong>
+    <div class="diqa-profile-actions">
+      <input type="file" id="diqa-limited-employee-photo-file" accept="image/*" hidden>
+      <button type="button" class="secondary" id="diqa-limited-employee-photo-upload">📷 رفع / تغيير الصورة</button>
+      <button type="button" class="secondary" id="diqa-limited-employee-photo-delete">حذف الصورة</button>
+    </div>
+    <span class="diqa-photo-status" id="diqa-limited-employee-photo-status">تُحفظ الصورة على Firebase وتبقى بعد التحديث.</span>
+  </div>
+</div></div>
           <span class="badge">خريطة + إدارة المندوبين + الزبائن</span>
 
           <!-- تنبيه نصي داخل الصفحة -->
@@ -974,6 +1013,18 @@ background:#fff;
       </div>
 
       <p>المندوب: <strong id="current-driver-name"></strong></p>
+<div class="diqa-profile-card" id="diqa-driver-profile-card">
+  <img class="diqa-profile-photo" id="diqa-driver-profile-photo" alt="الصورة الشخصية" hidden>
+  <span class="diqa-profile-fallback" id="diqa-driver-profile-fallback" aria-hidden="true">👤</span>
+  <div class="diqa-profile-details"><strong>الصورة الشخصية</strong>
+    <div class="diqa-profile-actions">
+      <input type="file" id="diqa-driver-photo-file" accept="image/*" hidden>
+      <button type="button" class="secondary" id="diqa-driver-photo-upload">📷 رفع / تغيير الصورة</button>
+      <button type="button" class="secondary" id="diqa-driver-photo-delete">حذف الصورة</button>
+    </div>
+    <span class="diqa-photo-status" id="diqa-driver-photo-status">تُحفظ الصورة على Firebase وتبقى بعد التحديث.</span>
+  </div>
+</div>
       <p class="small" id="tracking-status"></p>
       <p class="small" id="driver-alert" style="color:#fca5a5; margin:6px 0 0;"></p>
 
@@ -982,6 +1033,13 @@ background:#fff;
         <div class="diqa-rank-heading">
           <h3>🏆 ترتيب المندوبين</h3>
           <span class="diqa-rank-date" id="driver-performance-period">اليوم</span>
+        </div>
+        <div class="diqa-note-editor" dir="rtl">
+          <label for="diqa-driver-daily-note">✍️ نوت اليوم (للطرفة، 10 أحرف أو أرقام كحد أقصى)</label>
+          <input id="diqa-driver-daily-note" type="text" maxlength="10" placeholder="اكتب نوت قصيرة" autocomplete="off">
+          <button type="button" id="diqa-driver-note-save">حفظ / تعديل</button>
+          <button type="button" class="secondary" id="diqa-driver-note-delete">حذف</button>
+          <span class="small" id="diqa-driver-note-status" aria-live="polite">تظهر بجانب اسمك في جدول الترتيب وتختفي بنهاية اليوم.</span>
         </div>
         <div class="diqa-rank-list" id="driver-performance-list" role="list" aria-live="polite" aria-atomic="false">
           <div class="diqa-rank-empty">جاري تحميل الترتيب...</div>
@@ -1112,6 +1170,18 @@ background:#fff;
   </div>
 
   <p>الموظف: <strong id="current-employee-name"></strong></p>
+<div class="diqa-profile-card" id="diqa-employee-profile-card">
+  <img class="diqa-profile-photo" id="diqa-employee-profile-photo" alt="الصورة الشخصية" hidden>
+  <span class="diqa-profile-fallback" id="diqa-employee-profile-fallback" aria-hidden="true">👤</span>
+  <div class="diqa-profile-details"><strong>الصورة الشخصية</strong>
+    <div class="diqa-profile-actions">
+      <input type="file" id="diqa-employee-photo-file" accept="image/*" hidden>
+      <button type="button" class="secondary" id="diqa-employee-photo-upload">📷 رفع / تغيير الصورة</button>
+      <button type="button" class="secondary" id="diqa-employee-photo-delete">حذف الصورة</button>
+    </div>
+    <span class="diqa-photo-status" id="diqa-employee-photo-status">تُحفظ الصورة على Firebase وتبقى بعد التحديث.</span>
+  </div>
+</div>
 
   <hr style="border-color:#111827;margin:10px 0;" />
   <h3>الحضور (داخل الشركة)</h3>
@@ -1285,30 +1355,32 @@ background:#fff;
       const z = map ? map.getZoom() : 11;
       return z <= 10 ? 52 : z <= 12 ? 62 : z <= 14 ? 75 : z <= 16 ? 88 : 97;
     }
-    function diqaMotorcycleIcon(state, label, grouped = false){
+    function diqaMotorcycleIcon(state, label, grouped = false, driverId = ""){
       const key = state === 'warn' ? 'warn' : state === 'online' ? 'online' : 'offline';
       const width = diqaDriverIconSize(), height = width * 52 / 97;
       const safeLabel = escapeDriverMapText(label);
       const fontSize = grouped ? Math.max(8, width * .115) : Math.max(6.2, width * .0845);
       return L.divIcon({
         className: grouped ? 'diqa-driver-group-wrap' : 'diqa-driver-marker',
-        html: `<div class="diqa-original-icon" style="width:${width}px;height:${height}px"><img src="${DIQA_ORIGINAL_MARKER_IMAGES[key]}" alt=""><span class="diqa-original-icon-name" style="font-size:${fontSize}px">${safeLabel}</span></div>`,
+        html: `<div class="diqa-original-icon" style="width:${width}px;height:${height}px"><img src="${DIQA_ORIGINAL_MARKER_IMAGES[key]}" alt=""><span class="diqa-original-icon-name" style="font-size:${fontSize}px">${safeLabel}</span>${!grouped && diqaPhotoSrc('driver', driverId) ? `<img class="diqa-map-avatar" src="${diqaPhotoSrc('driver', driverId)}" alt="">` : ''}</div>`,
         iconSize: [width,height], iconAnchor: [width*48/97,height*45/52], popupAnchor:[0,-height*.83]
       });
     }
-    function makeDriverIcon(state, driverName) {
-      return diqaMotorcycleIcon(state, driverName);
+    function makeDriverIcon(state, driverName, driverId = "") {
+      return diqaMotorcycleIcon(state, driverName, false, driverId);
     }
 
     // ✅ NEW: Icon لموقع المندوب نفسه (خريطة المندوب فقط)
     function makeSelfIcon(state = "online"){
       const cls = state === "warn" ? "warn" : (state === "offline" ? "offline" : "online");
+      const picture = diqaPhotoSrc('driver', currentDriverId);
+      const label = escapeDriverMapText((driversMetaCache[currentDriverId] || {}).name || currentDriverNameLabel?.textContent || 'موقعي');
       return L.divIcon({
-        className: "",
-        html: `<div class="self-pin ${cls}"></div>`,
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
-        popupAnchor: [0, -10]
+        className: "diqa-self-map-icon",
+        html: `<div class="diqa-self-marker ${cls}">${picture ? `<img class="diqa-self-photo" src="${picture}" alt="">` : '<span class="diqa-self-dot"></span>'}<span class="diqa-self-name">${label}</span></div>`,
+        iconSize: [90, 54],
+        iconAnchor: [45, 52],
+        popupAnchor: [0, -52]
       });
     }
 
@@ -1832,6 +1904,205 @@ nextDrivers[key] = {
 
     const db = firebase.database();
     const SERVER_TS = firebase.database.ServerValue.TIMESTAMP;
+
+    // ===== DIQA: cross-device, permanent portrait storage (RTDB) =====
+    // Intentionally stored OUTSIDE daily attendance/orders and any automatic cleanup paths.
+    const DIQA_PORTRAITS_PATH = 'diqaProfilePhotos';
+    const diqaPortraits = { driver: {}, employee: {} };
+    const diqaPortraitListeners = [];
+    let diqaPortraitRevision = 0;
+    function diqaPhotoSrc(role, id){
+      const obj = id && diqaPortraits[role] ? diqaPortraits[role][String(id)] : null;
+      const value = obj && (typeof obj === 'string' ? obj : obj.image);
+      // Data URLs from compressed canvas only: prevent HTML/URL injection through Firebase.
+      return typeof value === 'string' && /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value) && value.length < 190000 ? value : '';
+    }
+    function diqaPhotoTag(role, id, cls = 'diqa-list-avatar'){
+      const src = diqaPhotoSrc(role,id);
+      return src ? `<img class="${cls}" src="${src}" alt="">` : '';
+    }
+    function diqaRefreshPortraits(){
+      for (const [role,id] of [['driver',currentDriverId],['employee',currentEmployeeId],['limited-employee',currentEmployeeId]]){
+        const prefix='diqa-'+role;
+        const src=diqaPhotoSrc(role==='driver'?'driver':'employee',id);
+        const picture=document.getElementById(prefix+'-profile-photo');
+        const fallback=document.getElementById(prefix+'-profile-fallback');
+        if(picture){picture.hidden=!src;if(src && picture.src !== src)picture.src=src;else if(!src)picture.removeAttribute('src');}
+        if(fallback)fallback.hidden=!!src;
+      }
+      const special=document.getElementById('diqa-limited-manager-photo-wrapper');
+      if(special)special.classList.toggle('hidden',currentSessionRole!=='limited_manager');
+      if (currentSessionRole==='manager'||currentSessionRole==='limited_manager'){
+        renderDriversList();
+        if(currentSessionRole==='manager')renderEmployeesList();
+        updateDriverMarkers();
+      }
+      if(currentSessionRole==='driver')updateDriverSelfTrackOnMap();
+      diqaPortraitRevision++;
+      renderDriverPerformanceBoard();
+    }
+    function diqaSubscribePortraits(){
+      if(diqaPortraitListeners.length)return;
+      for(const role of ['driver','employee']){
+        const ref=db.ref(`${DIQA_PORTRAITS_PATH}/${role}`);
+        const callback=snap=>{diqaPortraits[role]=snap.val()||{};diqaRefreshPortraits();};
+        ref.on('value',callback,e=>console.warn('Portrait database access:',e.message));
+        diqaPortraitListeners.push({ref,callback});
+      }
+      diqaRefreshPortraits();
+    }
+    function diqaUnsubscribePortraits(){
+      for(const {ref,callback} of diqaPortraitListeners)ref.off('value',callback);
+      diqaPortraitListeners.length=0;
+      diqaPortraits.driver={};diqaPortraits.employee={};
+    }
+    function diqaCanEditPortrait(role,id){
+      if(!id)return false;
+      if(role==='driver') return (currentSessionRole==='driver'&&String(currentDriverId)===String(id)) || canManageDriversSection();
+      return ((currentSessionRole==='employee'||currentSessionRole==='limited_manager')&&String(currentEmployeeId)===String(id)) || canManageEmployeesSection();
+    }
+    function diqaPhotoStatus(role, message){
+      const el=document.getElementById('diqa-'+role+'-photo-status');
+      if(el)el.textContent=message;
+    }
+    function diqaCompressPhoto(file){
+      return new Promise((resolve,reject)=>{
+        if(!file || !file.type.startsWith('image/'))return reject(new Error('اختار ملف صورة فقط.'));
+        if(file.size>10*1024*1024)return reject(new Error('حجم الصورة الأصلية لازم أقل من 10MB.'));
+        const reader=new FileReader();
+        reader.onerror=()=>reject(new Error('تعذرت قراءة الصورة.'));
+        reader.onload=()=>{
+          const img=new Image();
+          img.onerror=()=>reject(new Error('صيغة الصورة غير مدعومة.'));
+          img.onload=()=>{
+            try{
+              const canvas=document.createElement('canvas');canvas.width=220;canvas.height=220;
+              const ctx=canvas.getContext('2d');
+              if(!ctx)throw new Error('لا يمكن معالجة الصورة على هذا الجهاز.');
+              const side=Math.min(img.naturalWidth,img.naturalHeight);
+              ctx.fillStyle='#fff';ctx.fillRect(0,0,220,220);
+              ctx.drawImage(img,(img.naturalWidth-side)/2,(img.naturalHeight-side)/2,side,side,0,0,220,220);
+              let data=canvas.toDataURL('image/jpeg',.77);
+              if(data.length>85000)data=canvas.toDataURL('image/jpeg',.55);
+              if(data.length>150000)throw new Error('الصورة كبيرة جداً، جرب صورة أبسط.');
+              resolve(data);
+            }catch(e){reject(e);}
+          };
+          img.src=String(reader.result||'');
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+    async function diqaSavePortrait(role,id,file,statusRole=role){
+      if(!diqaCanEditPortrait(role,id)){diqaPhotoStatus(statusRole,'ليس عندك صلاحية لتغيير هذه الصورة.');return;}
+      try{
+        diqaPhotoStatus(statusRole,'جاري حفظ الصورة...');
+        const image=await diqaCompressPhoto(file);
+        await db.ref(`${DIQA_PORTRAITS_PATH}/${role}/${id}`).set({image,updatedAt:SERVER_TS});
+        diqaPhotoStatus(statusRole,'✅ انحفظت الصورة بشكل ثابت لكل الأجهزة.');
+      }catch(e){diqaPhotoStatus(statusRole,'⚠️ تعذر حفظ الصورة: '+e.message);}
+    }
+    async function diqaDeletePortrait(role,id,statusRole=role){
+      if(!diqaCanEditPortrait(role,id))return;
+      if(!confirm('تحذف الصورة الشخصية؟'))return;
+      try{await db.ref(`${DIQA_PORTRAITS_PATH}/${role}/${id}`).remove();diqaPhotoStatus(statusRole,'تم حذف الصورة.');}
+      catch(e){diqaPhotoStatus(statusRole,'⚠️ تعذر الحذف: '+e.message);}
+    }
+    function diqaChoosePortrait(role,id){
+      if(!diqaCanEditPortrait(role,id))return;
+      const input=document.createElement('input');input.type='file';input.accept='image/*';
+      input.onchange=()=>{if(input.files&&input.files[0])diqaSavePortrait(role,id,input.files[0]);};
+      input.click();
+    }
+    function diqaBindProfilePhotoControls(uiRole,dbRole,resolveId){
+      const upload=document.getElementById('diqa-'+uiRole+'-photo-upload');
+      const remove=document.getElementById('diqa-'+uiRole+'-photo-delete');
+      const file=document.getElementById('diqa-'+uiRole+'-photo-file');
+      if(upload&&file) upload.addEventListener('click',()=>{if(resolveId())file.click();});
+      if(file) file.addEventListener('change',()=>{
+        const selected=file.files&&file.files[0];if(selected)diqaSavePortrait(dbRole,resolveId(),selected,uiRole);
+        file.value='';
+      });
+      if(remove)remove.addEventListener('click',()=>diqaDeletePortrait(dbRole,resolveId(),uiRole));
+    }
+    diqaBindProfilePhotoControls('driver','driver',()=>currentDriverId);
+    diqaBindProfilePhotoControls('employee','employee',()=>currentEmployeeId);
+    diqaBindProfilePhotoControls('limited-employee','employee',()=>currentEmployeeId);
+
+    // ===== DIQA: per-day courier joke/note, separate from permanent portraits =====
+    const DIQA_NOTES_PATH='diqaDailyDriverNotes';
+    let diqaNoteDate='';let diqaNoteRef=null;let diqaNotes={};
+    function diqaCleanNote(raw){
+      const v=String(raw||'').replace(/[\r\n\t]/g,' ').trim();
+      const units=typeof Intl!=='undefined'&&Intl.Segmenter ? [...new Intl.Segmenter('ar',{granularity:'grapheme'}).segment(v)].map(x=>x.segment) : Array.from(v);
+      return units.slice(0,10).join('');
+    }
+    function diqaNoteFor(driverId, date){
+      if(date!==getWorkDateByKey('today')||date!==diqaNoteDate)return '';
+      const val=diqaNotes[String(driverId)];
+      return diqaCleanNote(val && (typeof val==='string'?val:val.text));
+    }
+    function diqaNoteStatus(txt){const el=document.getElementById('diqa-driver-note-status');if(el)el.textContent=txt;}
+    function diqaUpdateNoteInput(){
+      const input=document.getElementById('diqa-driver-daily-note');
+      if(input && document.activeElement!==input)input.value=diqaNoteFor(currentDriverId,getWorkDateByKey('today'));
+    }
+    function diqaUnsubscribeNotes(){
+      if(diqaNoteRef)diqaNoteRef.off();
+      diqaNoteRef=null;diqaNoteDate='';diqaNotes={};driverRankingLastSignature=null;
+    }
+    function diqaSubscribeNotes(){
+      if(currentSessionRole!=='driver'||!currentDriverId)return;
+      const date=getWorkDateByKey('today');
+      if(diqaNoteRef&&diqaNoteDate===date)return;
+      diqaUnsubscribeNotes();
+      diqaNoteDate=date;
+      // Notes are ephemeral: clear yesterday's notes on the next active courier session.
+      db.ref(`${DIQA_NOTES_PATH}/${getWorkDateByKey('yesterday')}`).remove().catch(()=>{});
+      diqaNoteRef=db.ref(`${DIQA_NOTES_PATH}/${date}`);
+      diqaNoteRef.on('value',snap=>{
+        diqaNotes=snap.val()||{};
+        diqaUpdateNoteInput();
+        driverRankingLastSignature=null;
+        renderDriverPerformanceBoard();
+      },err=>diqaNoteStatus('⚠️ تعذرت قراءة النوت: '+err.message));
+    }
+    const diqaNoteInput=document.getElementById('diqa-driver-daily-note');
+    if(diqaNoteInput)diqaNoteInput.addEventListener('input',()=>{
+      const text=diqaCleanNote(diqaNoteInput.value);
+      if(diqaNoteInput.value!==text)diqaNoteInput.value=text;
+    });
+    if(diqaNoteInput)diqaNoteInput.addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();document.getElementById('diqa-driver-note-save')?.click();}});
+    const diqaNoteSave=document.getElementById('diqa-driver-note-save');
+    if(diqaNoteSave)diqaNoteSave.addEventListener('click',async()=>{
+      if(currentSessionRole!=='driver'||!currentDriverId)return;
+      diqaSubscribeNotes();
+      const text=diqaCleanNote(diqaNoteInput?.value);
+      try{
+        if(text)await db.ref(`${DIQA_NOTES_PATH}/${getWorkDateByKey('today')}/${currentDriverId}`).set({text,updatedAt:SERVER_TS});
+        else await db.ref(`${DIQA_NOTES_PATH}/${getWorkDateByKey('today')}/${currentDriverId}`).remove();
+        diqaNoteStatus(text?'✅ انحفظت نوت اليوم، وتكدر تعدلها.':'تم مسح نوت اليوم.');
+      }catch(err){diqaNoteStatus('⚠️ تعذر الحفظ: '+err.message);}
+    });
+    const diqaNoteDelete=document.getElementById('diqa-driver-note-delete');
+    if(diqaNoteDelete)diqaNoteDelete.addEventListener('click',async()=>{
+      if(currentSessionRole!=='driver'||!currentDriverId)return;
+      try{
+        await db.ref(`${DIQA_NOTES_PATH}/${getWorkDateByKey('today')}/${currentDriverId}`).remove();
+        if(diqaNoteInput)diqaNoteInput.value='';
+        diqaNoteStatus('✅ انحذفت النوت.');
+      }catch(e){diqaNoteStatus('⚠️ تعذر الحذف: '+e.message);}
+    });
+    // Midnight day rollover: open pages swap dates without a forced reload.
+    setInterval(()=>{
+      if(currentSessionRole!=='driver')return;
+      if(diqaNoteDate!==getWorkDateByKey('today')){
+        if(diqaNoteInput)diqaNoteInput.value='';
+        diqaNoteStatus('يوم جديد، النوت القديمة اختفت.');
+        diqaSubscribeNotes();
+      }
+    },15000);
+
 
     // Shared Traccar token. This uses the existing Firebase RTDB; no separate files.
     // IMPORTANT: RTDB rules must restrict reading and writing this path.
@@ -5618,7 +5889,7 @@ function initMap() {
           const loc = driversLocationsCache[id];
           if (!loc || !m) return;
           const state = calcLiveState(loc.updatedAt);
-          m.setIcon(makeDriverIcon(state.isOnline ? 'online' : state.isWarn ? 'warn' : 'offline', (driversMetaCache[id] && driversMetaCache[id].name) || loc.name || id));
+          m.setIcon(makeDriverIcon(state.isOnline ? 'online' : state.isWarn ? 'warn' : 'offline', (driversMetaCache[id] && driversMetaCache[id].name) || loc.name || id, id));
         });
         layoutDriverCardsWithoutOverlap();
       });
@@ -8401,34 +8672,25 @@ function subscribeEmployees(){
           name,
           count: Number(summary.totalCount) || 0,
           shiftType: summary.shiftType,
-          achievement: getDriverAchievementEmoji(summary.totalCount, summary.shiftType)
+          achievement: getDriverAchievementEmoji(summary.totalCount, summary.shiftType),
+          attended: !!(attendanceCache[id] && (attendanceCache[id].checkInAt || normalizeSessions(attendanceCache[id]).some(sess=>!!sess.inAt)))
         };
-      });
-      if (!drivers.some(row => row.id === String(currentDriverId))){
-        // Never omit the logged-in courier while metadata is still arriving.
-        const summary = buildDriverDeliveryFeeSummary(currentDriverId);
-        drivers.push({
-          id: String(currentDriverId),
-          name: String(currentDriverNameLabel?.textContent || currentDriverId),
-          count: Number(summary.totalCount) || 0,
-          shiftType: summary.shiftType,
-          achievement: getDriverAchievementEmoji(summary.totalCount, summary.shiftType)
-        });
-      }
+      }).filter(row=>row.count>0 || row.attended);
       drivers.sort((a,b) =>
         (b.count - a.count) || a.name.localeCompare(b.name,'ar') || a.id.localeCompare(b.id)
       );
 
       const signature = JSON.stringify([
         ordersWorkDate, String(currentDriverId),
-        drivers.map(row => [row.id,row.name,row.count,row.shiftType])
+        drivers.map(row => [row.id,row.name,row.count,row.shiftType,row.attended,diqaNoteFor(row.id,ordersWorkDate)]),
+        diqaPortraitRevision
       ]);
       if (signature === driverRankingLastSignature) return;
       driverRankingLastSignature = signature;
       const previousScroll = driverPerformanceList.scrollTop;
 
       if (!drivers.length){
-        driverPerformanceList.innerHTML = '<div class="diqa-rank-empty">لا يوجد مندوبون مسجلون.</div>';
+        driverPerformanceList.innerHTML = '<div class="diqa-rank-empty">لا يوجد مندوب حاضر أو عنده طلبات محتسبة بهذا اليوم.</div>';
         return;
       }
       const medals = ['🥇','🥈','🥉'];
@@ -8444,7 +8706,9 @@ function subscribeEmployees(){
           ` aria-label="${escapeHtml(row.name)}، ${medal ? 'المركز '+place+'، ' : ''}${achievementDescriptions[row.achievement]}">`+
           `<div class="diqa-rank-person">`+
           `<span class="diqa-rank-medal" aria-hidden="true">${medal}</span>`+
-          `<span class="diqa-rank-name">${escapeHtml(row.name)}</span></div>`+
+          `${diqaPhotoTag('driver',row.id,'diqa-rank-avatar')}`+
+          `<span class="diqa-rank-texts"><span class="diqa-rank-name">${escapeHtml(row.name)}</span>`+
+          `${diqaNoteFor(row.id,ordersWorkDate) ? `<span class="diqa-rank-note">💬 ${escapeHtml(diqaNoteFor(row.id,ordersWorkDate))}</span>` : ''}</span></div>`+
           `<span class="diqa-rank-performance" aria-hidden="true">${row.achievement}</span></div>`;
       }).join('');
       driverPerformanceList.scrollTop = previousScroll;
@@ -10611,6 +10875,8 @@ function renderEmployeesList(){
     small.className = "small";
     small.textContent = `ID: ${id}`;
 
+    const avatarMarkup=diqaPhotoTag('employee',id);
+    if(avatarMarkup){const img=document.createElement('img');img.className='diqa-list-avatar';img.src=diqaPhotoSrc('employee',id);left.appendChild(img);}
     left.appendChild(title);
     left.appendChild(small);
 
@@ -10629,6 +10895,9 @@ function renderEmployeesList(){
     btnDel.textContent = "حذف";
     btnDel.onclick = ()=>deleteEmployee(id);
 
+    const photoBtn=document.createElement('button');photoBtn.className='secondary prio-btn';photoBtn.textContent='📷 الصورة';
+    photoBtn.onclick=()=>diqaChoosePortrait('employee',id);
+    right.appendChild(photoBtn);
     right.appendChild(btnName);
     right.appendChild(btnPin);
     right.appendChild(btnDel);
@@ -10663,7 +10932,7 @@ function changeEmployeePin(id){
 function deleteEmployee(id){
   if (!canManageEmployeesSection()) { alert("ليس لديك صلاحية لحذف الموظفين."); return; }
   if (!confirm("تأكيد حذف الموظف؟")) return;
-  db.ref(`employeesMeta/${id}`).remove();
+  db.ref(`employeesMeta/${id}`).remove().then(()=>db.ref(`${DIQA_PORTRAITS_PATH}/employee/${id}`).remove()).catch(e=>console.warn('Delete employee / profile:',e));
 }
 
 function renderDriversSelect() {
@@ -10725,6 +10994,8 @@ function renderDriversSelect() {
           statusEl.appendChild(document.createTextNode(`${state} | المصدر: ${source} | ${seen} | الساعة: ${formatTime(loc.updatedAt)}${accText}${speedText}`));
         }
 
+        const src=diqaPhotoSrc('driver',id);
+        if(src){const portrait=document.createElement('img');portrait.src=src;portrait.className='diqa-list-avatar';left.appendChild(portrait);}
         left.appendChild(nameEl);
         left.appendChild(statusEl);
 
@@ -10770,6 +11041,9 @@ function renderDriversSelect() {
         delBtn.className = "danger";
         delBtn.onclick = () => deleteDriver(id);
 
+        const photoBtn=document.createElement('button');photoBtn.textContent='📷 الصورة';photoBtn.className='secondary';
+        photoBtn.onclick=()=>diqaChoosePortrait('driver',id);
+        right.appendChild(photoBtn);
         right.appendChild(editNameBtn);
         right.appendChild(editPinBtn);
         right.appendChild(shiftBtn);
@@ -11707,7 +11981,7 @@ function renderDriversSelect() {
         // Stale position is still useful as last known location (gray marker).
 
         const liveState = st.isOnline ? "online" : (st.isWarn ? "warn" : "offline");
-        const icon = makeDriverIcon(liveState, (driversMetaCache[id] && driversMetaCache[id].name) || loc.name || id);
+        const icon = makeDriverIcon(liveState, (driversMetaCache[id] && driversMetaCache[id].name) || loc.name || id, id);
 
         const acc = loc.accuracy ? Math.round(loc.accuracy) : null;
         const accText = acc ? `<br/>الدقة: ±${acc}m` : "";
@@ -12062,7 +12336,8 @@ function renderClientsLists() {
 
     function deleteDriver(id) {
       if (!confirm("هل أنت متأكد من حذف هذا المندوب؟")) return;
-      db.ref(`driversMeta/${id}`).remove();
+      db.ref(`driversMeta/${id}`).remove().then(()=>db.ref(`${DIQA_PORTRAITS_PATH}/driver/${id}`).remove()).catch(e=>console.warn('Delete courier portrait:',e));
+      db.ref(`${DIQA_NOTES_PATH}/${getWorkDateByKey('today')}/${id}`).remove().catch(()=>{});
       db.ref(`driversLocations/${id}`).remove();
     }
 
@@ -12358,6 +12633,7 @@ function addEmployee(){
       hide(driverCard);
       hide(employeeCard);
       show(managerCard);
+      diqaSubscribePortraits();
       applyManagerLikePermissions();
       initMap();
       subscribeDrivers();
@@ -12388,6 +12664,7 @@ function addEmployee(){
       currentSessionRole = null;
       currentEmployeeId = null;
       stopTraccarPolling();
+      diqaUnsubscribePortraits();
       unsubscribeOrders();
       unsubscribeAttendance();
       unsubscribeClients();
@@ -12431,6 +12708,8 @@ function addEmployee(){
       hide(loginCard);
       hide(employeeCard);
       show(driverCard);
+      diqaSubscribePortraits();
+      diqaSubscribeNotes();
 
       initDriverMap();
       // اشترك ببيانات جميع المندوبين عند كل دخول، حتى بعد الخروج وإعادة الدخول.
@@ -12490,11 +12769,13 @@ employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
   hide(employeeCard);
 
   currentEmployeeNameLabel.textContent = meta.name || selectedId;
+  diqaSubscribePortraits();
 
   if (isLimitedManager) {
     lmAttTitleEl && (lmAttTitleEl.textContent = `حضور / انصراف ${meta.name || selectedId}`);
     currentSessionRole = "limited_manager";
     show(managerCard);
+    diqaRefreshPortraits();
     applyManagerLikePermissions();
     initMap();
     subscribeDrivers();
@@ -12518,6 +12799,7 @@ employeeLoginBtn && (employeeLoginBtn.onclick = async () => {
 
   currentSessionRole = "employee";
   show(employeeCard);
+  diqaRefreshPortraits();
 
   // Subscribe attendance (today)
   subscribeEmpAttendanceFor(getWorkDateByKey("today"));
@@ -12542,6 +12824,7 @@ logoutEmployeeBtn && (logoutEmployeeBtn.onclick = () => {
   employeePinInput.value = "";
 
   hide(employeeCard);
+  diqaUnsubscribePortraits();
   show(loginCard);
   unsubscribeEmpAttendance(true);
   unsubscribeOrders();
@@ -12560,6 +12843,8 @@ logoutDriverBtn.onclick = () => {
 
       // ✅ NEW: مسح مسار المندوب عند الخروج (عرض فقط)
       resetDriverSelfTrack();
+      diqaUnsubscribeNotes();
+      diqaUnsubscribePortraits();
 
       unsubscribeOrders();
       unsubscribeAttendance();
