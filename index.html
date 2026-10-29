@@ -593,7 +593,7 @@ background:#fff;
     .diqa-team-hub-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px}
     .diqa-team-hub-top strong{font-size:14px;color:#e2e8f0}
     .diqa-team-hub-top .diqa-team-alert-toggle{font-size:12px;margin:0;position:relative}
-    .diqa-team-people{display:flex;gap:12px;padding:8px 1px 6px;overflow-x:auto;scrollbar-width:thin;scroll-snap-type:x proximity;overscroll-behavior-x:contain}
+    .diqa-team-people{display:flex;direction:rtl;flex-direction:row;gap:12px;padding:8px 1px 6px;overflow-x:auto;scrollbar-width:thin;scroll-snap-type:x proximity;overscroll-behavior-x:contain}
     .diqa-team-person{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px;flex:0 0 80px;width:80px;min-height:129px;cursor:pointer;background:#13233c;color:#fff;border:1px solid #334155;border-radius:12px;padding:52px 4px 8px;margin:0;scroll-snap-align:start}
     .diqa-team-person:hover,.diqa-team-person:focus-visible{outline:1px solid #38bdf8;background:#1b3351}
     .diqa-team-person.diqa-team-self{border-color:#38bdf8}
@@ -2362,29 +2362,32 @@ nextDrivers[key] = {
       const src=owner ? diqaPhotoSrc(owner.role,owner.id) : '';
       return src?`<img class="diqa-team-avatar" data-photo-owner="${owner.key}" data-photo-role="${owner.role}" data-photo-id="${escapeHtml(owner.id)}" src="${src}" alt="صورة ${escapeHtml(person.name||'الحساب')}">`:'<span class="diqa-team-avatar diqa-team-avatar-fallback" aria-hidden="true">👤</span>';
     }
+    // Cache the latest inbox activity so note/photo refreshes do not move the strip.
+    let diqaTeamPreviousActivitySignature='';
     function diqaRenderTeamPeople(){
       if(!diqaPeopleList||!diqaChatUserKey)return;
       const people=diqaSocialPeople();
-      // Manager stays at the far RIGHT in this RTL horizontal strip.
-      // The most recent sender of an incoming message follows the manager.
-      // Older senders and then untouched conversations follow them.
-      const recentActivity = p => {
-        const messages=diqaChatEntries(p.key);
-        let incoming=0,conversation=0;
-        for(const [,msg] of messages){
+      // RTL: the latest active conversation must be the rightmost item.
+      // A new conversation, whether sent or received, immediately rises to the right.
+      // The manager retains a gold visual accent, but no fixed ordering priority.
+      const latestByKey=new Map();
+      for(const p of people){
+        const entries=diqaChatEntries(p.key);
+        let latest=0;
+        for(const [,msg] of entries){
           const when=Number(msg.createdAt)||0;
-          if(when>conversation)conversation=when;
-          if(msg.from===p.key&&when>incoming)incoming=when;
+          if(when>latest)latest=when;
         }
-        return {incoming,conversation};
-      };
+        latestByKey.set(p.key,latest);
+      }
       people.sort((a,b)=>{
-        if(a.role==='manager'&&b.role!=='manager')return -1;
-        if(b.role==='manager'&&a.role!=='manager')return 1;
-        const x=recentActivity(a),y=recentActivity(b);
-        return (y.incoming-x.incoming)||(y.conversation-x.conversation)||
-          String(a.name).localeCompare(String(b.name),'ar');
+        const diff=(latestByKey.get(b.key)||0)-(latestByKey.get(a.key)||0);
+        return diff||String(a.name).localeCompare(String(b.name),'ar');
       });
+      // A new incoming/outgoing message brings the strip back to the newest (RTL right).
+      // Merely re-rendering because a photo or note changed preserves the scroll position.
+      const activitySignature=people.map(p=>p.key+':'+(latestByKey.get(p.key)||0)).join('|');
+      const activityChanged=activitySignature!==diqaTeamPreviousActivitySignature;
       const currentScroll=diqaPeopleList.scrollLeft;
       let total=0;
       diqaPeopleList.innerHTML=people.map(p=>{
@@ -2397,7 +2400,8 @@ nextDrivers[key] = {
           `<span class="diqa-team-avatar-wrap">${diqaTeamAvatarHtml(p)}${unread&&!isMe?`<span class="diqa-team-unread">${unread>99?'99+':unread}</span>`:''}</span>`+
           `<span class="diqa-team-name">${escapeHtml(p.name)}</span><span class="diqa-team-role">${p.label}${isMe?' • أنت':''}</span></button>`;
       }).join('');
-      diqaPeopleList.scrollLeft=currentScroll;
+      diqaPeopleList.scrollLeft=activityChanged?0:currentScroll;
+      diqaTeamPreviousActivitySignature=activitySignature;
       const badge=document.getElementById('diqa-team-total-unread');
       if(badge)badge.textContent=total?'('+total+')':'';
     }
