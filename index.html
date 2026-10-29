@@ -589,7 +589,7 @@ background:#fff;
     @media(max-width:480px){.diqa-rank-avatar{width:26px;height:26px}.diqa-rank-person{gap:6px}.diqa-rank-note{font-size:11px}}
 
     /* DIQA TEAM: cross-role social presence and 48-hour direct messages */
-    .diqa-team-hub{position:sticky;top:0;z-index:10020;max-width:1200px;margin:0 auto 14px;padding:11px 13px;border:1px solid #334155;border-radius:15px;background:#0d1b30;box-shadow:0 8px 22px #0007;direction:rtl}
+    .diqa-team-hub{position:relative;z-index:1;max-width:1200px;margin:0 auto 14px;padding:11px 13px;border:1px solid #334155;border-radius:15px;background:#0d1b30;box-shadow:0 8px 22px #0007;direction:rtl}
     .diqa-team-hub-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px}
     .diqa-team-hub-top strong{font-size:14px;color:#e2e8f0}
     .diqa-team-hub-top .diqa-team-alert-toggle{font-size:12px;margin:0;position:relative}
@@ -736,11 +736,11 @@ background:#fff;
     <div class="card hidden" id="manager-card">
       <div class="row" style="align-items:center; margin-bottom:10px;">
         <div class="col">
-          <h2>لوحة المدير</h2>
-<div id="diqa-manager-photo-wrapper" class="diqa-profile-card">
+          <h2 id="diqa-manager-page-title">لوحة المدير</h2>
+<div id="diqa-manager-photo-wrapper" class="diqa-profile-card" data-diqa-account="manager:main">
   <img class="diqa-profile-photo" id="diqa-manager-profile-photo" alt="صورة المدير" hidden>
   <span class="diqa-profile-fallback" id="diqa-manager-profile-fallback" aria-hidden="true">👤</span>
-  <div class="diqa-profile-details"><strong>الصورة الشخصية للمدير</strong>
+  <div class="diqa-profile-details"><strong>الصورة الشخصية للمدير — حساب مستقل</strong>
     <div class="diqa-profile-actions">
       <input type="file" id="diqa-manager-photo-file" accept="image/*" hidden>
       <button type="button" class="secondary" id="diqa-manager-photo-upload">📷 رفع / تغيير الصورة</button>
@@ -748,10 +748,10 @@ background:#fff;
     </div><span class="diqa-photo-status" id="diqa-manager-photo-status">الصورة ثابتة لجميع الأجهزة.</span>
   </div>
 </div>
-<div id="diqa-limited-manager-photo-wrapper" class="hidden"><div class="diqa-profile-card" id="diqa-limited-employee-profile-card">
+<div id="diqa-limited-manager-photo-wrapper" class="hidden"><div class="diqa-profile-card" id="diqa-limited-employee-profile-card" data-diqa-account-role="employee">
   <img class="diqa-profile-photo" id="diqa-limited-employee-profile-photo" alt="الصورة الشخصية" hidden>
   <span class="diqa-profile-fallback" id="diqa-limited-employee-profile-fallback" aria-hidden="true">👤</span>
-  <div class="diqa-profile-details"><strong>الصورة الشخصية</strong>
+  <div class="diqa-profile-details"><strong>صورة الموظف محمد نجم — مستقلة عن صورة المدير</strong>
     <div class="diqa-profile-actions">
       <input type="file" id="diqa-limited-employee-photo-file" accept="image/*" hidden>
       <button type="button" class="secondary" id="diqa-limited-employee-photo-upload">📷 رفع / تغيير الصورة</button>
@@ -1988,6 +1988,9 @@ nextDrivers[key] = {
     // ===== DIQA: cross-device, permanent portrait storage (RTDB) =====
     // Intentionally stored OUTSIDE daily attendance/orders and any automatic cleanup paths.
     const DIQA_PORTRAITS_PATH = 'diqaProfilePhotos';
+    // A manager login is a separate account. It is NEVER the special employee
+    // (Mohammed Najm) login, even though both can open the manager-style page.
+    const DIQA_MANAGER_PHOTO_ACCOUNT_ID = 'main';
     const diqaPortraits = { driver: {}, employee: {}, manager: {} };
     const diqaPortraitListeners = [];
     let diqaPortraitRevision = 0;
@@ -1997,7 +2000,7 @@ nextDrivers[key] = {
       const kind=String(role||'');
       const accountId=id==null?'':String(id);
       if(!['manager','employee','driver'].includes(kind)||!accountId)return null;
-      if(kind==='manager'&&accountId!=='main')return null;
+      if(kind==='manager'&&accountId!==DIQA_MANAGER_PHOTO_ACCOUNT_ID)return null;
       return {role:kind,id:accountId,key:diqaUserKey(kind,accountId)};
     }
     function diqaPhotoSrc(role, id){
@@ -2005,8 +2008,12 @@ nextDrivers[key] = {
       if(!owner)return '';
       const obj=(diqaPortraits[owner.role]||{})[owner.id];
       if(!obj)return '';
-      // Older photos did not have ownership metadata: their role/ID database path
-      // remains the source of identity. New photos additionally verify ownership.
+      // A manager photo must carry explicit manager ownership. Never accept an
+      // old ambiguous portrait (or an employee portrait) as the manager photo.
+      // Older driver/employee photos may still use their individual role/ID path.
+      if(owner.role==='manager' && (typeof obj!=='object' ||
+         obj.ownerKey!==owner.key || obj.ownerRole!=='manager' ||
+         String(obj.ownerId)!==DIQA_MANAGER_PHOTO_ACCOUNT_ID))return '';
       if(typeof obj==='object'){
         if(obj.ownerKey && obj.ownerKey!==owner.key)return '';
         if(obj.ownerRole && obj.ownerRole!==owner.role)return '';
@@ -2023,18 +2030,43 @@ nextDrivers[key] = {
       return src ? `<img class="${cls}" data-photo-owner="${owner.key}" src="${src}" alt="">` : '';
     }
     function diqaRefreshPortraits(){
-      for (const [role,id] of [['driver',currentDriverId],['employee',currentEmployeeId],['limited-employee',currentEmployeeId],['manager','main']]){
-        const prefix='diqa-'+role;
-        const src=diqaPhotoSrc(role==='driver'?'driver':role==='manager'?'manager':'employee',id);
+      // Bind portraits by the current authenticated ACCOUNT, never by the
+      // shared page or display name. The employee with managerial privileges
+      // uses employee/<own-ID>, whereas the actual manager uses manager/main.
+      const bindings=[
+        {ui:'manager',role:'manager',id:DIQA_MANAGER_PHOTO_ACCOUNT_ID,visible:currentSessionRole==='manager'},
+        {ui:'limited-employee',role:'employee',id:currentEmployeeId,visible:currentSessionRole==='limited_manager'},
+        {ui:'employee',role:'employee',id:currentEmployeeId,visible:currentSessionRole==='employee'},
+        {ui:'driver',role:'driver',id:currentDriverId,visible:currentSessionRole==='driver'}
+      ];
+      for(const item of bindings){
+        const prefix='diqa-'+item.ui;
+        const owner=item.visible?diqaPhotoOwner(item.role,item.id):null;
+        const src=owner?diqaPhotoSrc(owner.role,owner.id):'';
         const picture=document.getElementById(prefix+'-profile-photo');
         const fallback=document.getElementById(prefix+'-profile-fallback');
-        if(picture){picture.hidden=!src;if(src && picture.src !== src)picture.src=src;else if(!src)picture.removeAttribute('src');}
+        if(picture){
+          const key=owner?owner.key:'';
+          // Clear any old user's photograph before assigning a new owner's.
+          if(picture.dataset.photoOwner!==key){picture.removeAttribute('src');picture.dataset.photoOwner=key;}
+          picture.hidden=!src;
+          if(src && picture.src!==src)picture.src=src;
+          else if(!src)picture.removeAttribute('src');
+        }
         if(fallback)fallback.hidden=!!src;
       }
       const managerSelf=document.getElementById('diqa-manager-photo-wrapper');
       if(managerSelf)managerSelf.classList.toggle('hidden',currentSessionRole!=='manager');
       const special=document.getElementById('diqa-limited-manager-photo-wrapper');
-      if(special)special.classList.toggle('hidden',currentSessionRole!=='limited_manager');
+      if(special){
+        special.classList.toggle('hidden',currentSessionRole!=='limited_manager');
+        const card=document.getElementById('diqa-limited-employee-profile-card');
+        if(card)card.dataset.diqaAccount=currentSessionRole==='limited_manager'&&currentEmployeeId?'employee:'+currentEmployeeId:'';
+      }
+      const title=document.getElementById('diqa-manager-page-title');
+      if(title)title.textContent=currentSessionRole==='limited_manager'
+        ? 'لوحة الموظف محمد نجم — صلاحيات إدارية'
+        : 'لوحة المدير';
       if (currentSessionRole==='manager'||currentSessionRole==='limited_manager'){
         renderDriversList();
         if(currentSessionRole==='manager')renderEmployeesList();
@@ -2143,7 +2175,7 @@ nextDrivers[key] = {
       });
       if(remove)remove.addEventListener('click',()=>diqaDeletePortrait(dbRole,resolveId(),uiRole));
     }
-    diqaBindProfilePhotoControls('manager','manager',()=> 'main');
+    diqaBindProfilePhotoControls('manager','manager',()=> DIQA_MANAGER_PHOTO_ACCOUNT_ID);
     diqaBindProfilePhotoControls('driver','driver',()=>currentDriverId);
     diqaBindProfilePhotoControls('employee','employee',()=>currentEmployeeId);
     diqaBindProfilePhotoControls('limited-employee','employee',()=>currentEmployeeId);
@@ -2264,7 +2296,7 @@ nextDrivers[key] = {
       return 'u'+Array.from(bytes,x=>x.toString(16).padStart(2,'0')).join('');
     }
     function diqaSocialCurrentPerson(){
-      if(currentSessionRole==='manager')return {role:'manager',id:'main',name:'المدير'};
+      if(currentSessionRole==='manager')return {role:'manager',id:DIQA_MANAGER_PHOTO_ACCOUNT_ID,name:'المدير'};
       if(currentSessionRole==='driver'&&currentDriverId)
         return {role:'driver',id:String(currentDriverId),name:String((diqaDirectoryDrivers[currentDriverId]||{}).name||currentDriverNameLabel?.textContent||'مندوب')};
       if((currentSessionRole==='employee'||currentSessionRole==='limited_manager')&&currentEmployeeId)
@@ -2272,7 +2304,7 @@ nextDrivers[key] = {
       return null;
     }
     function diqaSocialPeople(){
-      const people=[{role:'manager',id:'main',name:'المدير',label:'مدير'}];
+      const people=[{role:'manager',id:DIQA_MANAGER_PHOTO_ACCOUNT_ID,name:'المدير',label:'مدير'}];
       for(const [id,m] of Object.entries(diqaDirectoryEmployees)) people.push({role:'employee',id,name:String((m||{}).name||id),label:'موظف'});
       for(const [id,m] of Object.entries(diqaDirectoryDrivers)) people.push({role:'driver',id,name:String((m||{}).name||id),label:'مندوب'});
       return people.map(p=>({...p,key:diqaUserKey(p.role,p.id)}));
@@ -2293,7 +2325,7 @@ nextDrivers[key] = {
       // One account object supplies BOTH the visible name and its photo.
       const owner=person&&diqaPhotoOwner(person.role,person.id);
       const src=owner ? diqaPhotoSrc(owner.role,owner.id) : '';
-      return src?`<img class="diqa-team-avatar" data-photo-owner="${owner.key}" src="${src}" alt="صورة ${escapeHtml(person.name||'الحساب')}">`:'<span class="diqa-team-avatar diqa-team-avatar-fallback" aria-hidden="true">👤</span>';
+      return src?`<img class="diqa-team-avatar" data-photo-owner="${owner.key}" data-photo-role="${owner.role}" data-photo-id="${escapeHtml(owner.id)}" src="${src}" alt="صورة ${escapeHtml(person.name||'الحساب')}">`:'<span class="diqa-team-avatar diqa-team-avatar-fallback" aria-hidden="true">👤</span>';
     }
     function diqaRenderTeamPeople(){
       if(!diqaPeopleList||!diqaChatUserKey)return;
