@@ -633,6 +633,31 @@ background:#fff;
     @media(max-width:520px){.diqa-team-hub{padding:9px;border-radius:12px}.diqa-team-people{gap:7px}.diqa-team-person{flex-basis:74px;width:74px}.diqa-team-my-note{align-items:stretch}.diqa-team-my-note label{flex-basis:100%}.diqa-team-my-note input{min-width:130px}}
 
 
+    /* Floating chat heads — overlay never blocks scrolling/Leaflet outside each bubble. */
+    .diqa-chat-heads-layer{position:fixed;inset:0;z-index:2147483050;pointer-events:none;direction:rtl}
+    .diqa-chat-head-bubble{position:absolute;top:0;left:0;display:flex;align-items:center;justify-content:center;
+      width:58px;height:58px;padding:3px;margin:0;border:2px solid #7dd3fc;border-radius:50%;
+      background:#14273e;color:#fff;box-shadow:0 5px 20px #0009;cursor:grab;pointer-events:auto;
+      touch-action:none;user-select:none;-webkit-user-select:none;z-index:1;transition:border-color .15s,box-shadow .15s}
+    .diqa-chat-head-bubble:active,.diqa-chat-head-bubble.diqa-head-moving{cursor:grabbing;border-color:#fef08a;box-shadow:0 0 0 3px #facc1577,0 8px 25px #0009}
+    .diqa-chat-head-bubble .diqa-team-avatar{width:49px!important;height:49px!important;border-radius:50%;border:0;pointer-events:none;object-fit:cover}
+    .diqa-chat-head-bubble .diqa-team-avatar-fallback{display:flex;align-items:center;justify-content:center;background:#233b57;font-size:24px}
+    .diqa-chat-head-unread{position:absolute;right:-4px;top:-5px;min-width:20px;height:20px;padding:1px 4px;display:flex;
+      align-items:center;justify-content:center;border:1px solid white;border-radius:12px;color:white;background:#ef4444;font:bold 10px Arial,sans-serif;pointer-events:none}
+    .diqa-chat-head-unread[hidden]{display:none!important}
+    .diqa-chat-drop-zone{position:fixed;z-index:2147483080;bottom:max(23px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
+      display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1px;width:98px;height:92px;border:2px solid #fca5a5;
+      border-radius:24px;background:#991b1bdb;color:#fff;font:900 30px Arial,sans-serif;box-shadow:0 8px 30px #000a;
+      pointer-events:none;opacity:.9;transition:transform .12s,background .12s}
+    .diqa-chat-drop-zone span{font:700 10px Tahoma,Arial,sans-serif}
+    .diqa-chat-drop-zone.diqa-drop-over{background:#dc2626;transform:translateX(-50%) scale(1.12);border-color:#fff}
+    .diqa-chat-drop-zone[hidden]{display:none!important}
+    .diqa-team-person .diqa-team-avatar-wrap,.diqa-team-person .diqa-team-pin{touch-action:none;cursor:grab}
+    .diqa-team-pin{position:absolute;bottom:7px;left:5px;display:flex;align-items:center;justify-content:center;
+      width:20px;height:20px;color:#e0f2fe;border-radius:50%;border:1px solid #475569;background:#243c5a;font-size:13px}
+    .diqa-team-person{padding-left:18px}
+    @media(max-width:480px){.diqa-chat-head-bubble{width:54px;height:54px}.diqa-chat-head-bubble .diqa-team-avatar{width:45px!important;height:45px!important}}
+
     @media(max-width:480px){
       .diqa-rank-board{padding:11px;}
       .diqa-rank-entry{min-height:46px;padding:8px 9px;}
@@ -745,6 +770,9 @@ background:#fff;
       </div>
     </div>
     <div id="diqa-chat-toast" class="diqa-chat-toast" role="status" aria-live="polite" hidden></div>
+    <!-- Movable conversation avatars; dismissing these NEVER reads or deletes a message. -->
+    <div id="diqa-chat-heads-layer" class="diqa-chat-heads-layer hidden" aria-label="فقاعات المحادثات العائمة"></div>
+    <div id="diqa-chat-drop-zone" class="diqa-chat-drop-zone" hidden aria-hidden="true">×<span>اسحب هنا للإخفاء</span></div>
     <div id="diqa-manager-review-overlay" class="diqa-chat-overlay hidden" role="dialog" aria-modal="true" aria-label="مراجعة محادثة الفريق">
       <div class="diqa-chat-window">
         <div class="diqa-chat-head"><strong id="diqa-manager-review-title">محادثة</strong>
@@ -2407,12 +2435,13 @@ nextDrivers[key] = {
         return `<button type="button" role="listitem" data-photo-account="${p.key}" class="diqa-team-person${isMe?' diqa-team-self':''}${p.role==='manager'?' diqa-manager-first':''}" data-person-key="${p.key}" aria-label="${escapeHtml(p.name)}${isMe?'، حسابك':unread?'، '+unread+' رسائل غير مقروءة':''}">`+
           `${note?`<span class="diqa-team-story" title="${escapeHtml(note)}">${escapeHtml(note)}</span>`:''}`+
           `<span class="diqa-team-avatar-wrap">${diqaTeamAvatarHtml(p)}${unread&&!isMe?`<span class="diqa-team-unread">${unread>99?'99+':unread}</span>`:''}</span>`+
-          `<span class="diqa-team-name">${escapeHtml(p.name)}</span><span class="diqa-team-role">${p.label}${isMe?' • أنت':''}</span></button>`;
+          `<span class="diqa-team-name">${escapeHtml(p.name)}</span><span class="diqa-team-role">${p.label}${isMe?' • أنت':''}</span>${!isMe?'<span class="diqa-team-pin" title="ثبّت فقاعة المحادثة أو اسحب الصورة" aria-hidden="true">⊕</span>':''}</button>`;
       }).join('');
       diqaPeopleList.scrollLeft=activityChanged?0:currentScroll;
       diqaTeamPreviousActivitySignature=activitySignature;
       const badge=document.getElementById('diqa-team-total-unread');
       if(badge)badge.textContent=total?'('+total+')':'';
+      diqaFloatRefresh();
     }
     // ===== DIQA: read-only conversations review for the original manager =====
     // SECURITY NOTE: currentSessionRole is ONLY client UI gating; it cannot enforce
@@ -2575,6 +2604,198 @@ nextDrivers[key] = {
     });
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&diqaManagerReviewOpenKey)diqaManagerCloseReviewThread();});
 
+    // ===== DIQA: AssistiveTouch-style, account-specific floating chat heads =====
+    // Heads are presentation state only. Closing one does NOT mark messages as read,
+    // touch inbox data, or change the top-strip unread badge.
+    const diqaFloatLayer=document.getElementById('diqa-chat-heads-layer');
+    const diqaFloatDrop=document.getElementById('diqa-chat-drop-zone');
+    const DIQA_FLOAT_SIZE=58;
+    const DIQA_FLOAT_KEY_PREFIX='diqaChatHeads:v1:';
+    const diqaFloatHeads=new Map();
+    let diqaFloatDrag=null,diqaFloatZ=1,diqaFloatIgnoreStripClick=false;
+    function diqaFloatClamp(x,y){
+      const sz=innerWidth<=480?54:DIQA_FLOAT_SIZE;
+      return {x:Math.max(4,Math.min(innerWidth-sz-4,Number(x)||0)),
+              y:Math.max(4,Math.min(innerHeight-sz-4,Number(y)||0))};
+    }
+    function diqaFloatStorageKey(){return DIQA_FLOAT_KEY_PREFIX+diqaChatUserKey;}
+    function diqaFloatSave(){
+      if(!diqaChatUserKey)return;
+      try{
+        const data=Array.from(diqaFloatHeads,([key,v])=>({key,x:v.x,y:v.y,kind:v.kind})).slice(0,60);
+        localStorage.setItem(diqaFloatStorageKey(),JSON.stringify(data));
+      }catch(e){} // Storage may be disabled; current session still works.
+    }
+    function diqaFloatStart(){
+      diqaFloatHeads.clear();diqaFloatLayer?.replaceChildren();
+      diqaFloatLayer?.classList.remove('hidden');
+      try{
+        const entries=JSON.parse(localStorage.getItem(diqaFloatStorageKey())||'[]');
+        if(Array.isArray(entries))for(const item of entries.slice(0,60)){
+          if(!item||!/^u[0-9a-f]{2,500}$/.test(String(item.key||''))||item.key===diqaChatUserKey)continue;
+          const pos=diqaFloatClamp(item.x,item.y);
+          diqaFloatHeads.set(item.key,{...pos,kind:item.kind==='incoming'?'incoming':'manual'});
+        }
+      }catch(e){}
+      diqaFloatRefresh();
+    }
+    function diqaFloatStop(){
+      diqaFloatDrag=null;diqaFloatHeads.clear();
+      diqaFloatLayer?.replaceChildren();diqaFloatLayer?.classList.add('hidden');
+      if(diqaFloatDrop){diqaFloatDrop.hidden=true;diqaFloatDrop.classList.remove('diqa-drop-over');}
+      diqaFloatIgnoreStripClick=false;
+    }
+    function diqaFloatDefaultPosition(){
+      const sz=innerWidth<=480?54:DIQA_FLOAT_SIZE;
+      // Dock below the top team strip to avoid covering names and notes.
+      const startY=Math.min(Math.max(190,Math.round(innerHeight*.43)),Math.max(4,innerHeight-sz-14));
+      const stride=sz+13,maxRows=Math.max(1,Math.floor((innerHeight-startY-12)/stride));
+      const used=Array.from(diqaFloatHeads.values());
+      for(let i=0;i<100;i++){
+        const pos=diqaFloatClamp(innerWidth-sz-14-Math.floor(i/maxRows)*stride,startY+(i%maxRows)*stride);
+        if(!used.some(h=>Math.abs(h.x-pos.x)<sz*.7&&Math.abs(h.y-pos.y)<sz*.7))return pos;
+      }
+      return diqaFloatClamp(innerWidth-sz-12,90);
+    }
+    function diqaFloatPin(peerKey,kind='manual',position=null){
+      if(!diqaChatUserKey||!peerKey||peerKey===diqaChatUserKey||!diqaFloatLayer)return;
+      let head=diqaFloatHeads.get(peerKey);
+      if(!head){
+        const point=position ? diqaFloatClamp(position.x,position.y) : diqaFloatDefaultPosition();
+        head={...point,kind};diqaFloatHeads.set(peerKey,head);
+      }else if(position){Object.assign(head,diqaFloatClamp(position.x,position.y));}
+      diqaFloatRefresh();
+      const element=diqaFloatElement(peerKey);
+      if(element){element.style.zIndex=String(++diqaFloatZ);}
+      diqaFloatSave();
+    }
+    function diqaFloatRemove(peerKey){
+      diqaFloatHeads.delete(peerKey);
+      diqaFloatElement(peerKey)?.remove();
+      diqaFloatSave(); // Dismiss floating shortcut ONLY. Inbox unread state stays unchanged.
+    }
+    function diqaFloatElement(key){
+      return Array.from(diqaFloatLayer?.children||[]).find(el=>el.dataset.floatPerson===key)||null;
+    }
+    function diqaFloatUnread(key){
+      return diqaChatEntries(key).filter(([,msg])=>msg.from===key&&msg.to===diqaChatUserKey&&!msg.readAt).length;
+    }
+    function diqaFloatRefresh(){
+      if(!diqaFloatLayer||!diqaChatUserKey)return;
+      for(const [peerKey,head] of diqaFloatHeads){
+        const person=diqaSocialFindPerson(peerKey);
+        // Directory may still be loading; keep the pinned ID until it resolves.
+        if(!person)continue;
+        let bubble=diqaFloatElement(peerKey);
+        if(!bubble){
+          bubble=document.createElement('button');bubble.type='button';
+          bubble.className='diqa-chat-head-bubble';bubble.dataset.floatPerson=peerKey;
+          bubble.title='افتح محادثة '+person.name+' — اسحب الصورة للتحريك، أو اسحبها إلى × للإخفاء';
+          bubble.innerHTML='<span class="diqa-chat-head-portrait">'+diqaTeamAvatarHtml(person)+'</span><span class="diqa-chat-head-unread" hidden></span>';
+          diqaFloatLayer.appendChild(bubble);
+        }
+        bubble.setAttribute('aria-label','محادثة '+person.name+'، اضغط للفتح أو اسحب للتحريك');
+        if(bubble.dataset.photoRevision!==String(diqaPortraitRevision)){
+          bubble.querySelector('.diqa-chat-head-portrait').innerHTML=diqaTeamAvatarHtml(person);
+          bubble.dataset.photoRevision=String(diqaPortraitRevision);
+        }
+        const unread=diqaFloatUnread(peerKey),badge=bubble.querySelector('.diqa-chat-head-unread');
+        if(badge){badge.hidden=!unread;badge.textContent=unread>99?'99+':String(unread);}
+        const pos=diqaFloatClamp(head.x,head.y);Object.assign(head,pos);
+        bubble.style.left=pos.x+'px';bubble.style.top=pos.y+'px';
+      }
+      for(const el of Array.from(diqaFloatLayer.children))if(!diqaFloatHeads.has(el.dataset.floatPerson))el.remove();
+    }
+    function diqaFloatNearDrop(x,y){
+      if(!diqaFloatDrop)return false;
+      const r=diqaFloatDrop.getBoundingClientRect();
+      return x>=r.left-18&&x<=r.right+18&&y>=r.top-18&&y<=r.bottom+18;
+    }
+    function diqaFloatShowDrop(active){
+      if(diqaFloatDrop){diqaFloatDrop.hidden=!active;diqaFloatDrop.classList.remove('diqa-drop-over');}
+    }
+    function diqaFloatMoveHead(peerKey,x,y){
+      const head=diqaFloatHeads.get(peerKey);if(!head)return;
+      Object.assign(head,diqaFloatClamp(x,y));
+      const b=diqaFloatElement(peerKey);
+      if(b){b.style.left=head.x+'px';b.style.top=head.y+'px';}
+    }
+    // Drag a floating bubble anywhere; release on the X at the bottom to dismiss.
+    diqaFloatLayer?.addEventListener('pointerdown',ev=>{
+      const b=ev.target.closest('.diqa-chat-head-bubble');if(!b||!diqaChatUserKey)return;
+      if(ev.pointerType==='mouse'&&ev.button!==0)return;
+      const key=b.dataset.floatPerson;const h=diqaFloatHeads.get(key);if(!h)return;
+      diqaFloatDrag={kind:'head',key,id:ev.pointerId,startX:ev.clientX,startY:ev.clientY,
+        originX:h.x,originY:h.y,moved:false};
+      b.setPointerCapture(ev.pointerId);
+      b.style.zIndex=String(++diqaFloatZ);
+      ev.preventDefault();
+    });
+    diqaFloatLayer?.addEventListener('pointermove',ev=>{
+      const d=diqaFloatDrag;if(!d||d.kind!=='head'||d.id!==ev.pointerId)return;
+      const dx=ev.clientX-d.startX,dy=ev.clientY-d.startY;
+      if(!d.moved&&Math.hypot(dx,dy)<7)return;
+      d.moved=true;diqaFloatShowDrop(true);
+      diqaFloatElement(d.key)?.classList.add('diqa-head-moving');
+      diqaFloatMoveHead(d.key,d.originX+dx,d.originY+dy);
+      diqaFloatDrop?.classList.toggle('diqa-drop-over',diqaFloatNearDrop(ev.clientX,ev.clientY));
+    });
+    function diqaFloatFinishHead(ev){
+      const d=diqaFloatDrag;if(!d||d.kind!=='head'||d.id!==ev.pointerId)return;
+      diqaFloatDrag=null;
+      const b=diqaFloatElement(d.key);b?.classList.remove('diqa-head-moving');
+      if(d.moved&&diqaFloatNearDrop(ev.clientX,ev.clientY))diqaFloatRemove(d.key);
+      else if(d.moved)diqaFloatSave();
+      diqaFloatShowDrop(false);
+      if(d.moved&&b)b.dataset.ignoreClickUntil=String(Date.now()+450);
+      // No read-status operation on drop or dismiss.
+    }
+    diqaFloatLayer?.addEventListener('pointerup',diqaFloatFinishHead);
+    diqaFloatLayer?.addEventListener('pointercancel',diqaFloatFinishHead);
+    diqaFloatLayer?.addEventListener('click',ev=>{
+      const b=ev.target.closest('.diqa-chat-head-bubble');if(!b)return;
+      if(Date.now()<Number(b.dataset.ignoreClickUntil||0))return;
+      diqaChatOpen(b.dataset.floatPerson);
+    });
+    // An image in the top strip can be dragged out to create a floating head.
+    // Tapping the small ⊕ creates it directly (also useful for keyboard access).
+    let diqaFloatStripDrag=null;
+    diqaPeopleList?.addEventListener('pointerdown',ev=>{
+      const grab=ev.target.closest('.diqa-team-avatar-wrap,.diqa-team-pin');
+      if(!grab||!diqaChatUserKey||(ev.pointerType==='mouse'&&ev.button!==0))return;
+      const card=grab.closest('[data-person-key]');const peerKey=card?.dataset.personKey;
+      if(!peerKey||peerKey===diqaChatUserKey)return;
+      diqaFloatStripDrag={id:ev.pointerId,key:peerKey,startX:ev.clientX,startY:ev.clientY,dragging:false};
+      grab.setPointerCapture(ev.pointerId);
+    });
+    diqaPeopleList?.addEventListener('pointermove',ev=>{
+      const d=diqaFloatStripDrag;if(!d||d.id!==ev.pointerId)return;
+      if(!d.dragging&&Math.hypot(ev.clientX-d.startX,ev.clientY-d.startY)<11)return;
+      if(!d.dragging){d.dragging=true;diqaFloatShowDrop(true);}
+      const sz=innerWidth<=480?54:DIQA_FLOAT_SIZE;
+      diqaFloatPin(d.key,'manual',{x:ev.clientX-sz/2,y:ev.clientY-sz/2});
+      diqaFloatDrop?.classList.toggle('diqa-drop-over',diqaFloatNearDrop(ev.clientX,ev.clientY));
+      ev.preventDefault();
+    });
+    function diqaFloatFinishStrip(ev){
+      const d=diqaFloatStripDrag;if(!d||d.id!==ev.pointerId)return;
+      diqaFloatStripDrag=null;
+      if(d.dragging){
+        if(diqaFloatNearDrop(ev.clientX,ev.clientY))diqaFloatRemove(d.key);
+        diqaFloatShowDrop(false);diqaFloatIgnoreStripClick=true;
+        setTimeout(()=>{diqaFloatIgnoreStripClick=false;},350);
+        diqaFloatSave();
+      }
+    }
+    diqaPeopleList?.addEventListener('pointerup',diqaFloatFinishStrip);
+    diqaPeopleList?.addEventListener('pointercancel',diqaFloatFinishStrip);
+    diqaPeopleList?.addEventListener('click',ev=>{
+      if(diqaFloatIgnoreStripClick){ev.stopImmediatePropagation();ev.preventDefault();return;}
+      const pin=ev.target.closest('.diqa-team-pin');
+      if(pin){const person=pin.closest('[data-person-key]');if(person){diqaFloatPin(person.dataset.personKey);ev.stopImmediatePropagation();ev.preventDefault();}}
+    },true);
+    window.addEventListener('resize',()=>{if(!diqaChatUserKey)return;diqaFloatRefresh();diqaFloatSave();});
+
     function diqaChatTime(timestamp){
       const d=new Date(Number(timestamp)||Date.now());
       return new Intl.DateTimeFormat('ar-IQ',{timeZone:'Asia/Baghdad',hour:'2-digit',minute:'2-digit',month:'2-digit',day:'2-digit'}).format(d);
@@ -2608,7 +2829,11 @@ nextDrivers[key] = {
       }
       diqaChatSeenOnLastSnapshot=fresh;
       diqaChatNotificationsReady=true;
-      if(notices.length){const last=notices[notices.length-1];diqaChatShowToast(last.peerKey,last.msg);}
+      if(notices.length){
+        // One movable picture per sender, even when multiple people write together.
+        for(const peerKey of new Set(notices.map(n=>n.peerKey)))diqaFloatPin(peerKey,'incoming');
+        const last=notices[notices.length-1];diqaChatShowToast(last.peerKey,last.msg);
+      }
     }
     function diqaChatRenderThread(){
       if(!diqaChatPeerKey||!diqaChatThread)return;
@@ -2706,6 +2931,7 @@ nextDrivers[key] = {
       const actor=diqaSocialCurrentPerson();if(!actor)return;
       diqaSocialStop();
       diqaChatUserKey=diqaUserKey(actor.role,actor.id);
+      diqaFloatStart();
       if(diqaHub)diqaHub.classList.remove('hidden');
       const info=document.getElementById('diqa-team-hub-info');
       if(info)info.textContent='الرسائل تُحذف بعد 48 ساعة عندما تكون إحدى صفحات الفريق متصلة. إشعارات المتصفح تعمل ما دامت الصفحة مفتوحة.';
@@ -2739,6 +2965,7 @@ nextDrivers[key] = {
       diqaSubscribeNotes();diqaRenderTeamPeople();
     }
     function diqaSocialStop(){
+      diqaFloatStop();
       diqaManagerReviewStop();
       diqaChatClose();
       if(diqaHub)diqaHub.classList.add('hidden');
