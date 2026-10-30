@@ -4,6 +4,15 @@
   <meta charset="UTF-8" />
   <title>أعمال شركة الدقّة — صور شخصية وترتيب المندوبين</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <!-- DIQA PWA: installable app shell. An installed shortcut is not a background GPS service. -->
+  <meta name="theme-color" content="#0d192c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="الدقّة">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/diqa-192.png">
+
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b1120'/%3E%3Ctext x='32' y='40' font-size='28' text-anchor='middle' fill='%2322c55e' font-family='Arial'%3ED%3C/text%3E%3C/svg%3E" />
 
   <!-- Leaflet CSS -->
@@ -822,10 +831,64 @@ background:#fff;
     }
     @media(max-width:360px){#diqa-chat-form .diqa-chat-tool {width:29px;min-width:29px;height:33px;font-size:16px;}
       #diqa-chat-form #diqa-chat-input {padding:8px 7px;}}
+
+    /* DIQA quick access: draggable, accessible assistive bubble within this web app only. */
+    #diqa-assistive-wrap {position:fixed;z-index:2147483075;right:12px;bottom:calc(100px + env(safe-area-inset-bottom,0px));width:56px;height:56px;pointer-events:none;direction:rtl;}
+    #diqa-assistive-toggle {width:56px;height:56px;min-width:56px;min-height:56px;padding:0;margin:0;border:2px solid #f8fafc;
+       border-radius:50%;background:linear-gradient(145deg,#0c7498,#15263f);box-shadow:0 3px 20px #000b,0 0 0 3px #38bdf84d;
+       font-size:23px;color:#fff;display:grid;place-items:center;cursor:grab;pointer-events:auto;touch-action:none;user-select:none;}
+    #diqa-assistive-toggle:active {cursor:grabbing;}
+    #diqa-assistive-toggle:focus-visible {outline:3px solid #facc15;}
+    #diqa-assistive-menu {position:absolute;bottom:calc(100% + 10px);right:0;min-width:min(260px,calc(100vw - 24px));
+       max-width:calc(100vw - 20px);border:1px solid #64748b;border-radius:17px;background:#0c1b31;color:#f8fafc;
+       padding:9px;box-shadow:0 16px 40px #000a;pointer-events:auto;overflow:auto;max-height:min(340px,65dvh)}
+    #diqa-assistive-menu[hidden] {display:none!important;}
+    #diqa-assistive-menu .diqa-assistive-title {font:800 13px Tahoma,Arial,sans-serif;padding:5px 8px 8px;color:#a5f3fc;}
+    #diqa-assistive-menu button {display:block;text-align:right;width:100%;padding:11px;margin:0 0 4px;border-radius:10px;
+       border:1px solid #354e6b;color:#fff;background:#18304d;font:700 13px Tahoma,Arial,sans-serif;}
+    #diqa-assistive-menu button:last-of-type {margin-bottom:0;}
+    #diqa-assistive-menu .diqa-assistive-footnote {padding:9px 5px 3px;font-size:10px;line-height:1.5;color:#cbd5e1;}
+    #diqa-app-setup {position:relative;max-width:1200px;margin:8px auto;padding:7px 10px;border:1px solid #375576;
+       border-radius:11px;background:#0e2036;color:#e2e8f0;display:flex;align-items:center;flex-wrap:wrap;gap:6px;}
+    #diqa-app-setup button {margin:0;font-size:12px;padding:7px 10px;}
+    #diqa-app-setup span {font-size:11px;color:#bcd3ef;}
+    #diqa-install-guide {position:fixed;inset:0;background:#020617dd;z-index:2147483590;
+       display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl;}
+    #diqa-install-guide[hidden] {display:none!important;}
+    #diqa-install-guide .diqa-guide-card {width:min(420px,100%);max-height:80dvh;overflow:auto;background:#0f233e;
+       border:1px solid #7dd3fc;border-radius:17px;padding:20px;color:#fff;line-height:1.9;box-shadow:0 18px 55px #000a;}
+    #diqa-install-guide h3 {margin:0 0 9px;color:#a5f3fc;font-size:18px;}
+    #diqa-install-guide p {margin:7px 0;font-size:14px;}
+    #diqa-install-guide button {margin:12px 0 0;}
+    body.diqa-mobile-chat-open #diqa-assistive-wrap {display:none!important;}
+    #diqa-assistive-wrap.diqa-assistive-quiet {opacity:.85;}
+    @media(max-width:600px){#diqa-assistive-wrap,#diqa-assistive-toggle {width:51px;height:51px;min-width:51px;min-height:51px}
+      #diqa-assistive-toggle {font-size:21px}#diqa-app-setup {margin:7px 8px;padding:6px 8px}}
 </style>
 </head>
 
 <body>
+  <!-- Quick access remains inside this app. Mobile operating systems cannot be bypassed by web code. -->
+  <div id="diqa-assistive-wrap" role="group" aria-label="اختصار الدقة العائم">
+    <div id="diqa-assistive-menu" hidden>
+      <div class="diqa-assistive-title">⚡ اختصارات الدقّة</div>
+      <button type="button" data-diqa-quick="chat">💬 المحادثات</button>
+      <button type="button" data-diqa-quick="map">🗺️ الخريطة</button>
+      <button type="button" data-diqa-quick="install">📲 تثبيت كتطبيق</button>
+      <button type="button" data-diqa-quick="notifications">🔔 التنبيهات</button>
+      <button type="button" data-diqa-quick="background">ℹ️ التشغيل بالخلفية</button>
+      <div class="diqa-assistive-footnote">هذا الاختصار داخل نظام الدقّة فقط، وليس فوق تطبيقات الهاتف.</div>
+    </div>
+    <button type="button" id="diqa-assistive-toggle" aria-controls="diqa-assistive-menu" aria-expanded="false" aria-label="فتح اختصارات الدقة" title="اختصار الدقة؛ اضغط أو اسحب للتحريك">⚡</button>
+  </div>
+  <div id="diqa-install-guide" hidden role="dialog" aria-modal="true" aria-label="تثبيت تطبيق الدقّة">
+    <div class="diqa-guide-card">
+      <h3 id="diqa-guide-title">تثبيت الدقّة</h3>
+      <div id="diqa-guide-content"></div>
+      <button type="button" id="diqa-guide-close">حسناً</button>
+    </div>
+  </div>
+
   <div class="app">
     <!-- LOGIN -->
     <div class="card" id="login-card">
@@ -885,6 +948,11 @@ background:#fff;
     </div>
 
 
+
+    <div id="diqa-app-setup" aria-label="إعداد تطبيق الدقة">
+      <button type="button" id="diqa-install-btn" class="secondary">📲 ثبّت الدقّة على الهاتف</button>
+      <span id="diqa-app-install-status" role="status">اختصار مستقل على الشاشة الرئيسية. استمرار الموقع بالخلفية يعتمد على Traccar وإعدادات الهاتف.</span>
+    </div>
     <!-- DIQA Team Hub: shown at top of each page after sign-in -->
     <section id="diqa-team-hub" class="diqa-team-hub hidden" aria-label="التواصل بين أعضاء فريق الدقّة">
       <div class="diqa-team-hub-top"><strong>💬 فريق الدقّة — اضغط على الصورة أو الاسم للمراسلة</strong>
@@ -15073,6 +15141,167 @@ document.addEventListener("DOMContentLoaded",function(){
     tbody.querySelectorAll('.client-name-input').forEach(input=>ensureBreakdownClientAutocomplete(input));
   }
 });
+</script>
+
+
+<script>
+(function(){
+  'use strict';
+  const wrap=document.getElementById('diqa-assistive-wrap');
+  const btn=document.getElementById('diqa-assistive-toggle');
+  const menu=document.getElementById('diqa-assistive-menu');
+  const guide=document.getElementById('diqa-install-guide');
+  const guideTitle=document.getElementById('diqa-guide-title');
+  const guideBody=document.getElementById('diqa-guide-content');
+  const installBtn=document.getElementById('diqa-install-btn');
+  const installStatus=document.getElementById('diqa-app-install-status');
+  let installEvent=null, dragging=null, ignoreClickUntil=0;
+  const isStandalone=()=>window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  function guideOpen(title,paras){
+    guideTitle.textContent=title;guideBody.replaceChildren();
+    paras.forEach(t=>{const p=document.createElement('p');p.textContent=t;guideBody.appendChild(p);});
+    guide.hidden=false;menu.hidden=true;btn.setAttribute('aria-expanded','false');
+  }
+  function guideClose(){guide.hidden=true;}
+  document.getElementById('diqa-guide-close')?.addEventListener('click',guideClose);
+  guide?.addEventListener('click',e=>{if(e.target===guide)guideClose();});
+  function updateInstallStatus(){
+    installStatus.textContent=isStandalone()
+      ? '✅ تعمل كتطبيق مستقل. الإشعارات بالخلفية تحتاج Web Push من السيرفر؛ موقع المندوب يعتمد على Traccar.'
+      : 'اختصار على الشاشة الرئيسية؛ لا يمنع نظام الهاتف من إيقاف صفحة الويب بالخلفية.';
+  }
+  window.addEventListener('beforeinstallprompt',e=>{
+    e.preventDefault();installEvent=e;updateInstallStatus();
+  });
+  window.addEventListener('appinstalled',()=>{installEvent=null;updateInstallStatus();});
+  updateInstallStatus();
+  async function install(){
+    if(isStandalone()){
+      guideOpen('الدقّة مثبت كتطبيق',['التطبيق مفتوح الآن بشكل مستقل عن المتصفح.','تتبّع المندوب أثناء قفل الشاشة يعتمد على تطبيق Traccar، وليس على اختصار الموقع.']);return;
+    }
+    if(installEvent){
+      const event=installEvent;installEvent=null;
+      try{await event.prompt();await event.userChoice;}catch(e){}
+      updateInstallStatus();return;
+    }
+    if(/iPhone|iPad|iPod/i.test(navigator.userAgent)){
+      guideOpen('تثبيت الدقّة على iPhone',[
+        'افتح رابط الدقّة بواسطة Safari (وليس داخل متصفح تطبيق آخر).',
+        'اضغط مشاركة ثم «إضافة إلى الشاشة الرئيسية» (Add to Home Screen)، وفعّل «فتح كتطبيق ويب» إذا ظهر الخيار.',
+        'افتح أيقونة الدقّة الجديدة؛ من إعدادات الجهاز اسمح بالإشعارات عند توفر Web Push من السيرفر.',
+        'الاختصار العائم يعمل داخل الدقّة فقط. تتبع الخلفية يحتاج Traccar على هاتف المندوب.'
+      ]);return;
+    }
+    guideOpen('تثبيت الدقّة على Android',[
+      'افتح الرابط من Chrome ثم القائمة ⋮ واختر «تثبيت التطبيق» أو «الإضافة إلى الشاشة الرئيسية».',
+      'لازم يتم رفع ملف HTML و manifest.webmanifest و sw.js وملفات icons إلى نفس مسار الموقع على HTTPS.',
+      'اسمح للتطبيق بالإشعارات إذا كانت Web Push مجهزة بالسيرفر؛ للتتبع مع قفل الشاشة استخدم Traccar.'
+    ]);
+  }
+  installBtn?.addEventListener('click',install);
+  function size(){return window.innerWidth<=600?51:56;}
+  function clamp(x,y){const n=size();return {x:Math.max(5,Math.min(window.innerWidth-n-5,x)),y:Math.max(5,Math.min(window.innerHeight-n-5,y))};}
+  function position(x,y){const p=clamp(x,y);wrap.style.left=p.x+'px';wrap.style.top=p.y+'px';wrap.style.right='auto';wrap.style.bottom='auto';return p;}
+  function save(p){try{localStorage.setItem('diqa:assistive-position:v1',JSON.stringify(p));}catch(e){}}
+  try{
+    const p=JSON.parse(localStorage.getItem('diqa:assistive-position:v1')||'null');
+    if(p&&typeof p.x==='number'&&typeof p.y==='number')position(p.x,p.y);
+  }catch(e){}
+  window.addEventListener('resize',()=>{
+    if(wrap.style.left)position(parseFloat(wrap.style.left),parseFloat(wrap.style.top));
+  },{passive:true});
+  btn.addEventListener('pointerdown',e=>{
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    const r=wrap.getBoundingClientRect();
+    dragging={id:e.pointerId,x:e.clientX,y:e.clientY,ox:r.left,oy:r.top,moved:false};
+    try{btn.setPointerCapture(e.pointerId);}catch(err){}
+  });
+  btn.addEventListener('pointermove',e=>{
+    const d=dragging;if(!d||e.pointerId!==d.id)return;
+    const dx=e.clientX-d.x,dy=e.clientY-d.y;
+    if(!d.moved&&Math.hypot(dx,dy)<7)return;
+    d.moved=true;position(d.ox+dx,d.oy+dy);menu.hidden=true;btn.setAttribute('aria-expanded','false');
+    e.preventDefault();
+  });
+  function stopDrag(e){
+    const d=dragging;if(!d||d.id!==e.pointerId)return;
+    dragging=null;
+    if(d.moved){ignoreClickUntil=Date.now()+500;save(clamp(parseFloat(wrap.style.left),parseFloat(wrap.style.top)));}
+  }
+  btn.addEventListener('pointerup',stopDrag);
+  btn.addEventListener('pointercancel',stopDrag);
+  btn.addEventListener('click',()=>{
+    if(Date.now()<ignoreClickUntil)return;
+    menu.hidden=!menu.hidden;btn.setAttribute('aria-expanded',String(!menu.hidden));
+    // Place menu inside the viewport if bubble is near top or left edge.
+    if(!menu.hidden){
+      const r=wrap.getBoundingClientRect();
+      menu.style.bottom=(r.top<350)?'auto':'calc(100% + 10px)';
+      menu.style.top=(r.top<350)?'calc(100% + 10px)':'auto';
+      menu.style.right=(r.right>window.innerWidth/2)?'0':'auto';
+      menu.style.left=(r.right>window.innerWidth/2)?'auto':'0';
+    }
+  });
+  document.addEventListener('pointerdown',e=>{
+    if(!wrap.contains(e.target)){
+      menu.hidden=true;btn.setAttribute('aria-expanded','false');
+    }
+  });
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){guideClose();menu.hidden=true;btn.setAttribute('aria-expanded','false');}});
+  menu.addEventListener('click',async e=>{
+    const item=e.target.closest('[data-diqa-quick]');if(!item)return;
+    menu.hidden=true;btn.setAttribute('aria-expanded','false');
+    const action=item.dataset.diqaQuick;
+    if(action==='install'){install();return;}
+    if(action==='background'){
+      guideOpen('التشغيل بالخلفية — ما الذي يعمل فعلاً؟',[
+        'الاختصار العائم يعمل داخل صفحة الدقّة فقط. لا يمكن لصفحة ويب إظهار زر فوق تطبيقات ثانية أو إجبار iOS/Android على تشغيلها بشكل دائم.',
+        'حركة المندوب وموقعه أثناء قفل الشاشة: ثبّت تطبيق Traccar الأصلي واسمح للموقع دائماً وأوقف قيود البطارية وفق إعدادات الهاتف.',
+        'رسائل المحادثات بعد إغلاق الصفحة: تحتاج Web Push مفعّلة من السيرفر مع اشتراك كل مستخدم. مجرد إذن الإشعارات لا يكفي.',
+        'بعد العودة للصفحة سيُستأنف عرض الرسائل والمواقع المتاحة من السيرفر. لا نعتمد على مؤقت خلفية لضمان الإرسال.'
+      ]);return;
+    }
+    if(action==='notifications'){
+      const notify=document.getElementById('diqa-team-notify-btn');
+      if(notify&&!notify.closest('.hidden'))notify.click();
+      else guideOpen('الإشعارات',['سجل دخولك واضغط «تنبيهات الرسائل» داخل شريط الفريق.','لتستمر الإشعارات عند إغلاق التطبيق، يلزم إعداد Web Push وإرسال التنبيهات من السيرفر.']);
+      return;
+    }
+    if(action==='chat'){
+      const hub=document.getElementById('diqa-team-hub');
+      if(hub&&!hub.classList.contains('hidden'))hub.scrollIntoView({behavior:'smooth',block:'start'});
+      else guideOpen('محادثات الفريق',['سجل دخولك أولاً حتى تظهر المحادثات.']);
+      return;
+    }
+    if(action==='map'){
+      const map=document.getElementById('map');
+      const driverMap=document.getElementById('driver-map');
+      const target=map&&map.offsetParent!==null?map:driverMap&&driverMap.offsetParent!==null?driverMap:null;
+      if(target)target.scrollIntoView({behavior:'smooth',block:'center'});
+      else guideOpen('الخريطة',['سجل دخولك، ثم افتح قسم الخريطة المخصص لدورك.']);
+    }
+  });
+  // Only web push notifications delivered by a server can arrive when the document is not running.
+  // This service worker does not implement background GPS or create a perpetual background task.
+  if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost')){
+    window.addEventListener('load',()=>{
+      navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(err=>{
+        console.warn('DIQA PWA worker not installed. Deploy all the package files together.',err);
+      });
+    });
+  }
+  function refreshOnReturn(){
+    if(document.visibilityState==='hidden')return;
+    try{
+      // Keep Firebase's own reconnect/listener logic. This only refreshes visible UI.
+      if(typeof diqaRenderTeamPeople==='function'&&typeof diqaChatUserKey!=='undefined'&&diqaChatUserKey)diqaRenderTeamPeople();
+      if(typeof diqaChatRenderThread==='function'&&typeof diqaChatPeerKey!=='undefined'&&diqaChatPeerKey)diqaChatRenderThread();
+    }catch(err){console.debug('DIQA visible refresh',err);}
+  }
+  document.addEventListener('visibilitychange',refreshOnReturn);
+  window.addEventListener('pageshow',refreshOnReturn);
+  window.addEventListener('online',refreshOnReturn);
+})();
 </script>
 
 </body>
