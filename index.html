@@ -761,6 +761,67 @@ background:#fff;
       #diqa-manager-review-overlay .diqa-manager-review-footer { flex:0 0 auto;
         padding-bottom:max(10px, env(safe-area-inset-bottom, 0px)); }
     }
+
+    /* Chat attachments: native emoji, provider-hosted animated GIF, and 60-second voice notes. */
+    #diqa-chat-form { display:grid;grid-template-columns:minmax(0,1fr) auto;
+      grid-template-areas:'picker picker' 'preview preview' 'write send' 'status status';
+      align-items:center;gap:6px 7px;min-width:0;padding:9px 10px max(9px,env(safe-area-inset-bottom)); }
+    #diqa-chat-form .diqa-chat-input-row {grid-area:write;display:flex;align-items:center;gap:5px;min-width:0;width:100%;}
+    #diqa-chat-form .diqa-chat-tools {display:flex;align-items:center;gap:3px;flex:0 0 auto;}
+    #diqa-chat-form .diqa-chat-tool {min-width:35px;width:35px;height:38px;display:inline-flex;align-items:center;
+      justify-content:center;padding:0;margin:0;border-radius:50%;background:#233a57;color:#fff;
+      border:1px solid #3d5979;font-size:19px;line-height:1;touch-action:manipulation;}
+    #diqa-chat-form .diqa-chat-tool-gif {font-size:11px;font-weight:900;letter-spacing:-.3px;}
+    #diqa-chat-form .diqa-chat-tool[aria-expanded="true"] {background:#0369a1;border-color:#7dd3fc;}
+    #diqa-chat-form #diqa-chat-mic-btn.diqa-mic-recording {background:#b91c1c;border-color:#fca5a5;animation:diqa-pulse 1.3s infinite;}
+    @keyframes diqa-pulse {50%{box-shadow:0 0 0 5px #f871713b;}}
+    #diqa-chat-form #diqa-chat-input {flex:1 1 auto;width:auto;min-width:0;max-width:none;min-height:41px;height:41px;
+      max-height:82px;margin:0;padding:9px 11px;font-size:16px!important;line-height:21px;resize:none;
+      background:#192e49;color:#fff;border:1px solid #42526a;border-radius:22px;}
+    #diqa-chat-form .diqa-chat-form-actions {grid-area:send;display:flex;gap:5px;align-items:center;justify-content:center;margin:0;}
+    #diqa-chat-form #diqa-chat-send {height:41px;padding:0 13px;margin:0;min-width:57px;border-radius:23px;white-space:nowrap;}
+    #diqa-chat-form .diqa-chat-count {display:none;}
+    #diqa-chat-form .diqa-chat-status {grid-area:status;min-height:14px;margin:0;font-size:11px;white-space:normal;overflow-wrap:anywhere;}
+    #diqa-chat-form .diqa-chat-picker {grid-area:picker;min-width:0;max-height:min(255px,38dvh);overflow:auto;
+      background:#14273e;border:1px solid #385475;border-radius:13px;padding:9px;overscroll-behavior:contain;}
+    #diqa-chat-form [hidden] {display:none!important;}
+    #diqa-chat-form .diqa-chat-emoji-grid {display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:3px;}
+    #diqa-chat-form .diqa-chat-emoji-grid button {padding:4px 0;margin:0;font-size:24px;min-height:36px;
+      background:transparent;color:#fff;border:0;border-radius:8px;}
+    #diqa-chat-form .diqa-chat-emoji-grid button:hover,#diqa-chat-form .diqa-chat-emoji-grid button:focus-visible {background:#2c4867;}
+    #diqa-chat-form .diqa-chat-gif-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;}
+    #diqa-chat-form .diqa-chat-gif-grid button {margin:0;padding:0;height:89px;overflow:hidden;border-radius:8px;
+      border:1px solid #3e5774;background:#233a57;position:relative;}
+    #diqa-chat-form .diqa-chat-gif-grid img {width:100%;height:100%;display:block;object-fit:cover;}
+    #diqa-chat-form .diqa-chat-gif-grid button span {position:absolute;inset:auto 0 0;display:block;padding:2px;
+      color:#fff;background:#020617bb;font-size:10px;}
+    #diqa-chat-form .diqa-chat-gif-url-row {display:flex;gap:6px;margin-top:9px;align-items:center;min-width:0;}
+    #diqa-chat-form .diqa-chat-gif-url-row input {flex:1;width:1px;min-width:0;margin:0;padding:7px;font-size:12px;}
+    #diqa-chat-form .diqa-chat-gif-url-row button {flex:none;margin:0;padding:8px 9px;font-size:11px;}
+    #diqa-chat-form .diqa-chat-picker-hint {font-size:10px;color:#a5b4c7;margin-top:5px;line-height:1.5;}
+    #diqa-chat-form .diqa-chat-voice-preview {grid-area:preview;display:flex;align-items:center;gap:5px;
+      padding:7px;background:#12283e;border:1px solid #3f5c79;border-radius:11px;min-width:0;flex-wrap:wrap;}
+    #diqa-chat-form .diqa-chat-voice-preview audio {min-width:0;flex:1 1 160px;height:36px;max-width:100%;}
+    #diqa-chat-form .diqa-chat-voice-preview button {font-size:11px;margin:0;padding:8px 10px;}
+    .diqa-chat-message.diqa-chat-media-message {white-space:normal;min-width:min(185px,65vw);}
+    .diqa-chat-gif-message {display:block;max-width:min(245px,65vw);max-height:240px;width:100%;height:auto;object-fit:contain;border-radius:9px;}
+    .diqa-chat-voice-message {display:flex;align-items:center;gap:5px;flex-wrap:wrap;max-width:100%;}
+    .diqa-chat-voice-message audio {width:230px;max-width:100%;height:40px;}
+    .diqa-chat-voice-meta {font-size:10px;color:#e2e8f0;}
+    @media(max-width:600px){
+      #diqa-chat-form {grid-template-areas:'picker picker' 'preview preview' 'write send' 'status status';
+        padding:7px 7px max(7px,env(safe-area-inset-bottom));gap:4px 5px;}
+      #diqa-chat-form .diqa-chat-tool {width:32px;min-width:32px;height:36px;font-size:18px;}
+      #diqa-chat-form .diqa-chat-tool-gif {font-size:10px;}
+      #diqa-chat-form .diqa-chat-tools {gap:2px;}
+      #diqa-chat-form #diqa-chat-input {min-height:41px;height:41px;padding:9px 9px;font-size:16px!important;}
+      #diqa-chat-form #diqa-chat-send {height:41px;min-width:50px;padding:0 9px;font-size:12px;}
+      #diqa-chat-form .diqa-chat-emoji-grid {grid-template-columns:repeat(7,minmax(0,1fr));}
+      #diqa-chat-form .diqa-chat-picker {max-height:min(250px,40dvh);}
+      #diqa-chat-form .diqa-chat-status {white-space:normal;overflow:visible;font-size:10px;}
+    }
+    @media(max-width:360px){#diqa-chat-form .diqa-chat-tool {width:29px;min-width:29px;height:33px;font-size:16px;}
+      #diqa-chat-form #diqa-chat-input {padding:8px 7px;}}
 </style>
 </head>
 
@@ -845,8 +906,31 @@ background:#fff;
         </div>
         <div id="diqa-chat-thread" class="diqa-chat-thread" role="log" aria-live="polite" aria-relevant="additions"></div>
         <form id="diqa-chat-form" class="diqa-chat-form">
-          <label for="diqa-chat-input">رسالة قصيرة (50 حرف كحد أقصى)</label>
-          <textarea id="diqa-chat-input" maxlength="50" rows="2" placeholder="اكتب رسالتك هنا..."></textarea>
+          <label for="diqa-chat-input">اكتب رسالة (50 حرف كحد أقصى) أو أرسل إيموجي أو GIF أو صوت</label>
+          <div id="diqa-chat-picker" class="diqa-chat-picker" hidden>
+            <div id="diqa-chat-emojis" class="diqa-chat-emoji-grid" hidden aria-label="اختيار إيموجي"></div>
+            <div id="diqa-chat-gifs" class="diqa-chat-gif-picker" hidden>
+              <div id="diqa-chat-gif-grid" class="diqa-chat-gif-grid" aria-label="اختيار GIF"></div>
+              <div class="diqa-chat-gif-url-row">
+                <input id="diqa-chat-gif-url" type="url" inputmode="url" dir="ltr" placeholder="أو الصق رابط GIF من GIPHY / Tenor" autocomplete="off">
+                <button type="button" id="diqa-chat-gif-url-send" class="secondary">إرسال GIF</button>
+              </div>
+              <div class="diqa-chat-picker-hint">اختر صورة متحركة أو الصق رابط GIF مباشر من GIPHY أو Tenor.</div>
+            </div>
+          </div>
+          <div id="diqa-chat-voice-preview" class="diqa-chat-voice-preview" hidden>
+            <audio id="diqa-chat-voice-audio" controls playsinline preload="metadata"></audio>
+            <button type="button" id="diqa-chat-voice-send">إرسال الصوت</button>
+            <button type="button" id="diqa-chat-voice-cancel" class="secondary">إلغاء</button>
+          </div>
+          <div class="diqa-chat-input-row">
+            <div class="diqa-chat-tools">
+              <button type="button" class="secondary diqa-chat-tool" id="diqa-chat-emoji-btn" title="إيموجي" aria-label="إيموجي" aria-expanded="false">😀</button>
+              <button type="button" class="secondary diqa-chat-tool diqa-chat-tool-gif" id="diqa-chat-gif-btn" title="GIF" aria-label="صور GIF" aria-expanded="false">GIF</button>
+              <button type="button" class="secondary diqa-chat-tool" id="diqa-chat-mic-btn" title="تسجيل صوت" aria-label="بدء تسجيل صوت">🎤</button>
+            </div>
+            <textarea id="diqa-chat-input" maxlength="100" rows="1" placeholder="اكتب رسالة..."></textarea>
+          </div>
           <div class="diqa-chat-form-actions"><span id="diqa-chat-count" class="diqa-chat-count">0 / 50</span><button type="submit" id="diqa-chat-send">إرسال</button></div>
           <div id="diqa-chat-status" class="diqa-chat-status" aria-live="polite"></div>
         </form>
@@ -2421,6 +2505,9 @@ nextDrivers[key] = {
     // ===== DIQA: team strip + conversation, built on RTDB (48-hour visibility/cleanup) =====
     // PIN-only login does not provide database-level identity isolation. Harden with Firebase Auth + rules.
     const DIQA_CHAT_INBOX='diqaTeamInbox';
+    const DIQA_CHAT_VOICE_PATH='diqaTeamVoiceMedia'; // Media saved once, not duplicated into two inbox snapshots.
+    const DIQA_CHAT_VOICE_MAX_MS=60*1000;
+    const DIQA_CHAT_VOICE_MAX_BYTES=1536*1024;
     const DIQA_CHAT_TTL=48*60*60*1000;
     const diqaHub=document.getElementById('diqa-team-hub');
     const diqaPeopleList=document.getElementById('diqa-team-people');
@@ -2593,14 +2680,18 @@ nextDrivers[key] = {
       const title=document.getElementById('diqa-manager-review-title');
       if(title)title.textContent=diqaManagerReviewTitle(pair);
       const stick=thread.scrollHeight-thread.scrollTop-thread.clientHeight<85;
+      const signature=pair.key+'|'+pair.messages.map(m=>m.id).join(',');
+      if(thread.dataset.diqaReviewSignature===signature)return;
+      thread.dataset.diqaReviewSignature=signature;
       thread.innerHTML=pair.messages.map(msg=>{
         const speaker=diqaSocialFindPerson(msg.from)?.name||'حساب غير معروف';
         const right=msg.from===pair.people[0];
-        return `<div class="diqa-chat-message${right?' own':''}">`+
+        return `<div class="diqa-chat-message${right?' own':''}${msg.type==='gif'||msg.type==='voice'?' diqa-chat-media-message':''}">`+
           `<span class="diqa-manager-msg-who">${escapeHtml(speaker)}</span>`+
-          `${escapeHtml(diqaTakeGraphemes(msg.text,50))}<small>${diqaChatTime(msg.createdAt)}</small></div>`;
+          `${diqaChatMessageBodyHtml(msg,msg.id)}<small>${diqaChatTime(msg.createdAt)}</small></div>`;
       }).join('');
       if(stick)thread.scrollTop=thread.scrollHeight;
+      diqaChatHydrateAudio(thread);
     }
     function diqaManagerOpenReviewThread(key){
       if(!diqaIsOriginalManager()||!diqaManagerReviewPairs.some(p=>p.key===key))return;
@@ -2611,6 +2702,8 @@ nextDrivers[key] = {
     }
     function diqaManagerCloseReviewThread(){
       diqaManagerReviewOpenKey='';
+      const thread=document.getElementById('diqa-manager-review-thread');
+      if(thread){thread.dataset.diqaReviewSignature='';thread.replaceChildren();}
       document.getElementById('diqa-manager-review-overlay')?.classList.add('hidden');
     }
     function diqaManagerShowPanel(visible){
@@ -2632,6 +2725,7 @@ nextDrivers[key] = {
             seen.add(pair);
             changes[`${DIQA_CHAT_INBOX}/${owner}/chats/${peer}/${id}`]=null;
             changes[`${DIQA_CHAT_INBOX}/${peer}/chats/${owner}/${id}`]=null;
+            if(msg&&msg.type==='voice'&&msg.voiceId===id)changes[`${DIQA_CHAT_VOICE_PATH}/${id}`]=null;
             if(++count>=60)break outer;
           }
         }
@@ -2923,10 +3017,22 @@ nextDrivers[key] = {
       const entries=diqaChatEntries(diqaChatPeerKey);
       const wasAtBottom=diqaChatThread.scrollHeight-diqaChatThread.scrollTop-diqaChatThread.clientHeight<85;
       if(!entries.length){diqaChatThread.innerHTML='<div class="diqa-chat-empty">ماكو رسائل بعد. اكتب أول رسالة.</div>';return;}
-      diqaChatThread.innerHTML=entries.map(([id,msg])=>{
-        const own=msg.from===diqaChatUserKey;
-        return `<div class="diqa-chat-message${own?' own':''}" data-msg-key="${escapeHtml(id)}">${escapeHtml(diqaTakeGraphemes(msg.text,50))}<small>${diqaChatTime(msg.createdAt)}</small></div>`;
-      }).join('');
+      const oldIds=Array.from(diqaChatThread.children)
+        .filter(el=>el.classList.contains('diqa-chat-message')).map(el=>el.getAttribute('data-msg-key'));
+      const canAppend=oldIds.length>0 && oldIds.length<=entries.length &&
+        oldIds.every((id,i)=>id===entries[i][0]);
+      // Append only new messages when possible: never restart a voice note that is playing
+      // just because a read receipt, chat ranking or another notification changed.
+      if(!canAppend||oldIds.length!==entries.length){
+        const rows=(canAppend?entries.slice(oldIds.length):entries).map(([id,msg])=>{
+          const own=msg.from===diqaChatUserKey;
+          const media=(msg.type==='gif'||msg.type==='voice')?' diqa-chat-media-message':'';
+          return `<div class="diqa-chat-message${own?' own':''}${media}" data-msg-key="${escapeHtml(id)}">${diqaChatMessageBodyHtml(msg,id)}<small>${diqaChatTime(msg.createdAt)}</small></div>`;
+        }).join('');
+        if(canAppend)diqaChatThread.insertAdjacentHTML('beforeend',rows);
+        else diqaChatThread.innerHTML=rows;
+        diqaChatHydrateAudio(diqaChatThread);
+      }
       if(wasAtBottom||diqaChatThread.dataset.newChat==='true')diqaChatThread.scrollTop=diqaChatThread.scrollHeight;
       diqaChatThread.dataset.newChat='false';
     }
@@ -2976,6 +3082,8 @@ nextDrivers[key] = {
       const avatar=document.getElementById('diqa-chat-peer-avatar');if(avatar)avatar.innerHTML=diqaTeamAvatarHtml(peer);
       const status=document.getElementById('diqa-chat-status');if(status)status.textContent='تُعرض الرسائل لمدة 48 ساعة من إرسالها.';
       if(diqaChatThread)diqaChatThread.dataset.newChat='true';
+      diqaChatSetPicker('');
+      diqaChatCancelVoice();
       if(diqaChatOverlay)diqaChatOverlay.classList.remove('hidden');
       document.body.classList.toggle('diqa-mobile-chat-open',diqaMobileChatMedia.matches);
       diqaSyncMobileChatViewport();
@@ -2985,6 +3093,8 @@ nextDrivers[key] = {
       if(diqaChatInput&&!diqaMobileChatMedia.matches)diqaChatInput.focus();
     }
     function diqaChatClose(){
+      diqaChatSetPicker('');
+      diqaChatCancelVoice();
       diqaChatPeerKey='';
       if(diqaChatInput){diqaChatInput.blur();diqaChatInput.value='';}
       if(diqaChatOverlay)diqaChatOverlay.classList.add('hidden');
@@ -2997,6 +3107,283 @@ nextDrivers[key] = {
       if(diqaChatInput.value!==cleaned)diqaChatInput.value=cleaned;
       const count=document.getElementById('diqa-chat-count');if(count)count.textContent=diqaGraphemeCount(cleaned)+' / 50';
     }
+
+    // ===== GIFs, emoji and voice — all messages travel through existing Firebase RTDB =====
+    // External GIF links are restricted to approved animation CDNs.
+    function diqaSafeGifUrl(value){
+      try{
+        const u=new URL(String(value||'').trim());
+        const host=u.hostname.toLowerCase();
+        if(u.protocol!=='https:' || u.username||u.password)return '';
+        if(!['media.giphy.com','i.giphy.com','media0.giphy.com','media1.giphy.com','media2.giphy.com',
+              'media3.giphy.com','media4.giphy.com','media.tenor.com','c.tenor.com'].includes(host))return '';
+        if(!/\.(gif|webp)$/i.test(u.pathname))return '';
+        return u.href.length<900?u.href:'';
+      }catch(e){return '';}
+    }
+    function diqaChatMessageBodyHtml(msg,id){
+      if(msg&&msg.type==='gif'){
+        const src=diqaSafeGifUrl(msg.gifUrl);
+        return src?`<img class="diqa-chat-gif-message" src="${escapeHtml(src)}" loading="lazy" alt="صورة GIF متحركة" referrerpolicy="no-referrer">`:'<span>GIF غير متاح</span>';
+      }
+      if(msg&&msg.type==='voice'){
+        const key=String(msg.voiceId||id||'');
+        if(!/^[-_A-Za-z0-9]{8,100}$/.test(key))return '<span>صوت غير متاح</span>';
+        const sec=Math.max(0,Math.min(60,Math.round(Number(msg.durationSec)||0)));
+        return `<div class="diqa-chat-voice-message"><audio controls playsinline preload="none" data-diqa-voice-id="${escapeHtml(key)}" aria-label="رسالة صوتية"></audio><span class="diqa-chat-voice-meta">🎤 ${sec?sec+' ثانية':'صوت'}</span></div>`;
+      }
+      return escapeHtml(diqaTakeGraphemes(String(msg?.text||''),50));
+    }
+    const diqaAudioCache=new Map();
+    function diqaDecodeVoiceBase64(base64,mime){
+      const binary=atob(base64),parts=[];
+      for(let pos=0;pos<binary.length;pos+=32768){
+        const slice=binary.slice(pos,pos+32768),bytes=new Uint8Array(slice.length);
+        for(let i=0;i<slice.length;i++)bytes[i]=slice.charCodeAt(i);
+        parts.push(bytes);
+      }
+      return URL.createObjectURL(new Blob(parts,{type:mime}));
+    }
+    async function diqaChatLoadAudio(id){
+      if(diqaAudioCache.has(id))return diqaAudioCache.get(id);
+      const pending=(async()=>{
+        const snap=await db.ref(`${DIQA_CHAT_VOICE_PATH}/${id}`).once('value');
+        const item=snap.val();
+        if(!item || !diqaChatValidMessage(item) || !/^audio\/(webm|ogg|mp4|mpeg|aac|x-m4a)(?:;|$)/i.test(String(item.mime||''))
+           || typeof item.data!=='string' || item.data.length>DIQA_CHAT_VOICE_MAX_BYTES*1.4+64
+           || !/^[A-Za-z0-9+/]+={0,2}$/.test(item.data))throw new Error('الملف الصوتي غير متاح');
+        return diqaDecodeVoiceBase64(item.data,String(item.mime));
+      })();
+      diqaAudioCache.set(id,pending);
+      try{return await pending;}catch(e){diqaAudioCache.delete(id);throw e;}
+    }
+    function diqaChatHydrateAudio(container){
+      if(!container)return;
+      container.querySelectorAll('audio[data-diqa-voice-id]').forEach(el=>{
+        const id=el.getAttribute('data-diqa-voice-id');
+        if(!id)return;
+        // Do not reload the same audio from the database after every chat refresh.
+        diqaChatLoadAudio(id).then(url=>{
+          if(el.isConnected&&el.getAttribute('data-diqa-voice-id')===id)el.src=url;
+        }).catch(()=>{
+          if(!el.isConnected)return;
+          el.replaceWith(Object.assign(document.createElement('span'),{textContent:'⚠️ تعذر تحميل الصوت'}));
+        });
+      });
+    }
+    function diqaChatClearAudioCache(){
+      diqaAudioCache.forEach(p=>Promise.resolve(p).then(url=>URL.revokeObjectURL(url)).catch(()=>{}));
+      diqaAudioCache.clear();
+    }
+    async function diqaChatSendMedia(type,details){
+      const peer=diqaChatPeerKey,me=diqaChatUserKey;
+      if(!me||!peer||!diqaSocialFindPerson(peer))throw new Error('افتح محادثة أولاً');
+      const msgId=db.ref(`${DIQA_CHAT_INBOX}/${me}/chats/${peer}`).push().key;
+      if(!msgId)throw new Error('لم يتم إنشاء رقم الرسالة');
+      const data={from:me,to:peer,createdAt:SERVER_TS,expiresAt:diqaChatNow()+DIQA_CHAT_TTL};
+      const changes={};
+      if(type==='gif'){
+        const src=diqaSafeGifUrl(details.url);
+        if(!src)throw new Error('رابط GIF لازم يكون مباشر من GIPHY أو Tenor');
+        Object.assign(data,{type:'gif',gifUrl:src,text:'🎞️ GIF'});
+      }else if(type==='voice'){
+        if(!details.blob||details.blob.size>DIQA_CHAT_VOICE_MAX_BYTES)throw new Error('الملف الصوتي كبير؛ سجل مقطع أقصر');
+        const mime=details.mime||'audio/webm';
+        if(!/^audio\/(webm|ogg|mp4|mpeg|aac|x-m4a)/i.test(mime))throw new Error('صيغة التسجيل غير مدعومة');
+        const base64=await new Promise((resolve,reject)=>{
+          const reader=new FileReader();
+          reader.onerror=()=>reject(new Error('تعذرت قراءة التسجيل'));
+          reader.onload=()=>resolve(String(reader.result||'').split(',')[1]||'');
+          reader.readAsDataURL(details.blob);
+        });
+        if(!base64)throw new Error('التسجيل فارغ');
+        Object.assign(data,{type:'voice',voiceId:msgId,mime,durationSec:Math.round(details.durationSec||0),text:'🎤 رسالة صوتية'});
+        // Store the media ONCE, outside of every inbox snapshot.
+        changes[`${DIQA_CHAT_VOICE_PATH}/${msgId}`]={data:base64,mime,from:me,to:peer,
+          createdAt:SERVER_TS,expiresAt:diqaChatNow()+DIQA_CHAT_TTL};
+      }else throw new Error('نوع الرسالة غير معروف');
+      changes[`${DIQA_CHAT_INBOX}/${me}/chats/${peer}/${msgId}`]=data;
+      changes[`${DIQA_CHAT_INBOX}/${peer}/chats/${me}/${msgId}`]=data;
+      await db.ref().update(changes);
+    }
+    function diqaChatStatus(value){
+      const status=document.getElementById('diqa-chat-status');
+      if(status)status.textContent=value;
+    }
+    const diqaPicker=document.getElementById('diqa-chat-picker');
+    const diqaEmojiPanel=document.getElementById('diqa-chat-emojis');
+    const diqaGifPanel=document.getElementById('diqa-chat-gifs');
+    const diqaEmojiButton=document.getElementById('diqa-chat-emoji-btn');
+    const diqaGifButton=document.getElementById('diqa-chat-gif-btn');
+    let diqaActivePicker='';
+    function diqaChatSetPicker(which){
+      diqaActivePicker=diqaActivePicker===which?'':which;
+      if(!which)diqaActivePicker='';
+      if(diqaPicker)diqaPicker.hidden=!diqaActivePicker;
+      if(diqaEmojiPanel)diqaEmojiPanel.hidden=diqaActivePicker!=='emoji';
+      if(diqaGifPanel)diqaGifPanel.hidden=diqaActivePicker!=='gif';
+      diqaEmojiButton?.setAttribute('aria-expanded',String(diqaActivePicker==='emoji'));
+      diqaGifButton?.setAttribute('aria-expanded',String(diqaActivePicker==='gif'));
+      requestAnimationFrame(diqaSyncMobileChatViewport);
+    }
+    const diqaEmojis='😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😍 🥰 😘 😋 😎 🤩 🥳 😏 😌 😔 🥺 😢 😭 😡 🤯 😱 😴 🤔 🫡 🤗 🤝 👍 👎 👌 ✌️ 🤞 🤟 🤘 👏 🙌 🫶 💪 👋 🙏 💙 ❤️ 💚 💛 💜 💔 🔥 ✨ ⭐ 🎉 🎂 🎁 🚀 💯 ✅ ❌ 😺 💀 👀 😍'.split(' ');
+    if(diqaEmojiPanel){
+      diqaEmojiPanel.innerHTML=diqaEmojis.map(e=>`<button type="button" data-emoji="${e}" aria-label="${e}">${e}</button>`).join('');
+      diqaEmojiPanel.addEventListener('click',ev=>{
+        const b=ev.target.closest('[data-emoji]');if(!b||!diqaChatInput)return;
+        const str=b.getAttribute('data-emoji');
+        const a=diqaChatInput.selectionStart??diqaChatInput.value.length;
+        const z=diqaChatInput.selectionEnd??a;
+        const next=diqaChatInput.value.slice(0,a)+str+diqaChatInput.value.slice(z);
+        if(diqaGraphemeCount(next)>50){diqaChatStatus('حد الرسالة 50 حرف أو إيموجي.');return;}
+        diqaChatInput.value=next;diqaChatUpdateCount();
+        diqaChatInput.focus();diqaChatInput.setSelectionRange(a+str.length,a+str.length);
+      });
+    }
+    diqaEmojiButton?.addEventListener('click',()=>diqaChatSetPicker('emoji'));
+    diqaGifButton?.addEventListener('click',()=>diqaChatSetPicker('gif'));
+    // Ready-to-use GIFs. The direct-link field also accepts animated GIFs from GIPHY/Tenor.
+    const diqaGifSamples=[
+      ['5GoVLqeAOo6PK','🎉'],['g9582DNuQppxC','🥂'],['3o7abKhOpu0NwenH3O','😊'],
+      ['9XdzT07TKlBm8','🐈'],['8KVUfE6JwOvUY','💃'],['vFKqnCdLPNOKc','☀️'],
+      ['3ornjLd54l3eQYmfpC','🙌'],['3o6gE8Cx5xSd5NjKkc','🌟'],['3o6flQSs4BcsEbDE7S','😄']
+    ];
+    const diqaGifGrid=document.getElementById('diqa-chat-gif-grid');
+    if(diqaGifGrid){
+      diqaGifGrid.innerHTML=diqaGifSamples.map(([id,desc])=>{
+        const url=`https://media.giphy.com/media/${id}/giphy.gif`;
+        return `<button type="button" data-diqa-gif="${url}" aria-label="إرسال GIF ${desc}"><img src="${url}" alt="GIF ${desc}" loading="lazy" referrerpolicy="no-referrer"><span>${desc}</span></button>`;
+      }).join('');
+      diqaGifGrid.addEventListener('click',ev=>{
+        const el=ev.target.closest('[data-diqa-gif]');if(el)diqaChatSendGif(el.dataset.diqaGif);
+      });
+    }
+    let diqaMediaSending=false;
+    async function diqaChatSendGif(url){
+      if(diqaMediaSending)return;
+      if(!diqaSafeGifUrl(url)){diqaChatStatus('رابط GIF غير صحيح؛ استخدم رابط الصورة المباشر من GIPHY أو Tenor.');return;}
+      diqaMediaSending=true;diqaChatStatus('جار إرسال GIF...');
+      try{
+        await diqaChatSendMedia('gif',{url});
+        diqaChatSetPicker('');
+        const inp=document.getElementById('diqa-chat-gif-url');if(inp)inp.value='';
+        diqaChatStatus('✅ تم إرسال GIF.');
+      }catch(e){diqaChatStatus('⚠️ تعذر إرسال GIF: '+e.message);}
+      finally{diqaMediaSending=false;}
+    }
+    document.getElementById('diqa-chat-gif-url-send')?.addEventListener('click',()=>diqaChatSendGif(document.getElementById('diqa-chat-gif-url')?.value));
+    document.getElementById('diqa-chat-gif-url')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();diqaChatSendGif(e.target.value);}});
+
+    const diqaVoiceButton=document.getElementById('diqa-chat-mic-btn');
+    const diqaVoicePreview=document.getElementById('diqa-chat-voice-preview');
+    const diqaVoiceAudio=document.getElementById('diqa-chat-voice-audio');
+    let diqaVoiceRecorder=null,diqaVoiceStream=null,diqaVoiceChunks=[],diqaVoiceStart=0;
+    let diqaVoiceStarting=false,diqaVoiceRequestVersion=0;
+    let diqaVoiceTimer=null,diqaVoiceStopTimer=null,diqaVoiceCancelRequested=false,diqaVoiceDraft=null;
+    function diqaVoiceStopTracks(){
+      if(diqaVoiceStream)diqaVoiceStream.getTracks().forEach(track=>track.stop());
+      diqaVoiceStream=null;
+      if(diqaVoiceTimer)clearInterval(diqaVoiceTimer);
+      if(diqaVoiceStopTimer)clearTimeout(diqaVoiceStopTimer);
+      diqaVoiceTimer=null;diqaVoiceStopTimer=null;
+      diqaVoiceButton?.classList.remove('diqa-mic-recording');
+      if(diqaVoiceButton){diqaVoiceButton.textContent='🎤';diqaVoiceButton.title='تسجيل صوت';diqaVoiceButton.setAttribute('aria-label','بدء تسجيل صوت');}
+    }
+    function diqaChatDiscardVoiceDraft(){
+      if(diqaVoiceDraft?.url)URL.revokeObjectURL(diqaVoiceDraft.url);
+      diqaVoiceDraft=null;
+      if(diqaVoicePreview)diqaVoicePreview.hidden=true;
+      if(diqaVoiceAudio){diqaVoiceAudio.pause();diqaVoiceAudio.removeAttribute('src');diqaVoiceAudio.load();}
+    }
+    function diqaChatCancelVoice(){
+      diqaVoiceRequestVersion++;
+      diqaVoiceCancelRequested=true;
+      if(diqaVoiceRecorder?.state==='recording'){
+        try{diqaVoiceRecorder.stop();}catch(e){}
+      }
+      diqaVoiceStopTracks();diqaChatDiscardVoiceDraft();
+    }
+    function diqaVoiceStop(){
+      if(diqaVoiceRecorder?.state==='recording'){
+        try{diqaVoiceRecorder.stop();}catch(e){diqaChatStatus('تعذر إيقاف التسجيل.');diqaVoiceStopTracks();}
+      }
+    }
+    async function diqaVoiceStartRecording(){
+      if(diqaVoiceStarting || diqaVoiceRecorder?.state==='recording')return;
+      if(!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder==='undefined'){
+        diqaChatStatus('المتصفح ما يدعم التسجيل. افتح الموقع برابط HTTPS ومتصفح حديث.');return;
+      }
+      if(!diqaChatPeerKey)return;
+      if(diqaVoiceDraft)diqaChatDiscardVoiceDraft();
+      diqaChatSetPicker('');
+      const peer=diqaChatPeerKey;
+      const version=++diqaVoiceRequestVersion;
+      let stream;
+      diqaVoiceStarting=true;
+      diqaChatStatus('طلب إذن المايكروفون...');
+      try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});}
+      catch(e){diqaChatStatus('⚠️ لم يُسمح باستخدام المايكروفون. فعّل الإذن لهذا الموقع من إعدادات المتصفح.');return;}
+      finally{diqaVoiceStarting=false;}
+      if(peer!==diqaChatPeerKey || version!==diqaVoiceRequestVersion){stream.getTracks().forEach(track=>track.stop());return;}
+      diqaVoiceStream=stream;diqaVoiceCancelRequested=false;diqaVoiceChunks=[];
+      const formats=['audio/webm;codecs=opus','audio/mp4;codecs=mp4a.40.2','audio/mp4','audio/webm','audio/ogg;codecs=opus'];
+      const mime=formats.find(v=>MediaRecorder.isTypeSupported?.(v));
+      let rec;
+      try{rec=new MediaRecorder(stream,mime?{mimeType:mime,audioBitsPerSecond:32000}:{audioBitsPerSecond:32000});}
+      catch(e){diqaVoiceStopTracks();diqaChatStatus('⚠️ جهازك لا يدعم صيغة التسجيل الصوتي.');return;}
+      diqaVoiceRecorder=rec;
+      rec.addEventListener('dataavailable',e=>{if(diqaVoiceRecorder===rec&&e.data?.size)diqaVoiceChunks.push(e.data);});
+      rec.addEventListener('error',()=>{diqaVoiceCancelRequested=true;diqaVoiceStopTracks();diqaChatStatus('⚠️ حدث خطأ في تسجيل الصوت.');});
+      rec.addEventListener('stop',()=>{
+        // An old cancelled recorder must never stop a newer recording.
+        if(diqaVoiceRecorder!==rec)return;
+        const cancelled=diqaVoiceCancelRequested;
+        const duration=Math.min(DIQA_CHAT_VOICE_MAX_MS,Date.now()-diqaVoiceStart);
+        const chunks=diqaVoiceChunks.splice(0);
+        diqaVoiceStopTracks();diqaVoiceRecorder=null;
+        if(cancelled || diqaChatPeerKey!==peer)return;
+        const blob=new Blob(chunks,{type:rec.mimeType||mime||'audio/webm'});
+        if(blob.size<100){diqaChatStatus('⚠️ لم يتم تسجيل صوت. حاول مرة ثانية.');return;}
+        if(blob.size>DIQA_CHAT_VOICE_MAX_BYTES){diqaChatStatus('⚠️ حجم الصوت كبير جداً؛ سجل مقطع أقصر.');return;}
+        const url=URL.createObjectURL(blob);
+        diqaVoiceDraft={blob,url,mime:blob.type,durationSec:duration/1000,peerKey:peer};
+        if(diqaVoicePreview)diqaVoicePreview.hidden=false;
+        if(diqaVoiceAudio)diqaVoiceAudio.src=url;
+        diqaChatStatus('تگدر تسمع التسجيل، وبعدها اضغط «إرسال الصوت» أو «إلغاء».');
+      });
+      diqaVoiceStart=Date.now();
+      try{rec.start(250);}
+      catch(e){diqaChatCancelVoice();diqaChatStatus('⚠️ تعذر بدء التسجيل الصوتي.');return;}
+      diqaVoiceButton?.classList.add('diqa-mic-recording');
+      if(diqaVoiceButton){diqaVoiceButton.textContent='⏹️';diqaVoiceButton.title='إيقاف التسجيل';diqaVoiceButton.setAttribute('aria-label','إيقاف تسجيل الصوت');}
+      diqaVoiceTimer=setInterval(()=>{
+        if(rec.state!=='recording')return;
+        const seconds=Math.floor((Date.now()-diqaVoiceStart)/1000);
+        diqaChatStatus(`🔴 جاري التسجيل ${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')} / 01:00 — اضغط ⏹️ للإيقاف`);
+      },1000);
+      diqaVoiceStopTimer=setTimeout(diqaVoiceStop,DIQA_CHAT_VOICE_MAX_MS);
+      diqaChatStatus('🔴 جاري التسجيل 00:00 / 01:00 — اضغط ⏹️ للإيقاف');
+    }
+    diqaVoiceButton?.addEventListener('click',()=>{
+      if(diqaVoiceRecorder){if(diqaVoiceRecorder.state==='recording')diqaVoiceStop();return;}
+      diqaVoiceStartRecording();
+    });
+    document.getElementById('diqa-chat-voice-cancel')?.addEventListener('click',()=>{
+      diqaChatCancelVoice();diqaChatStatus('تم إلغاء التسجيل.');
+    });
+    document.getElementById('diqa-chat-voice-send')?.addEventListener('click',async()=>{
+      if(!diqaVoiceDraft || diqaMediaSending)return;
+      if(diqaVoiceDraft.peerKey!==diqaChatPeerKey){diqaChatCancelVoice();return;}
+      diqaMediaSending=true;
+      const btn=document.getElementById('diqa-chat-voice-send');if(btn)btn.disabled=true;
+      diqaChatStatus('جار رفع وإرسال الرسالة الصوتية...');
+      try{
+        await diqaChatSendMedia('voice',diqaVoiceDraft);
+        diqaChatDiscardVoiceDraft();
+        diqaChatStatus('✅ تم إرسال الرسالة الصوتية.');
+      }catch(e){diqaChatStatus('⚠️ تعذر إرسال الصوت: '+e.message);}
+      finally{diqaMediaSending=false;if(btn)btn.disabled=false;}
+    });
     async function diqaChatSend(event){
       if(event)event.preventDefault();
       if(!diqaChatUserKey||!diqaChatPeerKey||!diqaSocialFindPerson(diqaChatPeerKey))return;
@@ -3029,6 +3416,7 @@ nextDrivers[key] = {
           // Delete both participants' copies; no messages older than 48 hours should survive a live session.
           changes[`${DIQA_CHAT_INBOX}/${diqaChatUserKey}/chats/${peer}/${id}`]=null;
           changes[`${DIQA_CHAT_INBOX}/${peer}/chats/${diqaChatUserKey}/${id}`]=null;
+          if(msg&&msg.type==='voice'&&msg.voiceId===id)changes[`${DIQA_CHAT_VOICE_PATH}/${id}`]=null;
           if(++count>=75)break;
         }
         if(count>=75)break;
@@ -3079,6 +3467,7 @@ nextDrivers[key] = {
       diqaSubscribeNotes();diqaRenderTeamPeople();
     }
     function diqaSocialStop(){
+      diqaChatClearAudioCache();
       diqaFloatStop();
       diqaManagerReviewStop();
       diqaChatClose();
