@@ -11,10 +11,11 @@
   <meta name="apple-mobile-web-app-title" content="الدقّة">
   <meta name="mobile-web-app-capable" content="yes">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="apple-touch-icon" href="./icons/diqa-192.png">
+  <link rel="apple-touch-icon" href="./icon-180.png">
 
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b1120'/%3E%3Ctext x='32' y='40' font-size='28' text-anchor='middle' fill='%2322c55e' font-family='Arial'%3ED%3C/text%3E%3C/svg%3E" />
+  <link rel="icon" href="./icon-192.png" type="image/png" sizes="192x192">
 
+  <!-- Full PWA: all system code remains inside index.html; only browser-required assets are separate. -->
   <!-- Leaflet CSS -->
   <link
     rel="stylesheet"
@@ -864,7 +865,29 @@ background:#fff;
     #diqa-assistive-wrap.diqa-assistive-quiet {opacity:.85;}
     @media(max-width:600px){#diqa-assistive-wrap,#diqa-assistive-toggle {width:51px;height:51px;min-width:51px;min-height:51px}
       #diqa-assistive-toggle {font-size:21px}#diqa-app-setup {margin:7px 8px;padding:6px 8px}}
+
+    /* One clear install action for Android and guided iOS setup. */
+    #diqa-app-setup{border-color:#38bdf877;background:linear-gradient(110deg,#102a44,#0a1a2b);padding:11px 12px;}
+    #diqa-install-btn{margin:0;min-height:46px;min-width:185px;padding:10px 16px;border:1px solid #7dd3fc;
+      border-radius:13px;color:#061927;background:#7dd3fc;box-shadow:0 2px 12px #0891b244;font:900 14px Tahoma,Arial,sans-serif;}
+    #diqa-install-btn:hover{background:#a5f3fc;}
+    #diqa-install-btn:focus-visible{outline:3px solid #facc15;outline-offset:2px;}
+    #diqa-app-setup.diqa-app-installed{display:none!important;}
+    #diqa-install-guide .diqa-guide-card{position:relative;}
+    #diqa-install-guide .diqa-guide-card .diqa-guide-step{display:flex;gap:10px;align-items:flex-start;
+      border:1px solid #365476;background:#122e4d;border-radius:12px;padding:10px 12px;margin:8px 0;
+      font:700 13px/1.7 Tahoma,Arial,sans-serif;}
+    #diqa-install-guide .diqa-guide-step b{flex:none;width:28px;height:28px;display:grid;place-items:center;border-radius:50%;
+      background:#7dd3fc;color:#071a2b;font:900 14px Tahoma,Arial,sans-serif;}
+    #diqa-install-guide .diqa-guide-note{color:#cbd5e1;font-size:11px;line-height:1.75;margin-top:8px;}
+    @media(max-width:600px){#diqa-app-setup{display:block;text-align:center;padding:10px;}
+      #diqa-install-btn{width:100%;margin:0 0 5px;font-size:14px;}
+      #diqa-app-install-status{display:block;font-size:10px;line-height:1.55;}}
 </style>
+<script>
+/* Capture the Android install offer as early as possible. */
+window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__diqaInstallEvent=e;window.dispatchEvent(new Event('diqa-install-ready'));});
+</script>
 </head>
 
 <body>
@@ -950,7 +973,8 @@ background:#fff;
 
 
     <div id="diqa-app-setup" aria-label="إعداد تطبيق الدقة">
-      <button type="button" id="diqa-install-btn" class="secondary">📲 ثبّت الدقّة على الهاتف</button>
+      <img src="./icon-180.png" alt="شعار الدقّة" width="44" height="44" style="width:44px;height:44px;object-fit:contain;background:#fff;border-radius:10px;vertical-align:middle;margin-left:10px;">
+      <button type="button" id="diqa-install-btn" aria-label="تحميل تطبيق الدقة على الهاتف">⬇️ تحميل تطبيق الدقّة</button>
       <span id="diqa-app-install-status" role="status">اختصار مستقل على الشاشة الرئيسية. استمرار الموقع بالخلفية يعتمد على Traccar وإعدادات الهاتف.</span>
     </div>
     <!-- DIQA Team Hub: shown at top of each page after sign-in -->
@@ -15155,47 +15179,74 @@ document.addEventListener("DOMContentLoaded",function(){
   const guideBody=document.getElementById('diqa-guide-content');
   const installBtn=document.getElementById('diqa-install-btn');
   const installStatus=document.getElementById('diqa-app-install-status');
-  let installEvent=null, dragging=null, ignoreClickUntil=0;
+  const setup=document.getElementById('diqa-app-setup');
+  let installEvent=window.__diqaInstallEvent||null, dragging=null, ignoreClickUntil=0;
   const isStandalone=()=>window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const isIOS=()=>/iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  const isAndroid=()=>/Android/i.test(navigator.userAgent);
   function guideOpen(title,paras){
     guideTitle.textContent=title;guideBody.replaceChildren();
-    paras.forEach(t=>{const p=document.createElement('p');p.textContent=t;guideBody.appendChild(p);});
+    paras.forEach((t,i)=>{const box=document.createElement('div');box.className='diqa-guide-step';
+      const num=document.createElement('b');num.textContent=String(i+1);
+      const txt=document.createElement('span');txt.textContent=t;box.append(num,txt);guideBody.appendChild(box);});
     guide.hidden=false;menu.hidden=true;btn.setAttribute('aria-expanded','false');
   }
   function guideClose(){guide.hidden=true;}
   document.getElementById('diqa-guide-close')?.addEventListener('click',guideClose);
   guide?.addEventListener('click',e=>{if(e.target===guide)guideClose();});
   function updateInstallStatus(){
-    installStatus.textContent=isStandalone()
-      ? '✅ تعمل كتطبيق مستقل. الإشعارات بالخلفية تحتاج Web Push من السيرفر؛ موقع المندوب يعتمد على Traccar.'
-      : 'اختصار على الشاشة الرئيسية؛ لا يمنع نظام الهاتف من إيقاف صفحة الويب بالخلفية.';
+    setup?.classList.toggle('diqa-app-installed',isStandalone());
+    if(!installStatus)return;
+    if(isStandalone()) installStatus.textContent='✅ التطبيق مُثبّت.';
+    else if(isIOS()) installStatus.textContent='للآيفون: خطوات إضافة للشاشة الرئيسية من Safari.';
+    else if(isAndroid()) installStatus.textContent=installEvent?'جاهز للتثبيت من المتصفح.':'للأندرويد: اضغط للتثبيت أو اتبع إرشادات المتصفح.';
+    else installStatus.textContent='متاح أيضاً على iPhone وAndroid بعد نشر ملفات التطبيق على HTTPS.';
   }
+  window.addEventListener('diqa-install-ready',()=>{
+    installEvent=window.__diqaInstallEvent||null;updateInstallStatus();
+  });
   window.addEventListener('beforeinstallprompt',e=>{
     e.preventDefault();installEvent=e;updateInstallStatus();
   });
-  window.addEventListener('appinstalled',()=>{installEvent=null;updateInstallStatus();});
+  window.addEventListener('appinstalled',()=>{
+    installEvent=null;window.__diqaInstallEvent=null;updateInstallStatus();
+  });
   updateInstallStatus();
   async function install(){
     if(isStandalone()){
-      guideOpen('الدقّة مثبت كتطبيق',['التطبيق مفتوح الآن بشكل مستقل عن المتصفح.','تتبّع المندوب أثناء قفل الشاشة يعتمد على تطبيق Traccar، وليس على اختصار الموقع.']);return;
+      guideOpen('تطبيق الدقّة موجود على جهازك',['التطبيق مفتوح الآن من شاشة الهاتف.','التتبع خلال قفل الشاشة يحتاج Traccar؛ اختصار الويب لا يبقى متصلاً دائماً.']);return;
     }
-    if(installEvent){
-      const event=installEvent;installEvent=null;
-      try{await event.prompt();await event.userChoice;}catch(e){}
-      updateInstallStatus();return;
+    const event=installEvent||window.__diqaInstallEvent;
+    if(event){
+      installEvent=null;window.__diqaInstallEvent=null;
+      try{
+        await event.prompt();
+        const choice=await event.userChoice;
+        if(choice?.outcome==='dismissed'){
+          installStatus.textContent='تم إلغاء التثبيت. تستطيع إعادة المحاولة من قائمة Chrome ⋮ ثم «تثبيت التطبيق».';
+        }
+      }catch(e){
+        installStatus.textContent='ما قدرنا نفتح نافذة التثبيت. استخدم قائمة المتصفح ثم «تثبيت التطبيق».';
+      }
+      if(isStandalone())updateInstallStatus();return;
     }
-    if(/iPhone|iPad|iPod/i.test(navigator.userAgent)){
-      guideOpen('تثبيت الدقّة على iPhone',[
-        'افتح رابط الدقّة بواسطة Safari (وليس داخل متصفح تطبيق آخر).',
-        'اضغط مشاركة ثم «إضافة إلى الشاشة الرئيسية» (Add to Home Screen)، وفعّل «فتح كتطبيق ويب» إذا ظهر الخيار.',
-        'افتح أيقونة الدقّة الجديدة؛ من إعدادات الجهاز اسمح بالإشعارات عند توفر Web Push من السيرفر.',
-        'الاختصار العائم يعمل داخل الدقّة فقط. تتبع الخلفية يحتاج Traccar على هاتف المندوب.'
+    if(isIOS()){
+      guideOpen('تثبيت الدقّة على الآيفون',[
+        'افتح موقع الدقّة في Safari إذا كنت الآن داخل تطبيق آخر.',
+        'اضغط زر المشاركة في Safari (قد تحتاج تضغط على قائمة الصفحة أولاً).',
+        'اختر «إضافة إلى الشاشة الرئيسية»، فعّل «فتح كتطبيق ويب» ثم اضغط «إضافة».'
       ]);return;
     }
-    guideOpen('تثبيت الدقّة على Android',[
-      'افتح الرابط من Chrome ثم القائمة ⋮ واختر «تثبيت التطبيق» أو «الإضافة إلى الشاشة الرئيسية».',
-      'لازم يتم رفع ملف HTML و manifest.webmanifest و sw.js وملفات icons إلى نفس مسار الموقع على HTTPS.',
-      'اسمح للتطبيق بالإشعارات إذا كانت Web Push مجهزة بالسيرفر؛ للتتبع مع قفل الشاشة استخدم Traccar.'
+    if(isAndroid()){
+      guideOpen('تثبيت الدقّة على الأندرويد',[
+        'افتح رابط الدقّة من Chrome على الهاتف.',
+        'اضغط القائمة ⋮ واختر «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية».',
+        'وافق على التثبيت. إذا لم يظهر الخيار، تأكد من فتح رابط HTTPS بعد نشر ملفات PWA كاملة.'
+      ]);return;
+    }
+    guideOpen('تثبيت الدقّة على الهاتف',[
+      'افتح رابط الدقّة من الهاتف بالأندرويد أو الآيفون.',
+      'على Android اختر «تثبيت التطبيق» من Chrome. على iPhone افتح Safari ثم مشاركة > إضافة إلى الشاشة الرئيسية.'
     ]);
   }
   installBtn?.addEventListener('click',install);
