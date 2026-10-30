@@ -2362,36 +2362,45 @@ nextDrivers[key] = {
       const src=owner ? diqaPhotoSrc(owner.role,owner.id) : '';
       return src?`<img class="diqa-team-avatar" data-photo-owner="${owner.key}" data-photo-role="${owner.role}" data-photo-id="${escapeHtml(owner.id)}" src="${src}" alt="صورة ${escapeHtml(person.name||'الحساب')}">`:'<span class="diqa-team-avatar diqa-team-avatar-fallback" aria-hidden="true">👤</span>';
     }
-    // Cache the latest inbox activity so note/photo refreshes do not move the strip.
+    // Personal activity only: the most recent message SENT OR RECEIVED by
+    // this signed-in account in a direct conversation determines strip order.
+    // Messages exchanged by other members do not influence this user's strip.
     let diqaTeamPreviousActivitySignature='';
     function diqaRenderTeamPeople(){
       if(!diqaPeopleList||!diqaChatUserKey)return;
       const people=diqaSocialPeople();
-      // RTL: the latest active conversation must be the rightmost item.
-      // A new conversation, whether sent or received, immediately rises to the right.
-      // The manager retains a gold visual accent, but no fixed ordering priority.
-      const latestByKey=new Map();
+      const lastConversationByKey=new Map();
       for(const p of people){
-        const entries=diqaChatEntries(p.key);
-        let latest=0;
-        for(const [,msg] of entries){
+        let lastActivity=0;
+        for(const [,msg] of diqaChatEntries(p.key)){
+          // Only the two participants of THIS conversation can influence ordering.
+          const incoming=msg.from===p.key && msg.to===diqaChatUserKey;
+          const outgoing=msg.from===diqaChatUserKey && msg.to===p.key;
+          if(!incoming && !outgoing)continue;
           const when=Number(msg.createdAt)||0;
-          if(when>latest)latest=when;
+          if(when>lastActivity)lastActivity=when;
         }
-        latestByKey.set(p.key,latest);
+        lastConversationByKey.set(p.key,lastActivity);
       }
+      // RTL flex row starts on the RIGHT. The most recent two-way
+      // conversation involving THIS user appears first.
       people.sort((a,b)=>{
-        const diff=(latestByKey.get(b.key)||0)-(latestByKey.get(a.key)||0);
-        return diff||String(a.name).localeCompare(String(b.name),'ar');
+        const recency=(lastConversationByKey.get(b.key)||0)-(lastConversationByKey.get(a.key)||0);
+        if(recency)return recency;
+        // In the inactive/untouched portion, retain the manager as the default
+        // first account. It never outranks an actually newer conversation.
+        if(a.role==='manager'&&b.role!=='manager')return -1;
+        if(b.role==='manager'&&a.role!=='manager')return 1;
+        return String(a.name).localeCompare(String(b.name),'ar');
       });
-      // A new incoming/outgoing message brings the strip back to the newest (RTL right).
-      // Merely re-rendering because a photo or note changed preserves the scroll position.
-      const activitySignature=people.map(p=>p.key+':'+(latestByKey.get(p.key)||0)).join('|');
+      // Either an incoming or an outgoing message changes the order. Read
+      // receipts and profile/note changes must not scroll the strip.
+      const activitySignature=people.map(p=>p.key+':'+(lastConversationByKey.get(p.key)||0)).join('|');
       const activityChanged=activitySignature!==diqaTeamPreviousActivitySignature;
       const currentScroll=diqaPeopleList.scrollLeft;
       let total=0;
       diqaPeopleList.innerHTML=people.map(p=>{
-        const unread=diqaChatEntries(p.key).filter(([,m])=>m.from===p.key&&!m.readAt).length;
+        const unread=diqaChatEntries(p.key).filter(([,m])=>m.from===p.key&&m.to===diqaChatUserKey&&!m.readAt).length;
         if(p.key!==diqaChatUserKey)total+=unread;
         const note=diqaNoteFor(diqaNoteNodeKey(p.role,p.id),getWorkDateByKey('today'));
         const isMe=p.key===diqaChatUserKey;
@@ -2586,7 +2595,7 @@ nextDrivers[key] = {
       const fresh=new Set();const notices=[];
       for(const [peerKey,messages] of Object.entries(diqaChatInbox.chats||{})){
         for(const [id,msg] of Object.entries(messages||{})){
-          if(msg&&msg.from===peerKey&&!msg.readAt&&diqaChatValidMessage(msg)){
+          if(msg&&msg.from===peerKey&&msg.to===diqaChatUserKey&&!msg.readAt&&diqaChatValidMessage(msg)){
             const key=peerKey+'/'+id;
             fresh.add(key);
             if(diqaChatNotificationsReady&&!diqaChatSeenOnLastSnapshot.has(key)
@@ -2737,6 +2746,7 @@ nextDrivers[key] = {
       diqaDirectoryRefs=[];
       if(diqaChatInboxRef&&diqaChatInboxCallback)diqaChatInboxRef.off('value',diqaChatInboxCallback);
       diqaChatInboxRef=null;diqaChatInboxCallback=null;diqaChatInbox={};
+      diqaTeamPreviousActivitySignature='';
       diqaChatUserKey='';diqaChatPeerKey='';diqaChatNotificationsReady=false;diqaChatSeenOnLastSnapshot.clear();
       diqaDirectoryDrivers={};diqaDirectoryEmployees={};diqaChatLastCleanup=0;
       diqaUnsubscribeNotes();
