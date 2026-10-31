@@ -883,6 +883,63 @@ background:#fff;
     @media(max-width:600px){#diqa-app-setup{display:block;text-align:center;padding:10px;}
       #diqa-install-btn{width:100%;margin:0 0 5px;font-size:14px;}
       #diqa-app-install-status{display:block;font-size:10px;line-height:1.55;}}
+
+/* ===== DIQA: leave requests / employee & courier bookings ===== */
+.diqa-leave-panel{direction:rtl;margin:12px auto 16px;max-width:1200px;padding:15px;border-radius:16px;border:1px solid #365071;background:linear-gradient(140deg,#11233c,#0b1426);color:#e2e8f0}
+.diqa-leave-panel[hidden],.diqa-leave-body[hidden]{display:none!important}
+.diqa-leave-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.diqa-leave-head h3{font-size:16px;font-weight:900;margin:0}
+.diqa-leave-summary{font-size:12px;color:#cbd5e1}
+.diqa-leave-body{margin-top:12px}
+.diqa-leave-toggle{margin:0;background:#2563eb;color:#fff;font-size:13px}
+.diqa-leave-cal-top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0;flex-wrap:wrap}
+.diqa-leave-cal-top strong{font-size:14px;color:#fff}
+.diqa-leave-cal-top button{margin:0;padding:5px 11px;background:#233852;color:#f8fafc;border:1px solid #475569}
+.diqa-leave-cal-top button:disabled{opacity:.35;cursor:not-allowed}
+.diqa-leave-calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}
+.diqa-leave-weekday{text-align:center;color:#94a3b8;font-size:11px;padding:8px 0 5px}
+.diqa-leave-day{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;min-height:52px;padding:5px 1px;margin:0;border:1px solid #334155;border-radius:10px;background:#182a43;color:#fff;font-size:14px}
+.diqa-leave-day span{font-size:9px;font-weight:700;line-height:1.2;color:#b7c5d9;white-space:normal;overflow-wrap:anywhere;text-align:center}
+.diqa-leave-day[disabled]{opacity:.28;cursor:default}
+.diqa-leave-day.selected{background:#0e7490;border:2px solid #67e8f9;color:#fff}
+.diqa-leave-day.mine,.diqa-leave-day.approved{border-color:#16a34a;background:#123c31}
+.diqa-leave-day.pending{border-color:#d97706;background:#3b2a1e}
+.diqa-leave-day.mine[disabled],.diqa-leave-day.approved[disabled],.diqa-leave-day.pending[disabled]{opacity:.75}
+.diqa-leave-day.blank{border:0;background:transparent;pointer-events:none}
+.diqa-leave-help,.diqa-leave-selected{margin:10px 0;color:#bdcce0;font-size:12px;line-height:1.7}
+.diqa-leave-selected b{color:#67e8f9}
+.diqa-leave-panel textarea{width:100%;min-height:78px;resize:vertical;background:#091426;color:#fff;border:1px solid #49627e;margin-bottom:8px}
+.diqa-leave-panel textarea:focus{border-color:#38bdf8}
+.diqa-leave-submit{background:#22c55e;color:#071b10;margin:0}
+.diqa-leave-status{font-size:12px;min-height:18px;margin-top:8px;color:#93c5fd;line-height:1.6}
+.diqa-leave-items{display:grid;gap:9px;margin-top:10px}
+.diqa-leave-item{background:#0a1527;border:1px solid #32465e;border-radius:12px;padding:11px 12px;line-height:1.7}
+.diqa-leave-item-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.diqa-leave-item h4{margin:0;font-size:14px;color:#f8fafc}
+.diqa-leave-dates{display:flex;gap:5px;flex-wrap:wrap;margin:7px 0}
+.diqa-leave-date{font-size:11px;font-weight:700;border:1px solid #365777;background:#172941;border-radius:7px;padding:3px 7px;direction:ltr}
+.diqa-leave-state{display:inline-block;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;background:#1e293b}
+.diqa-leave-state.pending{color:#fbbf24;background:#422e1b}
+.diqa-leave-state.approved{color:#86efac;background:#143a2b}
+.diqa-leave-state.rejected{color:#fca5a5;background:#441d28}
+.diqa-leave-item p{margin:5px 0;font-size:12px;overflow-wrap:anywhere}
+.diqa-leave-item small{font-size:11px;color:#99acc2}
+.diqa-leave-item textarea{min-height:58px;margin:7px 0}
+.diqa-leave-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.diqa-leave-actions button{margin:0;font-size:12px}
+.diqa-leave-conflict{border:1px solid #eab308;border-radius:9px;background:#422d14;color:#fde68a;padding:10px;margin-top:8px;font-size:12px;line-height:1.7}
+.diqa-leave-booked-days{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:7px;margin-top:10px}
+.diqa-leave-booked-day{border:1px solid #314a65;border-radius:10px;padding:9px;background:#101f34;font-size:11px;line-height:1.7}
+.diqa-leave-booked-day.conflict{border-color:#facc15;background:#3b2b16}
+.diqa-leave-booked-day strong{display:block;color:#fff}
+.diqa-leave-new-count{color:#fbbf24;font-size:12px;font-weight:800}
+.diqa-leave-manager-panel .diqa-leave-day{min-height:62px;cursor:default}
+.diqa-leave-manager-panel .diqa-leave-day.has-booked{border-color:#16a34a;background:#103126}
+.diqa-leave-manager-panel .diqa-leave-day.has-conflict{border-color:#eab308;background:#433019}
+.diqa-leave-manager-panel details{margin-top:12px}
+.diqa-leave-manager-panel summary{cursor:pointer;color:#cbd5e1;font-size:13px}
+@media(max-width:520px){.diqa-leave-panel{padding:10px}.diqa-leave-calendar{gap:3px}.diqa-leave-day{min-height:47px;font-size:12px;border-radius:7px}.diqa-leave-weekday{font-size:10px}.diqa-leave-day span{font-size:8px}.diqa-leave-manager-panel .diqa-leave-day{min-height:53px}}
+
 </style>
 <script>
 /* Capture the Android install offer as early as possible. */
@@ -991,6 +1048,30 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
       </div>
       <div id="diqa-team-hub-info" class="diqa-team-hub-info" role="status" aria-live="polite"></div>
     </section>
+
+    <!-- Leave requests, available to employees and couriers (including special employee login). -->
+    <section id="diqa-leave-request-panel" class="diqa-leave-panel" aria-label="طلبات الإجازة" hidden>
+      <div class="diqa-leave-head">
+        <div><h3>🏖️ طلب إجازة <span id="diqa-leave-my-count" class="diqa-leave-new-count"></span></h3>
+          <div class="diqa-leave-summary">اختر يوم أو أكثر، بعدها اكتب السبب. المدير الأصلي وحده يقرر.</div></div>
+        <button type="button" id="diqa-leave-toggle" class="diqa-leave-toggle" aria-expanded="false">📅 طلب إجازة</button>
+      </div>
+      <div id="diqa-leave-request-body" class="diqa-leave-body" hidden>
+        <div class="diqa-leave-cal-top"><button type="button" id="diqa-leave-prev" aria-label="الشهر السابق">‹ السابق</button>
+          <strong id="diqa-leave-month-label">—</strong>
+          <button type="button" id="diqa-leave-next" aria-label="الشهر التالي">التالي ›</button></div>
+        <div class="diqa-leave-calendar" id="diqa-leave-cal" aria-label="اختر أيام الإجازة" role="group"></div>
+        <p class="diqa-leave-help">أيام الشهر الماضية غير متاحة. تقدر تحدد عدة أيام من نفس الشهر. الأيام المحجوزة إجازة إلك ما يصير تطلبها مرة ثانية.</p>
+        <div id="diqa-leave-selected" class="diqa-leave-selected">ما محدد أي يوم بعد.</div>
+        <label for="diqa-leave-reason">سبب الإجازة (مطلوب)</label>
+        <textarea id="diqa-leave-reason" maxlength="1000" placeholder="اكتب سبب طلب الإجازة..."></textarea>
+        <button type="button" id="diqa-leave-submit" class="diqa-leave-submit">📨 إرسال طلب الإجازة للمدير</button>
+        <div id="diqa-leave-form-status" class="diqa-leave-status" role="status" aria-live="polite"></div>
+      </div>
+      <div id="diqa-leave-result-alert" class="diqa-leave-status" role="status" aria-live="polite"></div>
+      <details id="diqa-leave-my-history"><summary>📋 طلباتي السابقة وحالة الموافقات</summary>
+        <div id="diqa-leave-my-list" class="diqa-leave-items"></div></details>
+    </section>
     <div id="diqa-chat-overlay" class="diqa-chat-overlay hidden" role="dialog" aria-modal="true" aria-label="محادثة خاصة">
       <div class="diqa-chat-window">
         <div class="diqa-chat-head"><span id="diqa-chat-peer-avatar"></span><strong id="diqa-chat-peer-name">محادثة</strong>
@@ -1045,6 +1126,24 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
 
     <!-- MANAGER -->
     <div class="card hidden" id="manager-card">
+
+      <!-- Leave administration: explicitly hidden from limited_manager / Mohammed Najm. -->
+      <section id="diqa-leave-manager-panel" class="diqa-leave-panel diqa-leave-manager-panel" aria-label="إدارة طلبات الإجازة" hidden>
+        <div class="diqa-leave-head"><h3>🏖️ إدارة طلبات الإجازة <span id="diqa-leave-manager-count" class="diqa-leave-new-count"></span></h3></div>
+        <div class="diqa-leave-summary">خاص بالمدير الأصلي حصراً، وتُحفظ الموافقات بصورة دائمة. تعارض المندوبين منفصل عن تعارض الموظفين.</div>
+        <h4 style="margin:14px 0 5px">طلبات بانتظار القرار</h4>
+        <div id="diqa-leave-pending-list" class="diqa-leave-items"></div>
+        <h4 style="margin:18px 0 6px">تقويم الإجازات الموافق عليها</h4>
+        <div class="diqa-leave-cal-top"><button type="button" id="diqa-leave-manager-prev">‹ السابق</button>
+          <strong id="diqa-leave-manager-month-label">—</strong>
+          <button type="button" id="diqa-leave-manager-next">التالي ›</button></div>
+        <div id="diqa-leave-manager-cal" class="diqa-leave-calendar"></div>
+        <div id="diqa-leave-booked-days" class="diqa-leave-booked-days"></div>
+        <p class="diqa-leave-help">🟡 علامة التعارض تعني وجود موافقتين أو أكثر بنفس اليوم لنفس الفئة. مندوب + موظف ما يعتبر تعارض.</p>
+        <details><summary>📋 الطلبات التي تم البت بها</summary><div id="diqa-leave-decided-list" class="diqa-leave-items"></div></details>
+        <div id="diqa-leave-manager-status" class="diqa-leave-status" role="status" aria-live="polite"></div>
+      </section>
+
       <!-- DIQA: Conversation review, only the actual manager account sees this panel. -->
       <section id="diqa-manager-convos" class="diqa-manager-convos hidden" aria-label="محادثات الفريق">
         <div class="diqa-manager-convos-heading">
@@ -3556,9 +3655,11 @@ nextDrivers[key] = {
         if(info)info.textContent='⚠️ تعذرت قراءة الرسائل: '+e.message+' — تحقق من Firebase Rules.';
       });
       diqaManagerReviewStart();
+      diqaLeaveStart();
       diqaSubscribeNotes();diqaRenderTeamPeople();
     }
     function diqaSocialStop(){
+      diqaLeaveStop();
       diqaChatClearAudioCache();
       diqaFloatStop();
       diqaManagerReviewStop();
@@ -3575,6 +3676,326 @@ nextDrivers[key] = {
       const toast=document.getElementById('diqa-chat-toast');if(toast)toast.hidden=true;
       if(diqaChatToastTimer){clearTimeout(diqaChatToastTimer);diqaChatToastTimer=null;}
     }
+
+    // ===== DIQA LEAVE SYSTEM: Firebase permanent requests + approved day reservations =====
+    // Access in the browser is scoped by account role. For *real* exclusive manager
+    // authorization, deploy Firebase Auth and RTDB security rules on these paths.
+    // No leave data is placed under orders/attendance or time-limited chat nodes.
+    const DIQA_LEAVE_MANAGER_PATH='diqaLeaveManagerInbox';
+    const DIQA_LEAVE_PERSONAL_PATH='diqaLeaveRequestsByAccount';
+    const DIQA_LEAVE_BOOKINGS_PATH='diqaLeaveBooked';
+    const DIQA_LEAVE_MAX_MONTHS_AHEAD=6;
+    let diqaLeaveMyRef=null,diqaLeaveManagerRef=null,diqaLeaveBookingsRef=null;
+    let diqaLeaveMyData={},diqaLeaveManagerData={},diqaLeaveBookings={};
+    let diqaLeaveMyKey='',diqaLeaveMonthOffset=0,diqaLeaveManagerMonthOffset=0;
+    let diqaLeaveSelected=new Set(),diqaLeaveDrafts={},diqaLeaveConfirm={};
+    let diqaLeaveBusy=false,diqaLeaveInitialMy=true,diqaLeaveInitialManager=true;
+    let diqaLeavePrevMine={},diqaLeavePrevManager={};
+    const diqaLeaveEl=id=>document.getElementById(id);
+    function diqaLeaveEscape(value){return String(value==null?'':value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+    function diqaLeaveToday(){
+      const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Baghdad',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+      const n=key=>Number(parts.find(x=>x.type===key)?.value||0);
+      return {year:n('year'),month:n('month'),day:n('day')};
+    }
+    function diqaLeaveMonth(offset){
+      const today=diqaLeaveToday(),d=new Date(Date.UTC(today.year,today.month-1+offset,1));
+      return {year:d.getUTCFullYear(),month:d.getUTCMonth()+1};
+    }
+    function diqaLeavePad(n){return String(n).padStart(2,'0');}
+    function diqaLeaveDate(y,m,d){return `${y}-${diqaLeavePad(m)}-${diqaLeavePad(d)}`;}
+    function diqaLeaveMonthKey(m){return `${m.year}-${diqaLeavePad(m.month)}`;}
+    function diqaLeaveTodayKey(){const t=diqaLeaveToday();return diqaLeaveDate(t.year,t.month,t.day);}
+    function diqaLeaveLongDate(value){
+      if(!/^\d{4}-\d\d-\d\d$/.test(String(value)))return String(value||'');
+      return new Intl.DateTimeFormat('ar-IQ',{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'}).format(new Date(value+'T12:00:00Z'));
+    }
+    function diqaLeaveMonthTitle(month){return new Intl.DateTimeFormat('ar-IQ',{timeZone:'UTC',year:'numeric',month:'long'}).format(new Date(Date.UTC(month.year,month.month-1,1)));}
+    function diqaLeaveActor(){const a=diqaSocialCurrentPerson();return a&&['driver','employee'].includes(a.role)?{...a,key:diqaUserKey(a.role,a.id)}:null;}
+    function diqaLeaveDays(req){return Array.isArray(req?.dates)?req.dates.filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(String(d))):[];}
+    function diqaLeaveMsg(id,msg,isError=false){const el=diqaLeaveEl(id);if(el){el.textContent=msg;el.style.color=isError?'#fca5a5':'#93c5fd';}}
+    function diqaLeaveState(status){return status==='approved'?'مقبول':status==='rejected'?'مرفوض':'بانتظار المدير';}
+    function diqaLeaveSnapshotMine(reqs){return Object.fromEntries(Object.entries(reqs).map(([id,r])=>[id,r?.status||'pending']));}
+    function diqaLeaveEntries(data){return Object.entries(data||{}).filter(([,r])=>r&&typeof r==='object').sort((a,b)=>(Number(b[1].createdAt)||0)-(Number(a[1].createdAt)||0));}
+    function diqaLeaveMonthBookings(){
+      const m=diqaLeaveMonth(diqaLeaveManagerMonthOffset);return diqaLeaveBookings[diqaLeaveMonthKey(m)]||{};
+    }
+    function diqaLeaveMyTaken(){
+      const taken=new Map();
+      for(const [,r] of Object.entries(diqaLeaveMyData))if(r&&(r.status==='pending'||r.status==='approved')){
+        for(const date of diqaLeaveDays(r))if(!taken.has(date))taken.set(date,r.status);
+      }
+      return taken;
+    }
+    function diqaLeaveCalendarHtml(month,manager=false){
+      const weekdays=['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة'];
+      let html=weekdays.map(d=>`<div class="diqa-leave-weekday">${d}</div>`).join('');
+      const first=(new Date(Date.UTC(month.year,month.month-1,1)).getUTCDay()+1)%7;
+      for(let blank=0;blank<first;blank++)html+='<span class="diqa-leave-day blank" aria-hidden="true"></span>';
+      const days=new Date(Date.UTC(month.year,month.month,0)).getUTCDate();
+      const today=diqaLeaveTodayKey(),taken=diqaLeaveMyTaken(),bookings=diqaLeaveMonthBookings();
+      for(let day=1;day<=days;day++){
+        const iso=diqaLeaveDate(month.year,month.month,day);
+        if(manager){
+          const dayBooked=bookings[iso]||{};
+          const drivers=Object.values(dayBooked.driver||{}),employees=Object.values(dayBooked.employee||{});
+          const conflicts=drivers.length>1||employees.length>1;
+          html+=`<div class="diqa-leave-day ${conflicts?'has-conflict':drivers.length||employees.length?'has-booked':''}" title="${diqaLeaveEscape(iso)}"><b>${day}</b><span>${drivers.length?'🛵 '+drivers.length:''} ${employees.length?'👤 '+employees.length:''}${conflicts?' ⚠️':''}</span></div>`;
+        }else{
+          const locked=taken.get(iso),past=iso<today,chosen=diqaLeaveSelected.has(iso);
+          html+=`<button type="button" class="diqa-leave-day ${locked||''}${chosen?' selected':''}" data-leave-date="${iso}" aria-pressed="${chosen}" ${past||locked?'disabled':''} title="${diqaLeaveEscape(iso)}"><b>${day}</b><span>${locked==='approved'?'محجوز':locked==='pending'?'قيد الدراسة':chosen?'✓ محدد':''}</span></button>`;
+        }
+      }
+      return html;
+    }
+    function diqaLeaveRenderStaffCalendar(){
+      const month=diqaLeaveMonth(diqaLeaveMonthOffset);
+      const cal=diqaLeaveEl('diqa-leave-cal');if(!cal)return;
+      diqaLeaveEl('diqa-leave-month-label').textContent=diqaLeaveMonthTitle(month);
+      diqaLeaveEl('diqa-leave-prev').disabled=diqaLeaveMonthOffset<=0;
+      diqaLeaveEl('diqa-leave-next').disabled=diqaLeaveMonthOffset>=DIQA_LEAVE_MAX_MONTHS_AHEAD;
+      for(const date of Array.from(diqaLeaveSelected))if(date<diqaLeaveTodayKey()||diqaLeaveMyTaken().has(date))diqaLeaveSelected.delete(date);
+      cal.innerHTML=diqaLeaveCalendarHtml(month);
+      const selected=Array.from(diqaLeaveSelected).sort();
+      diqaLeaveEl('diqa-leave-selected').innerHTML=selected.length?`<b>الأيام المحددة (${selected.length}):</b> ${selected.map(diqaLeaveLongDate).map(diqaLeaveEscape).join('، ')}`:'ما محدد أي يوم بعد.';
+      const pending=Object.values(diqaLeaveMyData).filter(r=>r?.status==='pending').length;
+      diqaLeaveEl('diqa-leave-my-count').textContent=pending?`(${pending} قيد الانتظار)`:'';
+    }
+    function diqaLeaveItemHtml(id,req,manager=false){
+      const status=req.status||'pending';
+      const name=diqaLeaveEscape(req.applicantName||req.name||'غير معروف');
+      const dates=diqaLeaveDays(req).map(date=>`<span class="diqa-leave-date">${diqaLeaveEscape(diqaLeaveLongDate(date))}</span>`).join('');
+      const kind=req.role==='driver'?'مندوب':'موظف';
+      const notes=String(req.responseReason||'').trim();
+      let html=`<article class="diqa-leave-item"><div class="diqa-leave-item-head"><h4>${manager?`${name} <small>(${kind})</small>`:'طلب إجازة'}</h4><span class="diqa-leave-state ${status}">${diqaLeaveState(status)}</span></div>`+
+      `<div class="diqa-leave-dates">${dates}</div><p><b>سبب الطلب:</b> ${diqaLeaveEscape(req.reason)}</p>`+
+      `<small>تاريخ التقديم: ${Number(req.createdAt)?diqaLeaveEscape(new Intl.DateTimeFormat('ar-IQ',{timeZone:'Asia/Baghdad',dateStyle:'medium',timeStyle:'short'}).format(new Date(Number(req.createdAt)))):'حديث'}</small>`;
+      if(status!=='pending')html+=`<p><b>رد المدير:</b> ${notes?diqaLeaveEscape(notes):'بدون ملاحظات'}</p>`;
+      if(manager&&status==='pending'){
+        html+=`<label for="diqa-leave-reply-${id}">ملاحظة المدير (اختيارية للقبول، مطلوبة للرفض)</label>`+
+          `<textarea id="diqa-leave-reply-${id}" maxlength="1000" data-leave-reply="${id}" placeholder="اكتب سبب القبول أو الرفض...">${diqaLeaveEscape(diqaLeaveDrafts[id]||'')}</textarea>`;
+        if(diqaLeaveConfirm[id])html+=`<div class="diqa-leave-conflict">⚠️ ${diqaLeaveEscape(diqaLeaveConfirm[id].message)}<div>عند التأكيد سيتم حجز الإجازة رغم التعارض.</div></div>`;
+        html+=`<div class="diqa-leave-actions"><button type="button" data-leave-decision="approve" data-leave-id="${id}">${diqaLeaveConfirm[id]?'⚠️ تأكيد الموافقة رغم التعارض':'✅ الموافقة'}</button>`+
+          `<button type="button" class="danger" data-leave-decision="reject" data-leave-id="${id}">❌ الرفض</button></div>`;
+      }
+      return html+'</article>';
+    }
+    function diqaLeaveRenderMyList(){
+      const el=diqaLeaveEl('diqa-leave-my-list');if(!el)return;
+      const entries=diqaLeaveEntries(diqaLeaveMyData);
+      el.innerHTML=entries.length?entries.map(([id,r])=>diqaLeaveItemHtml(id,r,false)).join(''):'ما عندك طلبات إجازة سابقة.';
+      diqaLeaveRenderStaffCalendar();
+    }
+    function diqaLeaveRenderManagerBookings(){
+      if(currentSessionRole!=='manager')return;
+      const month=diqaLeaveMonth(diqaLeaveManagerMonthOffset),bookings=diqaLeaveMonthBookings();
+      diqaLeaveEl('diqa-leave-manager-month-label').textContent=diqaLeaveMonthTitle(month);
+      diqaLeaveEl('diqa-leave-manager-prev').disabled=diqaLeaveManagerMonthOffset<=0;
+      diqaLeaveEl('diqa-leave-manager-next').disabled=diqaLeaveManagerMonthOffset>=DIQA_LEAVE_MAX_MONTHS_AHEAD;
+      diqaLeaveEl('diqa-leave-manager-cal').innerHTML=diqaLeaveCalendarHtml(month,true);
+      const entries=Object.entries(bookings).sort(([a],[b])=>a.localeCompare(b));
+      const box=diqaLeaveEl('diqa-leave-booked-days');
+      box.innerHTML=entries.length?entries.map(([date,groups])=>{
+        const drivers=Object.values(groups?.driver||{}),employees=Object.values(groups?.employee||{});
+        const conflict=drivers.length>1||employees.length>1;
+        return `<div class="diqa-leave-booked-day${conflict?' conflict':''}"><strong>${diqaLeaveEscape(diqaLeaveLongDate(date))}${conflict?' ⚠️ تعارض':''}</strong>`+
+          `${drivers.length?'🛵 المندوبين: '+drivers.map(v=>diqaLeaveEscape(v.name)).join('، ')+'<br>':''}`+
+          `${employees.length?'👤 الموظفين: '+employees.map(v=>diqaLeaveEscape(v.name)).join('، '):''}</div>`;
+      }).join(''):'ماكو إجازات موافق عليها في هذا الشهر.';
+    }
+    function diqaLeaveRenderManager(){
+      if(currentSessionRole!=='manager')return;
+      const entries=diqaLeaveEntries(diqaLeaveManagerData);
+      const pending=entries.filter(([,r])=>r.status==='pending'),decided=entries.filter(([,r])=>r.status!=='pending');
+      diqaLeaveEl('diqa-leave-manager-count').textContent=pending.length?`(${pending.length} طلب جديد)`:'';
+      diqaLeaveEl('diqa-leave-pending-list').innerHTML=pending.length?pending.map(([id,r])=>diqaLeaveItemHtml(id,r,true)).join(''):'✅ ماكو طلبات تنتظر قرار حالياً.';
+      diqaLeaveEl('diqa-leave-decided-list').innerHTML=decided.length?decided.slice(0,150).map(([id,r])=>diqaLeaveItemHtml(id,r,true)).join(''):'ماكو طلبات تمت مراجعتها.';
+      diqaLeaveRenderManagerBookings();
+    }
+    function diqaLeaveBookingRef(date){return `${DIQA_LEAVE_BOOKINGS_PATH}/${date.slice(0,7)}/${date}`;}
+    async function diqaLeaveConflicts(req){
+      const result=[];
+      for(const date of diqaLeaveDays(req)){
+        const snap=await db.ref(`${diqaLeaveBookingRef(date)}/${req.role}`).once('value');
+        const others=Object.entries(snap.val()||{}).filter(([key])=>key!==req.applicantKey).map(([,entry])=>String(entry?.name||'شخص آخر'));
+        if(others.length)result.push({date,names:others});
+      }
+      return result;
+    }
+    function diqaLeaveConflictText(items){return items.map(v=>`${diqaLeaveLongDate(v.date)}: ${v.names.join('، ')}`).join(' | ');}
+    async function diqaLeaveDecide(id,decision){
+      if(currentSessionRole!=='manager'||diqaLeaveBusy)return;
+      if(!['approve','reject'].includes(decision)||!Object.prototype.hasOwnProperty.call(diqaLeaveManagerData,id))return;
+      const reply=String(diqaLeaveDrafts[id]||'').trim();
+      if(decision==='reject'&&!reply){diqaLeaveMsg('diqa-leave-manager-status','⚠️ اكتب سبب الرفض أولاً.',true);diqaLeaveEl('diqa-leave-reply-'+id)?.focus();return;}
+      diqaLeaveBusy=true;
+      diqaLeaveMsg('diqa-leave-manager-status','جاري حفظ القرار...');
+      try{
+        const snap=await db.ref(`${DIQA_LEAVE_MANAGER_PATH}/${id}`).once('value');
+        const req=snap.val();
+        if(!req||req.status!=='pending')throw new Error('هذا الطلب لم يعد بانتظار القرار.');
+        if(!['driver','employee'].includes(req.role)||!req.applicantKey||!diqaLeaveDays(req).length)throw new Error('بيانات الطلب غير مكتملة.');
+        let conflicts=[];
+        if(decision==='approve'){
+          conflicts=await diqaLeaveConflicts(req);
+          const signature=JSON.stringify(conflicts);
+          if(conflicts.length&&diqaLeaveConfirm[id]?.signature!==signature){
+            diqaLeaveConfirm[id]={signature,message:`إجازة أخرى موافق عليها بنفس اليوم ولنفس الفئة: ${diqaLeaveConflictText(conflicts)}.`};
+            diqaLeaveRenderManager();
+            diqaLeaveMsg('diqa-leave-manager-status','⚠️ راجع التنبيه واضغط «تأكيد الموافقة رغم التعارض» إذا تريد الموافقة.');
+            return;
+          }
+        }
+        const status=decision==='approve'?'approved':'rejected',base=`${DIQA_LEAVE_PERSONAL_PATH}/${req.applicantKey}/${id}`;
+        const updates={};
+        for(const path of [`${DIQA_LEAVE_MANAGER_PATH}/${id}`,base]){
+          updates[`${path}/status`]=status;
+          updates[`${path}/responseReason`]=reply;
+          updates[`${path}/reviewedAt`]=SERVER_TS;
+          updates[`${path}/reviewedBy`]='manager:main';
+        }
+        if(status==='approved')for(const date of diqaLeaveDays(req)){
+          updates[`${diqaLeaveBookingRef(date)}/${req.role}/${req.applicantKey}`]={
+            name:req.applicantName||req.name||'',applicantId:req.applicantId,requestId:id,approvedAt:SERVER_TS
+          };
+        }
+        await db.ref().update(updates);
+        delete diqaLeaveDrafts[id];delete diqaLeaveConfirm[id];
+        diqaLeaveMsg('diqa-leave-manager-status',status==='approved'?'✅ تمت الموافقة وحُجزت جميع الأيام المحددة.':'✅ تم رفض الطلب وإرسال السبب إلى صاحبه.');
+      }catch(e){diqaLeaveMsg('diqa-leave-manager-status','⚠️ فشل حفظ القرار: '+(e?.message||e),true);}
+      finally{diqaLeaveBusy=false;}
+    }
+    async function diqaLeaveSubmit(){
+      const actor=diqaLeaveActor();if(!actor||diqaLeaveBusy)return;
+      const reason=String(diqaLeaveEl('diqa-leave-reason')?.value||'').trim(),dates=Array.from(diqaLeaveSelected).sort();
+      if(!dates.length){diqaLeaveMsg('diqa-leave-form-status','⚠️ اختار يوم إجازة واحد على الأقل.',true);return;}
+      if(!reason){diqaLeaveMsg('diqa-leave-form-status','⚠️ اكتب سبب الإجازة أولاً.',true);return;}
+      if(reason.length>1000){diqaLeaveMsg('diqa-leave-form-status','⚠️ السبب طويل أكثر من المطلوب.',true);return;}
+      if(dates.some(d=>d<diqaLeaveTodayKey())||new Set(dates.map(d=>d.slice(0,7))).size!==1||dates.some(d=>diqaLeaveMyTaken().has(d))){
+        diqaLeaveMsg('diqa-leave-form-status','⚠️ أحد الأيام قديم أو سبق طلبه، راجع الاختيارات.',true);return;
+      }
+      diqaLeaveBusy=true;
+      const btn=diqaLeaveEl('diqa-leave-submit');if(btn)btn.disabled=true;
+      diqaLeaveMsg('diqa-leave-form-status','جاري تقديم الطلب...');
+      try{
+        // Read the account's latest requests just before submission to prevent duplicates across devices.
+        const mine=await db.ref(`${DIQA_LEAVE_PERSONAL_PATH}/${actor.key}`).once('value');
+        const taken=new Set();
+        Object.values(mine.val()||{}).forEach(r=>{if(r&&(r.status==='pending'||r.status==='approved'))diqaLeaveDays(r).forEach(d=>taken.add(d));});
+        if(dates.some(d=>taken.has(d)))throw new Error('يوجد طلب أو إجازة موافق عليها مسبقاً لأحد هذه الأيام.');
+        const id=db.ref(DIQA_LEAVE_MANAGER_PATH).push().key;
+        const record={applicantKey:actor.key,applicantId:String(actor.id),applicantName:String(actor.name),role:actor.role,
+          dates,reason,status:'pending',createdAt:SERVER_TS,responseReason:'',reviewedAt:null,reviewedBy:null};
+        const updates={};updates[`${DIQA_LEAVE_MANAGER_PATH}/${id}`]=record;
+        updates[`${DIQA_LEAVE_PERSONAL_PATH}/${actor.key}/${id}`]=record;
+        await db.ref().update(updates);
+        diqaLeaveSelected.clear();diqaLeaveEl('diqa-leave-reason').value='';
+        diqaLeaveRenderStaffCalendar();
+        diqaLeaveMsg('diqa-leave-form-status','✅ تم تقديم الطلب للمدير الأصلي. تقدر تتابع الرد من «طلباتي السابقة».');
+        diqaLeaveMsg('diqa-leave-result-alert','📨 طلب إجازتك وصل إلى المدير وينتظر الموافقة أو الرفض.');
+        diqaLeaveEl('diqa-leave-my-history').open=true;
+      }catch(e){diqaLeaveMsg('diqa-leave-form-status','⚠️ لم يتم إرسال الطلب: '+(e?.message||e),true);}
+      finally{diqaLeaveBusy=false;if(btn)btn.disabled=false;}
+    }
+    function diqaLeaveSubscribeBookings(){
+      if(diqaLeaveBookingsRef)diqaLeaveBookingsRef.off();diqaLeaveBookingsRef=null;
+      if(currentSessionRole!=='manager')return;
+      // Monitor approved leave reservations; UI navigates current + six upcoming months.
+      diqaLeaveBookingsRef=db.ref(DIQA_LEAVE_BOOKINGS_PATH);
+      diqaLeaveBookingsRef.on('value',snap=>{if(currentSessionRole!=='manager')return;diqaLeaveBookings=snap.val()||{};diqaLeaveRenderManagerBookings();},
+        e=>diqaLeaveMsg('diqa-leave-manager-status','⚠️ تعذرت قراءة الحجوزات: '+e.message,true));
+    }
+    function diqaLeaveStart(){
+      diqaLeaveStop();
+      const actor=diqaLeaveActor();
+      const manager=currentSessionRole==='manager';
+      diqaLeaveEl('diqa-leave-request-panel').hidden=!actor;
+      diqaLeaveEl('diqa-leave-manager-panel').hidden=!manager;
+      if(actor){
+        diqaLeaveMyKey=actor.key;
+        diqaLeaveInitialMy=true;diqaLeavePrevMine={};
+        diqaLeaveMsg('diqa-leave-result-alert','');
+        diqaLeaveMonthOffset=0;diqaLeaveSelected.clear();
+        diqaLeaveEl('diqa-leave-request-body').hidden=true;
+        diqaLeaveEl('diqa-leave-toggle').setAttribute('aria-expanded','false');
+        diqaLeaveEl('diqa-leave-toggle').textContent='📅 طلب إجازة';
+        diqaLeaveRenderStaffCalendar();
+        diqaLeaveMyRef=db.ref(`${DIQA_LEAVE_PERSONAL_PATH}/${actor.key}`);
+        diqaLeaveMyRef.on('value',snap=>{
+          if(diqaLeaveMyKey!==actor.key)return;
+          const next=snap.val()||{},states=diqaLeaveSnapshotMine(next);
+          if(!diqaLeaveInitialMy)for(const [id,status] of Object.entries(states)){
+            if(diqaLeavePrevMine[id]==='pending'&&['approved','rejected'].includes(status)){
+              diqaLeaveMsg('diqa-leave-form-status',status==='approved'?'✅ المدير وافق على طلب إجازتك.':'📩 المدير رد على طلب الإجازة ورفضه. افتح طلباتك للاطلاع على السبب.');
+              diqaLeaveMsg('diqa-leave-result-alert',status==='approved'?'✅ وصلت موافقة المدير على طلب إجازتك.':'📩 المدير رفض طلب إجازتك؛ راجع سبب الرفض في الطلبات.');
+              diqaLeaveEl('diqa-leave-my-history').open=true;
+            }
+          }
+          diqaLeaveInitialMy=false;diqaLeavePrevMine=states;diqaLeaveMyData=next;
+          diqaLeaveRenderMyList();
+        },e=>diqaLeaveMsg('diqa-leave-form-status','⚠️ تعذر تحميل الطلبات: '+e.message,true));
+      }
+      if(manager){
+        diqaLeaveManagerMonthOffset=0;diqaLeaveInitialManager=true;diqaLeavePrevManager={};
+        diqaLeaveSubscribeBookings();
+        diqaLeaveManagerRef=db.ref(DIQA_LEAVE_MANAGER_PATH);
+        diqaLeaveManagerRef.on('value',snap=>{
+          if(currentSessionRole!=='manager')return;
+          const data=snap.val()||{};
+          const pending=Object.entries(data).filter(([,r])=>r?.status==='pending').map(([id])=>id);
+          if(!diqaLeaveInitialManager){
+            const newly=pending.filter(id=>!Object.hasOwn(diqaLeavePrevManager,id));
+            if(newly.length)diqaLeaveMsg('diqa-leave-manager-status',`🔔 وصل ${newly.length} طلب إجازة جديد.`);
+          }
+          diqaLeaveInitialManager=false;diqaLeavePrevManager=Object.fromEntries(Object.entries(data).map(([id,r])=>[id,r?.status]));
+          diqaLeaveManagerData=data;diqaLeaveRenderManager();
+        },e=>diqaLeaveMsg('diqa-leave-manager-status','⚠️ تعذر تحميل طلبات المدير: '+e.message,true));
+      }
+    }
+    function diqaLeaveStop(){
+      if(diqaLeaveMyRef)diqaLeaveMyRef.off();
+      if(diqaLeaveManagerRef)diqaLeaveManagerRef.off();
+      if(diqaLeaveBookingsRef)diqaLeaveBookingsRef.off();
+      diqaLeaveMyRef=null;diqaLeaveManagerRef=null;diqaLeaveBookingsRef=null;
+      diqaLeaveMyData={};diqaLeaveManagerData={};diqaLeaveBookings={};diqaLeaveMyKey='';
+      diqaLeaveSelected.clear();diqaLeaveDrafts={};diqaLeaveConfirm={};
+      diqaLeaveInitialMy=true;diqaLeaveInitialManager=true;
+      diqaLeaveEl('diqa-leave-request-panel').hidden=true;
+      diqaLeaveEl('diqa-leave-manager-panel').hidden=true;
+    }
+    diqaLeaveEl('diqa-leave-toggle')?.addEventListener('click',()=>{
+      if(!diqaLeaveActor())return;
+      const body=diqaLeaveEl('diqa-leave-request-body'),open=body.hidden;
+      body.hidden=!open;
+      diqaLeaveEl('diqa-leave-toggle').setAttribute('aria-expanded',String(open));
+      diqaLeaveEl('diqa-leave-toggle').textContent=open?'✕ إغلاق التقويم':'📅 طلب إجازة';
+      if(open)diqaLeaveRenderStaffCalendar();
+    });
+    for(const [id,dir,manager] of [['diqa-leave-prev',-1,false],['diqa-leave-next',1,false],['diqa-leave-manager-prev',-1,true],['diqa-leave-manager-next',1,true]]){
+      diqaLeaveEl(id)?.addEventListener('click',()=>{
+        if(manager){if(currentSessionRole!=='manager')return;diqaLeaveManagerMonthOffset=Math.max(0,Math.min(DIQA_LEAVE_MAX_MONTHS_AHEAD,diqaLeaveManagerMonthOffset+dir));diqaLeaveRenderManagerBookings();}
+        else{if(!diqaLeaveActor())return;diqaLeaveMonthOffset=Math.max(0,Math.min(DIQA_LEAVE_MAX_MONTHS_AHEAD,diqaLeaveMonthOffset+dir));diqaLeaveSelected.clear();diqaLeaveRenderStaffCalendar();}
+      });
+    }
+    diqaLeaveEl('diqa-leave-cal')?.addEventListener('click',e=>{
+      if(!diqaLeaveActor())return;
+      const btn=e.target.closest('[data-leave-date]');if(!btn||btn.disabled)return;
+      const date=btn.dataset.leaveDate;
+      if(diqaLeaveSelected.has(date))diqaLeaveSelected.delete(date);else diqaLeaveSelected.add(date);
+      diqaLeaveRenderStaffCalendar();
+    });
+    diqaLeaveEl('diqa-leave-submit')?.addEventListener('click',diqaLeaveSubmit);
+    diqaLeaveEl('diqa-leave-pending-list')?.addEventListener('input',e=>{
+      const box=e.target.closest('[data-leave-reply]');if(box&&currentSessionRole==='manager'){
+        diqaLeaveDrafts[box.dataset.leaveReply]=box.value;
+        delete diqaLeaveConfirm[box.dataset.leaveReply];
+      }
+    });
+    diqaLeaveEl('diqa-leave-pending-list')?.addEventListener('click',e=>{
+      const btn=e.target.closest('[data-leave-decision]');if(!btn||currentSessionRole!=='manager')return;
+      diqaLeaveDecide(btn.dataset.leaveId,btn.dataset.leaveDecision);
+    });
+
     diqaPeopleList?.addEventListener('click',event=>{
       const b=event.target.closest('[data-person-key]');if(b)diqaChatOpen(b.getAttribute('data-person-key'));
     });
