@@ -13588,22 +13588,21 @@ function renderDriversSelect() {
     // Company queue: first arrival within 20m; remain queued until >200m or dispatched. Attendance settings unchanged.
     const DIQA_COMPANY_ARRIVAL_RADIUS_M = 20;
     const DIQA_COMPANY_EXIT_RADIUS_M = 200;
-    const DIQA_COMPANY_ENTRY_MAX_ACCURACY_M = 50;
-    const DIQA_COMPANY_EXIT_MAX_ACCURACY_M = 100;
     // Visual company-cluster sorting boundary; separate from attendance geofence.
     const DIQA_COMPANY_GROUP_RADIUS_M = DIQA_COMPANY_EXIT_RADIUS_M;
     // Canonical dispatch queue stored once in Firebase RTDB, shared by every manager.
     // Separate from attendanceDaily and entirely independent of attendance check-in/out.
     let diqaOfficeMarker = null; // Shared company map marker; initialized in initMap()
     const DIQA_COMPANY_QUEUE_PATH = 'companyDispatchQueue/v1/drivers';
-    const diqaCompanyArrivalMemory = {}; // shared Firebase mirror, never rewrite a first-arrival timestamp
+    const diqaCompanyArrivalMemory = {}; // realtime read-only mirror; never localStorage
     const diqaCompanyQueuePending = new Set();
+    const diqaCompanyQueueLastInputs = {};
+    // Permissions and network errors must be visible; a read subscription is
+    // not proof that this Firebase path also permits transactions/writes.
     const diqaCompanyQueueWriteErrors = {};
-    const diqaCompanyQueueRetryAt = {};
-    const diqaCompanyQueueErrorCount = {};
     const diqaCompanyQueueRef = db.ref(DIQA_COMPANY_QUEUE_PATH);
     let diqaCompanyQueueLoaded = false;
-    let diqaCompanyQueueConnected = false;
+    let diqaCompanyQueueConnected = true;
     let diqaCompanyQueueRenderTimer = null;
     function diqaCompanyQueueRenderLater(){
       if(diqaCompanyQueueRenderTimer)return;
@@ -13615,42 +13614,25 @@ function renderDriversSelect() {
         if(diqaOfficeMarker && diqaOfficeMarker.isPopupOpen())diqaOfficeMarker.setPopupContent(diqaCompanyPopupHtml());
       },120);
     }
-    function diqaCompanyQueueReconcile(){
-      // Existing arrival times are immutable. Manager login must not create a new priority date.
-      for(const [driverId,location] of Object.entries(driversLocationsCache||{})){
-        if(Object.prototype.hasOwnProperty.call(driversMetaCache||{},driverId))diqaCompanyArrivalTime(driverId,location);
-      }
-      // These callbacks use the timestamp of the original GPS fix, not the time of login.
-      for(const key of Object.keys(diqaTrackerFirstSeenFix))delete diqaTrackerFirstSeenFix[key];
-      for(const key of Object.keys(diqaBrowserFirstSeenFix))delete diqaBrowserFirstSeenFix[key];
-      diqaObserveTrackerCompanyArrivals(traccarDriversLocationsCache);
-      diqaObserveBrowserCompanyArrivals(browserDriversLocationsCache);
-      if(currentSessionRole==='driver' && currentDriverId && driverBrowserLocationCache){
-        diqaCompanyArrivalTime(currentDriverId,driverBrowserLocationCache,true);
-      }
-      diqaCompanyQueueRenderLater();
-    }
-    // RTDB may emit cached values while offline. A read snapshot is not proof of connectivity.
-    db.ref('.info/connected').on('value',snapshot=>{
-      const wasConnected=diqaCompanyQueueConnected;
-      diqaCompanyQueueConnected=snapshot.val()===true;
-      if(diqaCompanyQueueConnected && !wasConnected && diqaCompanyQueueLoaded){
-        for(const id of Object.keys(diqaCompanyQueueRetryAt))delete diqaCompanyQueueRetryAt[id];
-        diqaCompanyQueueReconcile();
-      }
-      diqaCompanyQueueRenderLater();
-    });
     diqaCompanyQueueRef.on('value',snapshot=>{
       const states=snapshot.val()||{};
       for(const k of Object.keys(diqaCompanyArrivalMemory))delete diqaCompanyArrivalMemory[k];
       for(const [id,state] of Object.entries(states))if(state && typeof state==='object')diqaCompanyArrivalMemory[id]=state;
-      const initial=!diqaCompanyQueueLoaded;
       diqaCompanyQueueLoaded=true;
-      if(initial && diqaCompanyQueueConnected)diqaCompanyQueueReconcile();
+      diqaCompanyQueueConnected=true;
+      // Reconcile existing Traccar/GPS fixes even if location callbacks fired
+      // before Firebase's initial value event.
+      for(const [driverId,location] of Object.entries(driversLocationsCache||{})){
+        if(Object.prototype.hasOwnProperty.call(driversMetaCache||{},driverId))diqaCompanyArrivalTime(driverId,location);
+      }
+      // A real fix already received before this queue subscription is now
+      // eligible for recording. Timestamp is its GPS/Traccar fix, not page-open time.
+      diqaObserveTrackerCompanyArrivals(traccarDriversLocationsCache);
+      diqaObserveBrowserCompanyArrivals(browserDriversLocationsCache);
       diqaCompanyQueueRenderLater();
     },error=>{
-      diqaCompanyQueueLoaded=false;
-      console.error('Firebase company queue read failed:',error);
+      diqaCompanyQueueConnected=false;
+      console.error('Firebase company queue read denied:',error);
       diqaCompanyQueueRenderLater();
     });
     function diqaCompanyDate() { return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Baghdad'}); }
@@ -13659,68 +13641,79 @@ function renderDriversSelect() {
       return L.latLng(Number(loc.lat),Number(loc.lng)).distanceTo(L.latLng(DIQA_ROUTE_COMPANY));
     }
     function diqaCompanyDriverDispatched(id) {
-      // A registered order consumes the slot, even when Traccar/GPS is offline.
+      // Only use today's subscribed operational orders, not the attendance system.
       return Object.values(ordersCache || {}).some(o => o &&
         String(o.assignedDriverId || '') === String(id) &&
         (o.status === 'registered' || o.status === 'nearby'));
     }
-    // Pure queue transition. Returns undefined when nothing really changed.
-    // This prevents a transaction on each map render/GPS poll (disconnect spam).
     function diqaCompanyNextState(previous,fix,distance,dispatched,now,driverObserved){
-      const state=previous && typeof previous==='object'?previous:{};
+      const state=(previous && typeof previous==='object')?previous:{};
+      const hasPreviousState=!!(previous && typeof previous==='object' && previous.phase);
       const phase=['ready','waiting','blocked','dispatchedExited'].includes(state.phase)?state.phase:'ready';
       const last=Number(state.lastFix)||0;
-      const previousMs=Number(state.ms)||0;
-      const chronologicalFix=Number.isFinite(fix) && fix>0 && fix>=last;
-      const validDistance=chronologicalFix && Number.isFinite(distance);
-      const departed=validDistance && distance>DIQA_COMPANY_EXIT_RADIUS_M;
-      const arrived=validDistance && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M && !!driverObserved;
-      let newPhase=phase,arrivalMs=previousMs,departureConfirmed=!!state.leftArrivalZone;
+      const prevMs=Number(state.ms)||0;
+      const prevDispatched=!!state.dispatched;
+      // The fix timestamp is independent of when any manager opened the map.
+      if(fix<last)return;
+      // An event with unchanged coordinates can still register an observed first
+      // arrival after a passive (display-only) snapshot.
+      if(fix===last && prevDispatched===dispatched && state.phase &&
+         !(phase==='ready' && driverObserved && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M))return;
+      let nextPhase=phase,ms=prevMs;
+      let leftArrivalZone=!!state.leftArrivalZone;
       if(dispatched){
-        // Registration immediately removes priority, even with no new GPS fix.
-        // It can be regained only after an observed >200m departure and a new <=20m entry.
-        if(phase==='waiting'||phase==='ready'){
-          newPhase=departed?'dispatchedExited':'blocked';
-          arrivalMs=0;departureConfirmed=!!departed;
-        }else if(departed && !departureConfirmed){
-          newPhase='dispatchedExited';arrivalMs=0;departureConfirmed=true;
-        }
-      }else if(phase==='waiting' && previousMs>0){
-        if(departed){newPhase='ready';arrivalMs=0;departureConfirmed=false;}
-        // Between 20m and 200m, or GPS offline: do not alter the slot.
-      }else if(phase==='blocked'||phase==='dispatchedExited'){
-        if(departed && !departureConfirmed){
-          newPhase='dispatchedExited';arrivalMs=0;departureConfirmed=true;
-        }else if(arrived && departureConfirmed){
-          newPhase='waiting';arrivalMs=fix;departureConfirmed=false;
-        }
-      }else if(arrived){
-        newPhase='waiting';arrivalMs=fix;departureConfirmed=false;
-      }
-      if(newPhase===phase && arrivalMs===previousMs && departureConfirmed===!!state.leftArrivalZone)return;
-      return {phase:newPhase,ms:arrivalMs,lastFix:chronologicalFix?fix:last,
-        dispatched:!!dispatched,leftArrivalZone:departureConfirmed,updatedAt:now};
+        // Dispatch consumes seniority even when the GPS/Traccar fix has gone stale.
+        // Only a fresh confirmed departure may mark "exited".
+        const departed=Number.isFinite(distance) && distance>DIQA_COMPANY_EXIT_RADIUS_M;
+        nextPhase=departed||phase==='dispatchedExited'?'dispatchedExited':'blocked';
+        leftArrivalZone=leftArrivalZone || (Number.isFinite(distance) && distance>DIQA_COMPANY_ARRIVAL_RADIUS_M);
+        ms=0;
+      } else if(Number.isFinite(distance) && distance>DIQA_COMPANY_EXIT_RADIUS_M){
+        nextPhase='ready';ms=0;leftArrivalZone=false;
+      } else if(phase==='waiting' && prevMs>0){
+        // HYSTERESIS: after an arrival inside 20m, 22m/80m/199m MUST NOT
+        // erase seniority. Retain the exact original first-arrival timestamp.
+        nextPhase='waiting';ms=prevMs;leftArrivalZone=false;
+      } else if(phase==='blocked' || phase==='dispatchedExited'){
+        // Removing an order while the courier never left does not restore the
+        // consumed slot. First observe departure beyond 20m (or 200m), then
+        // observe return within 20m; a fresh return gets a NEW arrival time.
+        if(distance>DIQA_COMPANY_ARRIVAL_RADIUS_M){
+          leftArrivalZone=true;nextPhase=phase;ms=0;
+        } else if(distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M && leftArrivalZone){
+          nextPhase='waiting';ms=fix;leftArrivalZone=false;
+        } else {nextPhase=phase;ms=0;}
+      } else if(distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M && (driverObserved || hasPreviousState)){
+        nextPhase='waiting';ms=fix;leftArrivalZone=false;
+      } else {nextPhase='ready';ms=0;}
+      return {
+        phase:nextPhase, ms, lastFix:Math.max(last,fix), dispatched,
+        leftArrivalZone, updatedAt:now
+      };
     }
+    // Independently observe real GPS fixes from BOTH data sources. Previously
+    // the first Traccar fix was ignored, leaving parked drivers such as Anwar
+    // "waiting for Firebase" without any write being attempted.
     const diqaTrackerFirstSeenFix={};
     const diqaBrowserFirstSeenFix={};
     function diqaObserveCompanySourceArrivals(entries,seen){
-      if(!diqaCompanyQueueLoaded||!diqaCompanyQueueConnected)return;
+      if(!diqaCompanyQueueLoaded)return;
       Object.entries(entries||{}).forEach(([id,loc])=>{
         if(!Object.prototype.hasOwnProperty.call(driversMetaCache||{},id))return;
-        // BOTH independent sources can supply entry/exit evidence; do not suppress Traccar when browser GPS is fresh.
+        // Keep the existing GPS-first priority: a fresh browser location
+        // supersedes Traccar, including when checking the office geofence.
+        if(seen===diqaTrackerFirstSeenFix){
+          const browser=(currentDriverId===id && isFreshBrowserDriverLocation())
+            ? driverBrowserLocationCache : browserDriversLocationsCache[id];
+          if(freshBrowserLocation(browser))return;
+        }
         const fix=tsToMs(loc&&loc.updatedAt),old=seen[id];
         if(!fix || Date.now()-fix>180000 || fix>Date.now()+60000 || !validGeoLocation(loc))return;
         if(old!=null && fix<=old)return;
         seen[id]=fix;
-        // GPS/Traccar run independently. One valid fix can join or leave the queue.
-        // Poor-accuracy readings cannot trigger a false crossing of either geofence.
-        const distance=diqaCompanyDistance(loc);
-        const acc=loc.accuracy == null ? null : Number(loc.accuracy);
-        const precise=acc==null || (Number.isFinite(acc) && acc>=0 &&
-          (distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M ? acc<=DIQA_COMPANY_ENTRY_MAX_ACCURACY_M :
-           distance>DIQA_COMPANY_EXIT_RADIUS_M ? acc<=DIQA_COMPANY_EXIT_MAX_ACCURACY_M : true));
-        if(precise && (distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M ||
-          distance>DIQA_COMPANY_EXIT_RADIUS_M || diqaCompanyArrivalMemory[id])){
+        // We only create a new slot when a real fix is inside 20m. Existing
+        // slots are also processed outside that range to detect departures.
+        if(diqaCompanyDistance(loc)<=DIQA_COMPANY_ARRIVAL_RADIUS_M || diqaCompanyArrivalMemory[id]){
           diqaCompanyArrivalTime(id,loc,true);
         }
       });
@@ -13734,50 +13727,52 @@ function renderDriversSelect() {
     function diqaCompanyArrivalTime(id,loc,driverObserved=false){
       const saved=diqaCompanyArrivalMemory[id];
       const now=Date.now(),fix=tsToMs(loc&&loc.updatedAt);
+      const fresh=fix>0 && fix<=now+60000 && now-fix<=180000 && validGeoLocation(loc);
       const distance=diqaCompanyDistance(loc);
-      const acc=loc&&loc.accuracy!=null?Number(loc.accuracy):null;
-      const precise=acc==null || (Number.isFinite(acc)&&acc>=0 &&
-        (distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M?acc<=DIQA_COMPANY_ENTRY_MAX_ACCURACY_M:
-        distance>DIQA_COMPANY_EXIT_RADIUS_M?acc<=DIQA_COMPANY_EXIT_MAX_ACCURACY_M:true));
-      const fresh=fix>0 && fix<=now+60000 && now-fix<=180000 && validGeoLocation(loc) && precise;
       const dispatched=diqaCompanyDriverDispatched(id);
-      const txFix=fresh?fix:Number(saved?.lastFix)||0;
-      const txDist=fresh?distance:NaN;
+      // Dispatch changes must be persisted even if a driver is offline.
+      // All geographic transitions require an actual fresh fix.
       const shouldWrite=diqaCompanyQueueLoaded && diqaCompanyQueueConnected &&
-        !diqaCompanyQueuePending.has(id) && now>=(diqaCompanyQueueRetryAt[id]||0) &&
-        (fresh || (dispatched && saved));
-      // Determine whether a state transition is needed BEFORE starting a Firebase
-      // transaction. In particular, no write for staying parked, offline, or <=200m.
-      if(shouldWrite && diqaCompanyNextState(saved,txFix,txDist,dispatched,now,driverObserved)){
-        diqaCompanyQueuePending.add(id);
-        db.ref(DIQA_COMPANY_QUEUE_PATH+'/'+id).transaction(current=>
-          diqaCompanyNextState(current,txFix,txDist,dispatched,now,driverObserved),
-          (error,committed)=>{
-            diqaCompanyQueuePending.delete(id);
-            if(error){
-              const tries=(diqaCompanyQueueErrorCount[id]||0)+1;
-              diqaCompanyQueueErrorCount[id]=tries;
-              diqaCompanyQueueRetryAt[id]=Date.now()+Math.min(60000,2000*Math.pow(2,Math.min(tries,5)));
-              const message=String(error.message||error);
-              diqaCompanyQueueWriteErrors[id]=message;
-              if(tries===1||tries%5===0)console.error('Company queue Firebase write failed for '+id,error);
-            }else if(committed){
-              delete diqaCompanyQueueWriteErrors[id];
-              delete diqaCompanyQueueErrorCount[id];
-              delete diqaCompanyQueueRetryAt[id];
-            }
-            diqaCompanyQueueRenderLater();
-          },false);
+        ((dispatched && saved) ||
+         (fresh && Number.isFinite(distance) &&
+          (saved || (driverObserved && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M))));
+      if(shouldWrite){
+        const txFix=fresh?fix:(Number(saved?.lastFix)||now);
+        const txDist=fresh?distance:NaN;
+        const signature=txFix+'|'+dispatched+'|'+driverObserved+'|'+(fresh?Math.round(distance):'stale');
+        if(!diqaCompanyQueuePending.has(id) && diqaCompanyQueueLastInputs[id]!==signature){
+          diqaCompanyQueueLastInputs[id]=signature;
+          diqaCompanyQueuePending.add(id);
+          // Transaction guarantees that two simultaneous manager devices cannot
+          // rewrite the first arrival with the later page-open/refresh time.
+          db.ref(DIQA_COMPANY_QUEUE_PATH+'/'+id).transaction(current=>
+            diqaCompanyNextState(current,txFix,txDist,dispatched,Date.now(),driverObserved),
+            (error,committed)=>{
+              diqaCompanyQueuePending.delete(id);
+              if(error){
+                delete diqaCompanyQueueLastInputs[id];
+                diqaCompanyQueueWriteErrors[id]=String(error.message||error);
+                console.error('Company queue Firebase write failed for '+id,error);
+              } else if(committed){
+                delete diqaCompanyQueueWriteErrors[id];
+              }
+              diqaCompanyQueueRenderLater();
+            },false);
+        }
       }
       if(dispatched)return 0;
       if(saved && saved.phase==='waiting' && Number(saved.ms)>0){
-        // Only confirmed fresh >200m departure or assignment can clear seniority.
+        // The ONLY geographic exit after first arrival is a new valid fix
+        // farther than 200 metres. Stale/offline fixes never clear the slot.
         if(!fresh || distance<=DIQA_COMPANY_EXIT_RADIUS_M)return Number(saved.ms);
         return 0;
       }
       if(!fresh || distance>DIQA_COMPANY_EXIT_RADIUS_M)return 0;
-      if(saved && (saved.phase==='blocked'||saved.phase==='dispatchedExited')){
-        return driverObserved && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M && saved.leftArrivalZone ? fix : 0;
+      if(saved){
+        if(saved.phase==='waiting')return Number(saved.ms)||0;
+        if(saved.phase==='blocked'||saved.phase==='dispatchedExited'){
+          return distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M && saved.leftArrivalZone ? fix : 0;
+        }
       }
       if(driverObserved && distance<=DIQA_COMPANY_ARRIVAL_RADIUS_M)return fix;
       return 0;
@@ -13818,7 +13813,7 @@ function renderDriversSelect() {
         return [{id,name:(driversMetaCache[id]||{}).name||id,reason}];
       });
       panel.innerHTML='<b>🏢 أقدمية المندوبين الجاهزين ('+rows.length+')</b>'+
-        '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">الإصدار 20261101-DUAL-SOURCE-GEOFENCE • الوصول: 20 متر • الخروج: 200 متر • انقطاع التتبع لا يلغي الأقدمية • الطلب المسجّل يخرج المندوب من الدور • '+(diqaCompanyQueueConnected?'سجل موحّد Firebase':'⚠️ تعذّر الاتصال بسجل Firebase')+'</div>'+
+        '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">الإصدار 20261017-ARRIVAL-FIX • الوصول: 20 متر • الخروج: 200 متر • انقطاع التتبع لا يلغي الأقدمية • الطلب المسجّل يخرج المندوب من الدور • '+(diqaCompanyQueueConnected?'سجل موحّد Firebase':'⚠️ تعذّر الاتصال بسجل Firebase')+'</div>'+
         (rows.length?rows.map((n,i)=>'<button type="button" class="diqa-company-queue-entry" data-diqa-company-id="'+escapeDriverMapText(n.id)+'"><span>'+(i+1)+'. '+escapeDriverMapText(n.name)+'</span><time>'+new Date(n.arrived).toLocaleString('ar-IQ',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baghdad'})+'</time></button>').join(''):'<p style="color:#94a3b8;margin:10px 0 2px">لا يوجد مندوب جاهز حالياً. ظهور مندوبين متقاربين بالخريطة لا يعني بالضرورة تسجيل وصولهم أو خلوّهم من الطلبات.</p>')+
         (excluded.length?'<div style="margin-top:8px;border-top:1px solid #475569;padding-top:6px;color:#cbd5e1"><b>موجودون قرب الشركة لكن غير جاهزين:</b>'+excluded.map(n=>'<div style="padding:3px 0">'+escapeDriverMapText(n.name)+' — '+escapeDriverMapText(n.reason)+'</div>').join('')+'</div>':'');
       panel.querySelectorAll('[data-diqa-company-id]').forEach(btn=>btn.addEventListener('click',()=>{
@@ -14469,10 +14464,6 @@ function addEmployee(){
           const now = Date.now();
           if (now - lastSentAt < MIN_SEND_INTERVAL_MS) return;
           lastSentAt = now;
-          // Geolocation API supplies the time of the actual position fix.
-          // Never substitute "page opened now" for the geofence arrival time.
-          const gpsFixMs = Number(pos.timestamp) || now;
-          if (gpsFixMs > now + 60000 || now-gpsFixMs>180000) return;
 
           const lat = pos.coords.latitude;
           const lng = pos.coords.longitude;
@@ -14507,7 +14498,7 @@ function addEmployee(){
             gpsError: null,
             active: true,
             liveState: "online",
-            updatedAt: gpsFixMs,
+            updatedAt: now,
             source: "browser",
             computedSpeedKmh,
             speedKmh: browserSpeedKmh,
@@ -14525,7 +14516,7 @@ function addEmployee(){
             // Write only the driver's own node (Firebase rules must permit this).
             db.ref(`browserDriversLocations/${currentDriverId}`).set({
               name: currentDriverNameLabel.textContent || '', lat, lng,
-              accuracy: acc, updatedAt: gpsFixMs, source: 'browser',
+              accuracy: acc, updatedAt: now, source: 'browser',
               speedKmh: browserSpeedKmh
             }).catch(e => {
               console.warn('Browser GPS Firebase write failed:', e);
@@ -14541,7 +14532,7 @@ function addEmployee(){
               gpsOk: true,
               gpsError: null,
               active: true,
-              updatedAt: gpsFixMs
+              updatedAt: SERVER_TS
             });
 
             saveDriverTrackingPoint(currentDriverId, {
