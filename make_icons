@@ -1,0 +1,27 @@
+# Run: python make_icons.py /path/to/original_diqa_icon.png
+# Requires Pillow. Uses the ORIGINAL photo with no reconstruction or added logo text.
+from pathlib import Path
+from PIL import Image
+import sys
+if len(sys.argv) != 2:
+    raise SystemExit('Usage: python make_icons.py original_icon.png')
+source = Path(sys.argv[1])
+if not source.exists():
+    raise SystemExit(f'Image not found: {source}')
+folder = Path(__file__).resolve().parent
+im = Image.open(source).convert('RGBA')
+w, h = im.size
+# Fit with transparent margins so the original design is never cut or stretched.
+side = max(w, h)
+canvas = Image.new('RGBA', (side, side), (255, 255, 255, 0))
+canvas.alpha_composite(im, ((side - w)//2, (side - h)//2))
+for size in (180,192,512):
+    target = canvas.resize((size,size), Image.Resampling.LANCZOS)
+    if size == 180:
+        # iOS tends to display transparent pixels as black: supply opaque background.
+        background = Image.new('RGBA',target.size,(255,255,255,255))
+        background.alpha_composite(target)
+        target=background
+    file = folder/f'icon-{size}.png'
+    target.save(file)
+    print(f'Created {file.name}: {size}x{size}')
