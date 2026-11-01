@@ -1550,6 +1550,15 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
   <div style="margin-top:8px" class="list" id="manager-emp-attendance-list"></div>
 </div>
 </div>
+<div class="att-box" style="margin-top:12px" id="diqa-monthly-att-manager">
+  <h3 style="margin:4px 0 10px">تقرير الحضور الشهري Excel — الموظفون والمندوبون</h3>
+  <div class="att-row" style="align-items:center;gap:8px;flex-wrap:wrap">
+    <label for="diqa-month-picker-manager">الشهر</label>
+    <input type="month" id="diqa-month-picker-manager" data-monthly-att-picker="manager" style="max-width:185px">
+    <button type="button" class="secondary" data-monthly-att-export="manager">📊 تحميل Excel الشهر</button>
+  </div>
+  <p class="small" data-monthly-att-status style="margin:8px 0 0">الأرشيف يُحدّث بعد 11:31 مساءً؛ الأيام السابقة ثابتة، والغياب 0.</p>
+</div>
 
           <!-- ========================= -->
         </div>
@@ -1751,6 +1760,15 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
       <span class="badge" id="emp-att-worked">مدة اليوم: —</span>
     </div>
     <p class="small" id="emp-att-msg" style="margin:6px 0 0; color:#fca5a5;"></p>
+  </div>
+  <div class="att-box" style="margin-top:12px">
+    <h3 style="margin:4px 0 10px">Excel الحضور الشهري</h3>
+    <div class="att-row" style="align-items:center;gap:8px;flex-wrap:wrap">
+      <label for="diqa-month-picker-employee">الشهر</label>
+      <input type="month" id="diqa-month-picker-employee" data-monthly-att-picker="employee" style="max-width:185px">
+      <button type="button" class="secondary" data-monthly-att-export="employee">📊 تحميل Excel الشهر</button>
+    </div>
+    <p class="small" data-monthly-att-status style="margin:8px 0 0">يُحفَظ اليوم المكتمل تلقائياً وتبقى الأيام السابقة ثابتة.</p>
   </div>
 </div>
   <!-- ✅ NEW: كل الطلبات الراجعة (خاص للموظف عمار رعد) -->
@@ -11888,6 +11906,366 @@ function subscribeEmployees(){
     if (downloadManagerEmployeesAttendanceImageBtn) downloadManagerEmployeesAttendanceImageBtn.addEventListener('click', ()=>downloadAttendanceImage('employees'));
 
 
+    // =============================================================
+    // DIQA MONTHLY ATTENDANCE: immutable completed-day Firebase archive
+    // + self-contained native XLSX export (no external Excel library).
+    // =============================================================
+    const DIQA_MONTHLY_ROOT = 'attendanceMonthlyReportsV1';
+    const DIQA_MONTHLY_CUTOFF_START = '2026-07-26';
+    let diqaMonthlyTimer = null;
+    let diqaMonthlyWorking = false;
+    let diqaMonthlySession = 0;
+    const diqaMonthlyStatusEls = () => Array.from(document.querySelectorAll('[data-monthly-att-status]'));
+    function diqaMonthlyStatus(message){
+      diqaMonthlyStatusEls().forEach(el => { el.textContent = message; });
+    }
+    function diqaMonthlyAllowed(){
+      return ['manager','limited_manager','employee'].includes(currentSessionRole);
+    }
+    function diqaMonthlyMonthOf(dateKey){ return String(dateKey).slice(0,7); }
+    function diqaMonthlyDays(month){
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month))) return 0;
+      return new Date(Number(month.slice(0,4)), Number(month.slice(5,7)), 0).getDate();
+    }
+    function diqaMonthlyDateKey(month, day){ return month + '-' + String(day).padStart(2,'0'); }
+    function diqaMonthlyMonthRef(month){ return db.ref(`${DIQA_MONTHLY_ROOT}/${month}`); }
+    function diqaMonthlyPersonRecord(doc, meta, personId, kind, dateKey){
+      const sessions = normalizeSessions(doc || {});
+      const dayLimit = cutoffMsForDateKey(dateKey, kind === 'employees' ? 'attendanceEmployees' : 'attendance', personId, doc || {});
+      const valid = sessions.filter(s => s && tsToMs(s.inAt) > 0);
+      let firstIn = 0, lastOut = 0, worked = 0;
+      for (const s of valid){
+        const start = tsToMs(s.inAt);
+        const endRaw = tsToMs(s.outAt);
+        const end = endRaw || dayLimit;
+        if (!start || !end || end < start) continue;
+        firstIn = firstIn ? Math.min(firstIn, start) : start;
+        lastOut = Math.max(lastOut, end);
+        worked += (end - start);
+      }
+      // Duration is stored as real milliseconds; never compute an old day using Date.now().
+      return {
+        name: String((meta && meta.name) || (doc && (doc.employeeName || doc.driverName || doc.name)) || personId),
+        inTime: firstIn ? formatHHMM(firstIn) : '',
+        outTime: lastOut ? formatHHMM(lastOut) : '',
+        durationMs: Math.max(0, Math.round(worked)),
+        sessionCount: valid.length,
+        attended: !!firstIn
+      };
+    }
+    function diqaMonthlyBuildDay(dateKey, driversMeta, employeesMeta, driversRaw, employeesRaw){
+      const people = (kind, meta, raw) => {
+        const result = {};
+        const ids = new Set([...Object.keys(meta || {}), ...Object.keys(raw || {})]);
+        for (const id of ids){
+          result[id] = diqaMonthlyPersonRecord((raw || {})[id], (meta || {})[id], id, kind, dateKey);
+        }
+        return result;
+      };
+      return {
+        dateKey,
+        finalized: true,
+        drivers: people('drivers', driversMeta, driversRaw),
+        employees: people('employees', employeesMeta, employeesRaw),
+        finalizedAt: firebase.database.ServerValue.TIMESTAMP
+      };
+    }
+    async function diqaMonthlyArchiveDay(dateKey, sharedMeta){
+      // Keep all old finalized days exactly as initially recorded.
+      const month = diqaMonthlyMonthOf(dateKey), day = String(dateKey).slice(-2);
+      const dayRef = diqaMonthlyMonthRef(month).child('days/' + day);
+      const existing = await dayRef.once('value');
+      if (existing.exists()) return true;
+      const [driverSnap, empSnap] = await Promise.all([
+        db.ref('attendance/' + dateKey).once('value'),
+        db.ref('attendanceEmployees/' + dateKey).once('value')
+      ]);
+      const driverRaw = driverSnap.val() || {};
+      const employeeRaw = empSnap.val() || {};
+      // Do not falsely classify employees as absent if older source logs vanished.
+      const dayAge = Date.now() - new Date(dateKey + 'T12:00:00').getTime();
+      if (!Object.keys(driverRaw).length && !Object.keys(employeeRaw).length && dayAge > 3 * 86400000) {
+        return false;
+      }
+      // After 23:31 all sessions must be closed using the existing auto checkout rules.
+      await Promise.all([
+        forceCloseOpenSessions(dateKey, driverRaw, 'attendance', AUTO_CLOSE_GUARD.drivers),
+        forceCloseOpenSessions(dateKey, employeeRaw, 'attendanceEmployees', AUTO_CLOSE_GUARD.employees)
+      ]);
+      const [driverFinal, employeeFinal] = await Promise.all([
+        db.ref('attendance/' + dateKey).once('value'),
+        db.ref('attendanceEmployees/' + dateKey).once('value')
+      ]);
+      const data = diqaMonthlyBuildDay(dateKey, sharedMeta.driversMeta, sharedMeta.employeesMeta, driverFinal.val() || {}, employeeFinal.val() || {});
+      const transactionResult = await dayRef.transaction(previous => previous || data, undefined, false);
+      return !!(transactionResult && (transactionResult.committed || (transactionResult.snapshot && transactionResult.snapshot.exists())));
+    }
+    async function diqaMonthlyBackfill(month, latestReadyDate, sessionVersion){
+      if (!diqaMonthlyDays(month)) throw new Error('Invalid month');
+      const meta = await fetchAutoAttendanceMetaSnapshot();
+      const days = (await diqaMonthlyMonthRef(month).child('days').once('value')).val() || {};
+      const end = Math.min(diqaMonthlyDays(month), month === diqaMonthlyMonthOf(latestReadyDate) ? Number(latestReadyDate.slice(-2)) : (month < diqaMonthlyMonthOf(latestReadyDate) ? diqaMonthlyDays(month) : 0));
+      let saved = 0, unavailable = 0;
+      for (let d = 1; d <= end; d++){
+        if (!diqaMonthlyAllowed() || sessionVersion !== diqaMonthlySession) break;
+        const dateKey = diqaMonthlyDateKey(month, d), dd = String(d).padStart(2,'0');
+        if (dateKey < DIQA_MONTHLY_CUTOFF_START || days[dd]) continue;
+        try{
+          if (await diqaMonthlyArchiveDay(dateKey, meta)) saved++;
+          else unavailable++;
+        }catch(e){
+          console.warn('Monthly archive day failed:', dateKey, e);
+          throw e;
+        }
+      }
+      return {saved, unavailable};
+    }
+    function diqaMonthlyCellXml(address, value, style=0){
+      if (value && typeof value === 'object' && value.formula){
+        return `<c r="${address}" s="${style}"><f>${diqaMonthlyXml(value.formula)}</f><v>${Number.isFinite(value.result)?value.result:0}</v></c>`;
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return `<c r="${address}" s="${style}"><v>${value}</v></c>`;
+      }
+      return `<c r="${address}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${diqaMonthlyXml(value == null ? '' : String(value))}</t></is></c>`;
+    }
+    function diqaMonthlyXml(str){
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+    }
+    function diqaMonthlyCol(index){
+      let n = index, s = '';
+      while (n > 0){n--; s = String.fromCharCode(65+n%26)+s; n = Math.floor(n/26);}
+      return s;
+    }
+    // An Excel worksheet takes an array of {values,styles}, indexed from column A.
+    function diqaMonthlyWorksheetXml(rows, widths, merges=[]){
+      let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+      xml += '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0" rightToLeft="1" showGridLines="0"><pane xSplit="2" ySplit="2" topLeftCell="C3" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>';
+      xml += '<sheetFormatPr defaultRowHeight="17"/><cols>';
+      widths.forEach((w,i)=>{xml += `<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`;});
+      xml += '</cols><sheetData>';
+      rows.forEach((row,i)=>{
+        const values = row.values || [], styles = row.styles || [];
+        xml += `<row r="${i+1}"${i < 2 ? ' ht="25" customHeight="1"' : ''}>`;
+        values.forEach((v,j)=>{xml += diqaMonthlyCellXml(diqaMonthlyCol(j+1)+(i+1), v, styles[j] || (i < 2 ? 1 : 0));});
+        xml += '</row>';
+      });
+      xml += '</sheetData>';
+      if (merges.length) xml += '<mergeCells count="'+merges.length+'">'+merges.map(r=>'<mergeCell ref="'+r+'"/>').join('')+'</mergeCells>';
+      if (rows.length > 2) xml += `<autoFilter ref="A2:${diqaMonthlyCol(widths.length)}${rows.length}"/>`;
+      xml += '<pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/></worksheet>';
+      return xml;
+    }
+    function diqaMonthlyBuildSheets(month, archive, latestReady){
+      const daysInMonth = diqaMonthlyDays(month);
+      const archivedDays = archive.days || {};
+      const names = {'drivers':'المندوبين','employees':'الموظفين'};
+      const out = [];
+      for (const type of ['drivers','employees']){
+        const people = new Map();
+        for (let d=1;d<=daysInMonth;d++){
+          const dd=String(d).padStart(2,'0');
+          const recs=(archivedDays[dd] || {})[type] || {};
+          Object.entries(recs).forEach(([id,record])=>{
+            if (!people.has(id)) people.set(id,{name:String((record||{}).name||id),id});
+          });
+        }
+        // Also show currently registered staff for months before the first attendance.
+        const ordered = Array.from(people.values()).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+        const summaryHead = ['الاسم','الرقم'];
+        for(let d=1;d<=daysInMonth;d++){
+          summaryHead.push(`${d} / ${month.slice(5)} دخول`, `${d} / ${month.slice(5)} مدة`);
+        }
+        summaryHead.push('مجموع الشهر','أيام الحضور');
+        const widths = [25,17];
+        for(let d=1;d<=daysInMonth;d++) widths.push(13,14);
+        widths.push(19,15);
+        const summary = [
+          {values:[`شركة الدقّة — حضور ${names[type]} — ${month}`]},
+          {values:summaryHead}
+        ];
+        const detail = [
+          {values:[`شركة الدقّة — تفاصيل حضور ${names[type]} — ${month}`]},
+          {values:['اليوم','الاسم','الرقم','الدخول','الخروج','مدة الحضور','الحالة','عدد الجلسات']}
+        ];
+        for (const person of ordered){
+          const values=[person.name,person.id], styles=[0,0];
+          let hasDays=0, totalMs=0;
+          for(let d=1;d<=daysInMonth;d++){
+            const key=String(d).padStart(2,'0');
+            const doc = ((archivedDays[key] || {})[type] || {})[person.id];
+            if (doc){
+              const ms = Number(doc.durationMs || 0);
+              values.push(doc.attended ? (doc.inTime || '') : '0', ms / 86400000);
+              styles.push(0,2);
+              totalMs+=ms;
+              if(doc.attended) hasDays++;
+            } else if (diqaMonthlyDateKey(month,d) > latestReady){
+              values.push('',''); styles.push(0,0);
+            } else {
+              // An unarchived past day is unknown, NOT a confirmed absence.
+              values.push('—','—'); styles.push(0,0);
+            }
+          }
+          const rowNumber=summary.length+1;
+          const durationCols=Array.from({length:daysInMonth},(_,i)=>diqaMonthlyCol(4+i*2)+rowNumber);
+          const sumFormula=durationCols.map(c=>c).join(',');
+          values.push({formula:'SUM('+sumFormula+')',result:totalMs/86400000}, hasDays);
+          styles.push(2,0);
+          summary.push({values,styles});
+          for (let d=1;d<=daysInMonth;d++){
+            const dd=String(d).padStart(2,'0'), date=diqaMonthlyDateKey(month,d);
+            const rec=((archivedDays[dd] || {})[type] || {})[person.id];
+            if(date > latestReady){
+              detail.push({values:[date,person.name,person.id,'','','','لم يكتمل','']});
+            }else if (!rec){
+              detail.push({values:[date,person.name,person.id,'','','','غير مؤرشف','']});
+            }else{
+              const ms=Math.max(0,Number(rec.durationMs||0));
+              detail.push({values:[date,person.name,person.id,rec.inTime||'0',rec.outTime||'0',ms/86400000,rec.attended?'حاضر':'غائب',Number(rec.sessionCount||0)],styles:[0,0,0,0,0,2,0,0]});
+            }
+          }
+        }
+        out.push({name:`ملخص ${names[type]}`,xml:diqaMonthlyWorksheetXml(summary,widths,[`A1:${diqaMonthlyCol(widths.length)}1`])});
+        out.push({name:`تفاصيل ${names[type]}`,xml:diqaMonthlyWorksheetXml(detail,[17,25,17,14,14,18,16,14],['A1:H1'])});
+      }
+      return out;
+    }
+    // Native ZIP stored method with CRC32, enough for valid Office Open XML workbooks.
+    function diqaMonthlyMakeZip(files){
+      const enc = new TextEncoder(), chunks=[], center=[]; let offset=0;
+      let crcTable = diqaMonthlyMakeZip.crcTable;
+      if(!crcTable){
+        crcTable = new Uint32Array(256);
+        for(let i=0;i<256;i++){
+          let c=i;for(let j=0;j<8;j++) c=(c&1)?(0xedb88320^(c>>>1)):(c>>>1);
+          crcTable[i]=c>>>0;
+        }
+        diqaMonthlyMakeZip.crcTable=crcTable;
+      }
+      function crc32(data){
+        let c=0xffffffff; for(const b of data) c=crcTable[(c^b)&255]^(c>>>8);
+        return (c^0xffffffff)>>>0;
+      }
+      function header(len){return new DataView(new ArrayBuffer(len));}
+      function bytes(view){return new Uint8Array(view.buffer);}
+      files.forEach(file=>{
+        const name=enc.encode(file.name), data=enc.encode(file.content), crc=crc32(data);
+        const local=header(30);
+        local.setUint32(0,0x04034b50,true);local.setUint16(4,20,true);
+        local.setUint16(6,0x0800,true);local.setUint16(8,0,true);
+        local.setUint32(14,crc,true);local.setUint32(18,data.length,true);local.setUint32(22,data.length,true);
+        local.setUint16(26,name.length,true);
+        chunks.push(bytes(local),name,data);
+        const cd=header(46);
+        cd.setUint32(0,0x02014b50,true);cd.setUint16(4,20,true);cd.setUint16(6,20,true);
+        cd.setUint16(8,0x0800,true);cd.setUint16(10,0,true);
+        cd.setUint32(16,crc,true);cd.setUint32(20,data.length,true);cd.setUint32(24,data.length,true);
+        cd.setUint16(28,name.length,true);cd.setUint32(42,offset,true);
+        center.push(bytes(cd),name);
+        offset += 30+name.length+data.length;
+      });
+      const centerSize=center.reduce((n,b)=>n+b.length,0), end=header(22);
+      end.setUint32(0,0x06054b50,true);end.setUint16(8,files.length,true);
+      end.setUint16(10,files.length,true);end.setUint32(12,centerSize,true);end.setUint32(16,offset,true);
+      return new Blob([...chunks,...center,bytes(end)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    }
+    function diqaMonthlyMakeXlsx(month,archive,latestReady){
+      const sheets=diqaMonthlyBuildSheets(month,archive,latestReady);
+      const xmlHead='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+      const files=[];
+      const types=['<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>','<Default Extension="xml" ContentType="application/xml"/>','<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>','<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'];
+      let sheetTags='',rels='';
+      sheets.forEach((s,i)=>{
+        types.push(`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`);
+        sheetTags+=`<sheet name="${diqaMonthlyXml(s.name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`;
+        rels+=`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i+1}.xml"/>`;
+        files.push({name:`xl/worksheets/sheet${i+1}.xml`,content:s.xml});
+      });
+      rels+=`<Relationship Id="rId${sheets.length+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`;
+      files.push({name:'[Content_Types].xml',content:xmlHead+`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">${types.join('')}</Types>`});
+      files.push({name:'_rels/.rels',content:xmlHead+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'});
+      files.push({name:'xl/workbook.xml',content:xmlHead+`<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets>${sheetTags}</sheets><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>`});
+      files.push({name:'xl/_rels/workbook.xml.rels',content:xmlHead+`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`});
+      files.push({name:'xl/styles.xml',content:xmlHead+'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="[h]:mm;[Red]-[h]:mm;0"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Arial"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF15243B"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'});
+      return diqaMonthlyMakeZip(files);
+    }
+    function diqaMonthlyDownloadBlob(blob,filename){
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download=filename;
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),60000);
+    }
+    async function diqaMonthlyExport(month,auto=false){
+      if(!diqaMonthlyAllowed()) return false;
+      if(!diqaMonthlyDays(month)) throw new Error('اختر شهراً صحيحاً');
+      const session=diqaMonthlySession,latestReady=getAutoAttendanceTargetDateKey(new Date());
+      if(month <= diqaMonthlyMonthOf(latestReady)) await diqaMonthlyBackfill(month,latestReady,session);
+      if(session!==diqaMonthlySession||!diqaMonthlyAllowed())return false;
+      const snap=await diqaMonthlyMonthRef(month).once('value');
+      const archive=snap.val()||{days:{}};
+      if(!Object.keys(archive.days||{}).length){
+        if(!auto)alert('لا توجد بيانات مؤرشفة لهذا الشهر حتى الآن.');
+        return false;
+      }
+      diqaMonthlyDownloadBlob(diqaMonthlyMakeXlsx(month,archive,latestReady),`حضور-شهري-الدقة-${month}.xlsx`);
+      diqaMonthlyStatus(`تم إعداد Excel لشهر ${month} — الأيام المكتملة ثابتة والأيام المستقبلية فارغة.`);
+      return true;
+    }
+    async function diqaMonthlyProcess(){
+      if(!diqaMonthlyAllowed()||diqaMonthlyWorking||!navigator.onLine) return;
+      diqaMonthlyWorking=true;
+      const session=diqaMonthlySession;
+      try{
+        const latestReady=getAutoAttendanceTargetDateKey(new Date());
+        const nowMonth=diqaMonthlyMonthOf(toISODateLocal(new Date()));
+        const prevMonth=diqaMonthlyMonthOf(latestReady);
+        const months=[...new Set([prevMonth,nowMonth])];
+        let missing=0;
+        for(const month of months){
+          if(month < diqaMonthlyMonthOf(DIQA_MONTHLY_CUTOFF_START)) continue;
+          const res=await diqaMonthlyBackfill(month,latestReady,session);
+          missing+=res.unavailable;
+          if(!diqaMonthlyAllowed()||session!==diqaMonthlySession)return;
+        }
+        diqaMonthlyStatus(missing ? `تم حفظ المتاح؛ ${missing} يوم قديم بلا سجلات مصدر، لم يُحسب غياباً.` : `الأرشيف الشهري محدّث حتى ${latestReady}.`);
+        const downloadKey=`diqa_monthly_xlsx_done_v1_${latestReady}`;
+        if(localStorage.getItem(downloadKey)!=='1'){
+          // Best-effort auto-download; browser download permissions may require a click.
+          const ok=await diqaMonthlyExport(prevMonth,true);
+          if(ok && session===diqaMonthlySession) localStorage.setItem(downloadKey,'1');
+        }
+      }catch(e){
+        console.error('Monthly attendance archive/export error:',e);
+        diqaMonthlyStatus('تعذّر التحديث تلقائياً: '+(e && e.message ? e.message : 'خطأ اتصال'));
+      }finally{diqaMonthlyWorking=false;}
+    }
+    function diqaMonthlyStart(){
+      diqaMonthlyStop();
+      if(!diqaMonthlyAllowed())return;
+      diqaMonthlyProcess();
+      diqaMonthlyTimer=setInterval(diqaMonthlyProcess,5*60*1000);
+    }
+    function diqaMonthlyStop(){
+      diqaMonthlySession++;
+      if(diqaMonthlyTimer)clearInterval(diqaMonthlyTimer);
+      diqaMonthlyTimer=null;
+    }
+    document.querySelectorAll('[data-monthly-att-export]').forEach(btn=>{
+      btn.addEventListener('click',async()=>{
+        if(!diqaMonthlyAllowed())return;
+        const target=btn.getAttribute('data-monthly-att-export');
+        const picker=document.querySelector(`[data-monthly-att-picker="${target}"]`);
+        const month=(picker&&picker.value)||diqaMonthlyMonthOf(toISODateLocal(new Date()));
+        btn.disabled=true;diqaMonthlyStatus('جاري تجهيز تقرير '+month+' ...');
+        try{await diqaMonthlyExport(month,false);}catch(e){console.error(e);alert('فشل إنشاء Excel: '+(e.message||''));}
+        finally{btn.disabled=false;}
+      });
+    });
+    document.querySelectorAll('[data-monthly-att-picker]').forEach(p=>p.value=diqaMonthlyMonthOf(toISODateLocal(new Date())));
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden && diqaMonthlyTimer)diqaMonthlyProcess();});
+    window.addEventListener('online',()=>{if(diqaMonthlyTimer)diqaMonthlyProcess();});
+
     // =========================
     // ✅ AUTO V4: تنزيل صورة مشتركة لحضور المندوبين والموظفين، بعد دخول المدير/الموظف فقط.
     // - ننتظر 11:31 PM لليوم الحالي كي تكتمل عمليات الخروج التلقائي.
@@ -12203,6 +12581,7 @@ function subscribeEmployees(){
     }
 
     function stopAutoAttendanceDailyDownload(){
+      diqaMonthlyStop();
       autoAttendanceDownloadSessionVersion++;
       if (autoAttendanceDownloadTimer) clearInterval(autoAttendanceDownloadTimer);
       autoAttendanceDownloadTimer = null;
@@ -12214,6 +12593,7 @@ function subscribeEmployees(){
       // لا نبدأ أي تنزيل قبل اكتمال تسجيل الدخول بصلاحية مدير أو موظف.
       runAutoAttendanceDailyDownload();
       autoAttendanceDownloadTimer = setInterval(runAutoAttendanceDailyDownload, AUTO_ATTENDANCE_DOWNLOAD_CHECK_MS);
+      diqaMonthlyStart();
     }
 
     // نفحص الأيام غير المحفوظة عند العودة للتبويب أو عودة الاتصال، بشرط بقاء الجلسة مسموحة.
