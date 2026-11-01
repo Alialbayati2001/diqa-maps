@@ -1192,7 +1192,7 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
               <button type="button" id="traccar-test-btn" class="secondary">فحص الاتصال وحفظ التوكن لجميع الأجهزة</button>
               <button type="button" id="traccar-clear-btn" class="secondary">مسح التوكن المشترك</button>
             </div>
-            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-GPS-TRACCAR-SHARED-20261013 — إذا لم يظهر هذا السطر، المتصفح يعرض نسخة قديمة.</p>
+            <p class="small" style="color:#93c5fd">إصدار الربط: DIQA-PWA-TRACCAR-AUTH-20261101 — بعد تحديث النسخة، جرّب توكن جديد من Traccar.</p>
              <p class="small" id="traccar-test-status" aria-live="polite">يتم تحميل التوكن المشترك تلقائياً من Firebase. تغيير التوكن هنا ينعكس على الأجهزة المفتوحة.</p>
               <div id="traccar-live-diagnostics" class="small" style="margin-top:8px;color:#93c5fd">حالة Traccar: لم يتم فحص الاتصال بعد.</div><div id="traccar-device-mapping" class="small" style="margin-top:8px;line-height:1.8">بعد الاتصال ستظهر أجهزة Traccar هنا، وبإمكان المدير تحديد المندوب المقابل لكل جهاز.</div>
           </div>
@@ -1759,7 +1759,7 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
     // =========================
     // 1) خله true حتى تعتمد على Traccar للمواقع
     const USE_TRACCAR = true;
-    window.DIQA_BUILD_ID = "DIQA-OSM-REAL-GPS-20261013-FIX";
+    window.DIQA_BUILD_ID = "DIQA-PWA-TRACCAR-AUTH-20261101";
     console.info("DIQA BUILD:", window.DIQA_BUILD_ID);
 
     // ✅ رابط Traccar Web UI/API على Railway
@@ -1768,7 +1768,7 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
     // SECURITY: Never embed a Traccar credential in publicly hosted HTML.
     // Production recommendation: authenticated server-side proxy, not browser-side tokens.
     const TRACCAR_TOKEN_STORAGE = "diqa_traccar_token_session_v1";
-    const TRACCAR_EMBEDDED_TOKEN = 'RzBFAiAuVHdcGem0CeIdlRKdTaQtR6cLb5OuuuwfLRDom2GEBQIhAMnfDibculyRpefpsq6gLTDvpIZ0NJe5DJmIyBBjPbtXeyJpIjo2MjExODQ0MTE0OTg5MTE3MTIyLCJ1IjoxLCJlIjoiMjAyNi0xMC0xOVQyMTowMDowMC4wMDArMDA6MDAifQ';
+    const TRACCAR_EMBEDDED_TOKEN = ""; // No public fallback: configure a fresh token through manager.
     let traccarRuntimeToken = TRACCAR_EMBEDDED_TOKEN;
     let traccarAuthRejected = false;
 
@@ -1904,8 +1904,31 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
       return { "Authorization": "Bearer " + traccarRuntimeToken.trim(), "Accept": "application/json" };
     }
 
+    // Decode Traccar's optional expiry field locally; never log or display a token.
+    // The server is still the authority on validity and device permissions.
+    function traccarTokenExpiryMs(token) {
+      try {
+        const b64 = String(token || '').replace(/-/g, '+').replace(/_/g, '/');
+        const binary = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='));
+        const objects = binary.match(/\{[^{}]{0,500}\}/g) || [];
+        for (let i = objects.length - 1; i >= 0; i--) {
+          const data = JSON.parse(objects[i]);
+          if (data && typeof data.e === 'string') {
+            const expires = Date.parse(data.e);
+            if (Number.isFinite(expires)) return expires;
+          }
+        }
+      } catch (_) { /* Nonstandard token: ask server instead. */ }
+      return 0;
+    }
+
+    function traccarTokenExpired(token) {
+      const expires = traccarTokenExpiryMs(token);
+      return !!(expires && expires <= Date.now());
+    }
+
     function traccarTokenOk() {
-      return traccarRuntimeToken.trim().length > 20 && !traccarAuthRejected;
+      return traccarRuntimeToken.trim().length > 20 && !traccarAuthRejected && !traccarTokenExpired(traccarRuntimeToken);
     }
 
     async function testAndStoreTraccarToken() {
@@ -1915,23 +1938,36 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
       const token = field.value.trim();
       if (currentSessionRole !== "manager") { status.textContent = "⛔ خاص بالمدير فقط."; return; }
       if (token.length <= 20) { status.textContent = "أدخل توكن صحيح من Traccar."; return; }
+      if (traccarTokenExpired(token)) {
+        status.textContent = "❌ هذا التوكن منتهي الصلاحية. أنشئ توكن جديد من إعدادات Traccar.";
+        return;
+      }
       btn.disabled = true;
       status.textContent = "جاري اختبار صلاحية الوصول إلى الأجهزة...";
       try {
-        const r = await fetch(traccarApi("/api/devices"), {
-          headers: { Authorization: "Bearer " + token, Accept: "application/json" },
-          cache: "no-store"
-        });
-        if (!r.ok) throw new Error("HTTP " + r.status + (r.status === 401 ? " — التوكن مرفوض" : ""));
+        // Test both permissions because devices may return 200 while positions returns 403.
+        const headers = { Authorization: "Bearer " + token, Accept: "application/json" };
+        const [r, positionsResponse] = await Promise.all([
+          fetch(traccarApi("/api/devices"), { headers, cache: "no-store" }),
+          fetch(traccarApi("/api/positions"), { headers, cache: "no-store" })
+        ]);
+        if (!r.ok || !positionsResponse.ok) {
+          const code = !r.ok ? r.status : positionsResponse.status;
+          const reason = code === 401 ? " — التوكن غير صالح أو منتهي" :
+                         code === 403 ? " — حساب Traccar لا يمتلك صلاحية قراءة المواقع" : "";
+          throw new Error("HTTP " + code + reason);
+        }
         const devices = await r.json();
         if (!Array.isArray(devices)) throw new Error("استجابة الأجهزة غير متوقعة");
+        const positionsTest = await positionsResponse.json();
+        if (!Array.isArray(positionsTest)) throw new Error("استجابة مواقع Traccar غير متوقعة");
         traccarLastDevices = devices;
         renderTraccarDeviceMapping();
         traccarRuntimeToken = token;
         traccarAuthRejected = false;
         await db.ref(TRACCAR_SHARED_DB_PATH).set({ token, updatedAt: SERVER_TS });
         field.value = "";
-        status.textContent = "✅ تم فحص التوكن وحفظه في Firebase لجميع الأجهزة — عدد الأجهزة: " + devices.length + ".";
+        status.textContent = "✅ الاتصال صالح، وتم حفظ التوكن في Firebase — الأجهزة: " + devices.length + " | المواقع: " + positionsTest.length + ".";
         if (managerAlert) { managerAlert.textContent = ""; delete managerAlert.dataset.traccarError; }
         startTraccarPolling();
       } catch (e) {
@@ -2101,8 +2137,8 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
 
       const baseOk = TRACCAR_BASE_URL && !TRACCAR_BASE_URL.includes("PUT_YOUR_TRACCAR_HTTP_DOMAIN_HERE");
       if (!baseOk || !traccarTokenOk()) {
-        // No repeated 401 calls when no token is configured or it has been rejected.
-        return { ok: false, authRequired: true };
+        // Do not hammer Traccar with known-expired/unauthorized tokens.
+        return { ok: false, authRequired: true, expired: traccarTokenExpired(traccarRuntimeToken) };
       }
 
       const headers = traccarAuthHeaders();
@@ -2115,7 +2151,10 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
       if (devR.status === 401 || devR.status === 403 || posR.status === 401 || posR.status === 403) {
         traccarAuthRejected = true;
         // The shared token is kept in Firebase until the manager replaces it.
-        throw new Error("Traccar رفض التوكن (401/403). ألصق توكن جديد من لوحة المدير ثم اضغط فحص الاتصال.");
+        const code = [devR.status, posR.status].find(x => x === 401 || x === 403);
+        throw new Error(code === 403 ?
+          "Traccar رفض الصلاحيات (403). افحص صلاحية الحساب والأجهزة، أو استخدم توكن حساب مخوّل." :
+          "Traccar رفض التوكن (401). أنشئ توكن جديد من Traccar وافحصه بلوحة المدير.");
       }
       if (!devR.ok) throw new Error("Traccar /api/devices: HTTP " + devR.status + (devR.status === 401 || devR.status === 403 ? " (token/permissions)" : ""));
       if (!posR.ok) throw new Error("Traccar /api/positions: HTTP " + posR.status + (posR.status === 401 || posR.status === 403 ? " (token/permissions)" : ""));
@@ -2169,9 +2208,11 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();win
 
         if (j && j.authRequired) {
           window.diqaTraccarStatus = { ok: false, authRequired: true, error: "Traccar token required" };
-          showTraccarLiveDiagnostics('Traccar غير متصل في لوحة الدقة: يرجى إدخال Token صالح. فتح Traccar بتبويب آخر لا ينقل تسجيل الدخول تلقائياً.');
+          showTraccarLiveDiagnostics(j.expired ?
+            '⚠️ توكن Traccar منتهي الصلاحية. جدده من لوحة Traccar ثم أدخله في إعدادات المدير.' :
+            '⚠️ Traccar يحتاج Token جديداً. فتح Traccar بتبويب آخر لا ينقل تسجيل الدخول تلقائياً.');
           const status = document.getElementById("traccar-test-status");
-          if (status && !traccarRuntimeToken) status.textContent = "⚠️ التتبع متوقف: أدخل توكن صالحاً واضغط فحص الاتصال.";
+          if (status && !traccarRuntimeToken) status.textContent = "⚠️ التتبع متوقف: أدخل توكن جديداً واضغط فحص الاتصال.";
           return;
         }
         if (!j || j.ok !== true || !Array.isArray(j.data)) {
@@ -4031,22 +4072,27 @@ nextDrivers[key] = {
       }
     },60*1000);
 
-    // Shared Traccar token. This uses the existing Firebase RTDB; no separate files.
-    // IMPORTANT: RTDB rules must restrict reading and writing this path.
+    // Compatibility for current deployment: shared token stored in Firebase RTDB.
+    // SECURITY: a browser-readable token must be treated as exposed. For production,
+    // use an authenticated Railway proxy with server-side Traccar secret, and restrict
+    // Firebase reads/writes until then. Never include account tokens in index.html.
     const TRACCAR_SHARED_DB_PATH = "appSettings/traccarShared";
     let traccarSharedTokenSeen = false;
     db.ref(TRACCAR_SHARED_DB_PATH).on("value", (snapshot) => {
       const cfg = snapshot.val();
       const next = cfg && typeof cfg.token === "string" ? cfg.token.trim() : "";
-      const changed = traccarRuntimeToken !== (next || TRACCAR_EMBEDDED_TOKEN);
-      traccarRuntimeToken = next || TRACCAR_EMBEDDED_TOKEN;
-      traccarAuthRejected = false;
+      const changed = traccarRuntimeToken !== next;
+      traccarRuntimeToken = next; // No expired hardcoded fallback.
+      if (changed) traccarAuthRejected = false;
       traccarSharedTokenSeen = true;
       const status = document.getElementById("traccar-test-status");
       if (status && !document.getElementById("traccar-test-btn").disabled) {
-        status.textContent = next ? "✅ التوكن المشترك محمّل من Firebase وجاهز على هذا الجهاز." : "لم يُحفظ توكن مشترك بعد؛ الاتصال يستخدم التوكن الاحتياطي الموجود في النسخة الحالية.";
+        status.textContent = !next ? "⚠️ لم يتم إعداد توكن Traccar. أدخل توكن جديداً واضغط فحص الاتصال." :
+          traccarTokenExpired(next) ? "⚠️ توكن Traccar المخزّن منتهي الصلاحية؛ يرجى تجديده." :
+          traccarAuthRejected ? "⚠️ توكن Traccar مرفوض من السيرفر؛ يرجى استبداله." :
+          "✅ تم تحميل توكن Traccar. سيتم التحقق من صلاحياته عند الاتصال.";
       }
-      if (changed && currentSessionRole === "manager") startTraccarPolling();
+      if (changed) startTraccarPolling();
     }, (error) => {
       const status = document.getElementById("traccar-test-status");
       if (status) status.textContent = "⚠️ لم تسمح قواعد Firebase بقراءة التوكن المشترك: " + error.message;
@@ -15757,7 +15803,7 @@ document.addEventListener("DOMContentLoaded",function(){
   // This service worker does not implement background GPS or create a perpetual background task.
   if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost')){
     window.addEventListener('load',()=>{
-      navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(err=>{
+      navigator.serviceWorker.register('./sw.js',{scope:'./',updateViaCache:'none'}).catch(err=>{
         console.warn('DIQA PWA worker not installed. Deploy all the package files together.',err);
       });
     });
